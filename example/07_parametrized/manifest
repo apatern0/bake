@@ -1,0 +1,49 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 07 - Manifests are Python: generate tests in a loop.
+#
+# One test bench, parametrised through a `WIDTH define, becomes four tests.
+# Anything you can compute in Python -- loops, environment variables, file
+# globbing -- can drive what a manifest declares.
+#
+#   bake                                # lists counter_w4 .. counter_w16
+#   bake counter vrf -t counter_w8
+#   for w in 4 8 12 16; do bake counter vrf -t counter_w$w; done
+#
+# Needs: Icarus Verilog.
+
+from bake import block, env, test
+
+block(
+    name="counter",
+    top="counter",
+    rtl_files=["../counter/rtl/counter.v"],
+)
+
+env(
+    name="width_env",
+    target="counter",
+    vrf_top="counter_width_tb",
+    vrf_files=["vrf/counter_width_tb.v"],
+    default_sim="icarus",
+)
+
+for width in (4, 8, 12, 16):
+    test(
+        name=f"counter_w{width}",
+        includes=["width_env"],
+        vrf_defines=[f"WIDTH={width}"],
+    )

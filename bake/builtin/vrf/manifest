@@ -1,0 +1,142 @@
+# Copyright 2025 CERN
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# This file is a modified version of a file from tmake
+# (https://gitlab.cern.ch/tmake/tmake), developed at CERN and
+# distributed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Verification (simulation) step."""
+
+from pathlib import Path
+
+from bake.exceptions import BakeManifestError
+from bake.step import Step
+from bake.manifest import FlowSpec
+
+FlowSpec(
+    name = "builtin_vrf_flow",
+    desc = "Builtin simulator support",
+    simulators = [
+        ("ius", "Cadence Incisive"),
+        ("icarus", "Icarus Verilog"),
+        ("xcelium", "Cadence Xcelium"),
+        ("vcs", "Synopsys VCS"),
+        ("questa", "Mentor Questa"),
+        ("verilator", "Verilator"),
+    ],
+    simulation_frameworks = [
+        ("cocotb", "Coroutine based cosimulation testbench environment"),
+        ("uvm", "Universal Verification Methodology environment"),
+    ],
+    run_cmd = "run.py",
+)
+
+
+class VrfConfig:
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.options      = []
+        self.defines      = []
+        self.delays       = []
+        self.simulator    = ""
+        self.flow         = None
+        self.flow_options = {}
+
+
+config.register('vrf', VrfConfig())
+
+
+class VrfStep(Step):
+    name = "vrf"
+    default_flow = "builtin_vrf_flow"
+    require_test = True
+
+    def build_tpl_dict(self):
+        tpl_dict = super().build_tpl_dict()
+        tpl_dict.update(self.config.tpl_dict)
+
+        tpl_dict["BAKE_TOP"]               = self.data.top
+        tpl_dict["BAKE_BLOCK"]            = self.data.target.name
+        tpl_dict["BAKE_RECIPE"]             = str(self.data.recipe_prefix)
+        tpl_dict["BAKE_SIM_TOP"]           = self.data.vrf_top
+        tpl_dict["BAKE_SIM_FILES"]         = " ".join(self.data.vrf_files)
+        tpl_dict["BAKE_SIM_FRAMEWORK"]     = self.data.vrf_framework
+        tpl_dict["BAKE_SIM_FRAMEWORK_TOP"] = self.data.vrf_framework_top
+
+        tpl_dict["BAKE_SIM_DEFINES"]      = "SIM " + " ".join(self.config.defines)
+        tpl_dict["BAKE_SIM_DEFINES"]     += " " + " ".join(self.data.vrf_defines)
+        tpl_dict["BAKE_SIM_DELAY_CORNER"] = self.config.delays or "typ"
+        tpl_dict["BAKE_RUN_OPTIONS"]      = " ".join(self.config.options)
+
+        simulator = self.config.simulator or self.data.default_sim
+        tpl_dict["BAKE_SIM_SIMULATOR"] = simulator
+        tpl_dict["BAKE_SIM_OPTIONS"]   = (
+            " ".join(self.data.vrf_options[simulator]) if simulator in self.data.vrf_options else ""
+        )
+
+        all_incdirs = list(self.data.vrf_incdirs) + list(self.data.rtl_incdirs) + list(self.data.netlist_incdirs)
+        all_lib_verilog = list(self.data.netlist_files) + list(self.data.rtl_files)
+        lib_verilog_files = []
+
+        for lib in self.data.libs:
+            lib_verilog_files.extend(lib.netlist_files)
+            all_incdirs.extend(lib.netlist_incdirs)
+        for lib in self.data.vrf_libs:
+            lib_verilog_files.extend(lib.netlist_files)
+            all_incdirs.extend(lib.netlist_incdirs)
+
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(all_incdirs)
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(all_lib_verilog)
+        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = " ".join(lib_verilog_files)
+
+        return tpl_dict
+
+    @property
+    def source_files(self):
+        return []
+
+    @property
+    def output_files(self):
+        return []
+
+    @property
+    def flowdir(self):
+        return Path(super().flowdir) / self.data.test.name
+
+    @property
+    def workdir(self):
+        return Path(super().workdir) / self.data.test.name
+
+    def run(self):
+        simulators = [sim[0] for sim in self.flow.simulators]
+        for sim_name in self.data.vrf_options:
+            if sim_name not in simulators:
+                raise BakeManifestError(
+                    f"Simulator '{sim_name}' (in vrf_options) is not provided by flow '{self.flow.name}'."
+                )
+        simulator = self.config.simulator or self.data.default_sim
+        if simulator and simulator not in simulators:
+            raise BakeManifestError(
+                f"Simulator '{simulator}' is not provided by flow '{self.flow.name}'. "
+                f"Available: {', '.join(simulators)}"
+            )
+        frameworks = [fw[0] for fw in self.flow.simulation_frameworks]
+        if self.data.vrf_framework and self.data.vrf_framework not in frameworks:
+            raise BakeManifestError(
+                f"Simulation framework '{self.data.vrf_framework}' is not provided by flow '{self.flow.name}'."
+            )
+
+        super().run()
