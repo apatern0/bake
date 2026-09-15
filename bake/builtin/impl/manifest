@@ -1,0 +1,241 @@
+# Copyright 2025 CERN
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# This file is a modified version of a file from tmake
+# (https://gitlab.cern.ch/tmake/tmake), developed at CERN and
+# distributed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Implementation (synthesis / place-and-route) step."""
+
+import logging
+import os
+import re
+import sys
+import functools
+from pathlib import Path
+
+from bake import file_utils
+from bake.step import Step
+from bake.manifest import FlowSpec, LibSpec
+from bake.exceptions import BakeManifestError
+from bake.context import context
+
+
+class ImplConfig:
+    def __init__(self):
+        self.ldb_dir      = ""
+        self.tpl_dict     = config.TemplateDictionary()
+        self.options      = []
+        self.flow         = ""
+        self.flow_options = {}
+        self.default_libs = []
+
+
+config.register('impl', ImplConfig())
+
+
+class ImplStep(Step):
+    name = "impl"
+
+    def run(self):
+        if not self.data.libs:
+            if not self.config.default_libs:
+                raise BakeManifestError(
+                    f"No lib specified for block '{self.data.target.name}', "
+                    f"and no default libs are configured for the impl step."
+                )
+
+            logging.warning(
+                "No lib specified for impl step; defaulting to %s",
+                ", ".join(self.config.default_libs),
+            )
+
+            for lib_name in self.config.default_libs:
+                try:
+                    self.data.libs.append(context.libs[lib_name])
+                except KeyError:
+                    raise BakeManifestError(
+                        f"Impl step: default lib '{lib_name}' is not defined."
+                    )
+
+        super().run()
+
+    def build_tpl_dict(self) -> dict:
+        tpl_dict = super().build_tpl_dict()
+        tpl_dict.update(self.config.tpl_dict)
+
+        tpl_dict["BAKE_BLOCK"] = self.data.target.name
+        tpl_dict["BAKE_RECIPE"]  = str(self.data.recipe_prefix)
+        tpl_dict["BAKE_TOP"]    = self.data.top
+
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(self.data.rtl_incdirs)
+        tpl_dict["BAKE_INCLUDE_FLAGS"]        = " ".join(f"-I{d}" for d in self.data.rtl_incdirs)
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(self.data.rtl_files)
+
+        tpl_dict["BAKE_LIB_PHYSICAL"] = ""
+        for corner, _ in self.flow.corners:
+            tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = ""
+            tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = ""
+
+        flow_corners = {corner for corner, _ in self.flow.corners}
+        for lib in self.data.libs:
+            tpl_dict["BAKE_LIB_PHYSICAL"] += lib.layout_info + " "
+            if not lib.liberty_files:
+                continue
+
+            for corner in lib.liberty_files:
+                if corner not in flow_corners:
+                    logging.warning("Library '%s' has liberty files for corner '%s' which is not in the flow corners %s — skipping",
+                                    lib.name, corner, sorted(flow_corners))
+                else:
+                    for lib_file in lib.liberty_files[corner]:
+                        tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] += lib_file + " "
+
+            for corner in lib.si_files:
+                if corner not in flow_corners:
+                    logging.warning("Library '%s' has SI files for corner '%s' which is not in the flow corners %s — skipping",
+                                    lib.name, corner, sorted(flow_corners))
+                else:
+                    for si_file in lib.si_files[corner]:
+                        tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] += si_file + " "
+
+        for opt_name, opt_val in self.config.flow_options.items():
+            tpl_dict[f"BAKE_FLOW_OPT_{opt_name}"] = opt_val
+
+        tpl_dict["BAKE_RUN_OPTIONS"] = " ".join(self.config.options)
+        tpl_dict["BAKE_LDB_DIR"] = self.config.ldb_dir or os.path.join(self.workdir, "ldbs")
+
+        return tpl_dict
+
+    @functools.cached_property
+    def source_files(self):
+        src_files = []
+        src_files.extend(self.data.rtl_files)
+        src_files.extend(file_utils.files_from_folder(self.flowdir))
+        return src_files
+
+    @functools.cached_property
+    def output_files(self):
+        v_file   = os.path.join(self.outputdir, f"{self.data.top}.v")
+        sdf_file = os.path.join(self.outputdir, f"{self.data.top}.sdf")
+        return [v_file, sdf_file]
+
+    @property
+    def output_data(self):
+        data = super().output_data
+        data.netlist_files = [self.output_files[0]]
+        data.sdf_files     = {"default": self.output_files[1]}
+        data.vrf_defines.append("NETLIST")
+        return data
+
+
+# ---------------------------------------------------------------------------
+# SkyWater 130nm builtin flow
+# Activated only when the skywater-pdk submodule is populated.
+# ---------------------------------------------------------------------------
+
+CURRENT_DIR = Path(__file__).parent
+SKY130_PDK_ROOT   = CURRENT_DIR / "skywater-pdk"
+SKY130_PDK_PYTHON = SKY130_PDK_ROOT / "scripts" / "python-skywater-pdk"
+
+if (SKY130_PDK_ROOT / "README.rst").is_file():
+    if SKY130_PDK_PYTHON.is_dir():
+        sys.path.insert(0, str(SKY130_PDK_PYTHON))
+
+    from skywater_pdk.liberty import collect, generate, TimingType
+
+    SKY130_CORNERS = [
+        ("TT", "Typical Case"),
+        ("FF", "Best Case"),
+        ("SS", "Worst Case"),
+    ]
+    SKY130_CORNER_SUFFIXES = {
+        "TT": "tt_025C_1v80",
+        "FF": "ff_100C_1v95",
+        "SS": "ss_100C_1v60",
+    }
+
+    FlowSpec(
+        name="sky130",
+        desc="SkyWater 130nm open-source PDK using Yosys and OpenROAD",
+        corners=SKY130_CORNERS,
+    )
+
+    for lib_name in [
+        "sky130_fd_sc_hd",
+        "sky130_fd_sc_hdll",
+        "sky130_fd_sc_hs",
+        "sky130_fd_sc_lp",
+        "sky130_fd_sc_ls",
+        "sky130_fd_sc_ms",
+    ]:
+        lib_dir = SKY130_PDK_ROOT / "libraries" / lib_name / "latest"
+        if not lib_dir.is_dir():
+            continue
+
+        try:
+            libname, sky_corners, cells = collect(lib_dir)
+        except (AssertionError, FileNotFoundError, StopIteration):
+            continue
+
+        # Generated Liberty files go to the user cache, never into the package
+        # directory: an installed package may be read-only or shared.
+        cache_dir = (
+            Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+            / "bake" / "sky130" / lib_name
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        liberty = {}
+        for corner_key, corner_suffix in SKY130_CORNER_SUFFIXES.items():
+            if corner_suffix not in sky_corners:
+                continue
+            out_file = cache_dir / f"{lib_name}__{corner_suffix}.lib"
+            if not out_file.is_file():
+                generate(
+                    str(lib_dir), lib_name, corner_suffix,
+                    TimingType.basic, TimingType.basic,
+                    cells, str(cache_dir),
+                )
+            if out_file.is_file():
+                liberty[corner_key] = [str(out_file)]
+
+        if not liberty.get("TT"):
+            continue
+
+        v_files = [
+            f for f in lib_dir.glob("cells/*/*.v")
+            if re.match(rf'^{lib_name}__[a-z0-9]+\.v$', f.name)
+        ]
+
+        v_incdirs = [str(f.parent) for f in v_files]
+        v_files = [str(f) for f in v_files]
+
+        lef_files = list(lib_dir.glob("tech/*.tlef"))
+        layout_info = str(lef_files[0]) if lef_files else ""
+
+        if v_files and liberty:
+            lib_spec = LibSpec(
+                name=lib_name,
+                netlist_files=v_files,
+                netlist_incdirs=v_incdirs,
+                liberty_files=liberty,
+                layout_info=layout_info,
+            )
+            if lib_name == "sky130_fd_sc_hd":
+                config.impl.default_libs.append("sky130_fd_sc_hd")
+
+    ImplStep.default_flow = "sky130"

@@ -1,0 +1,121 @@
+# Copyright 2025 CERN
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# This file is a modified version of a file from tmake
+# (https://gitlab.cern.ch/tmake/tmake), developed at CERN and
+# distributed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Triplication step."""
+
+import os
+import functools
+
+from bake import file_utils
+from bake.step import Step
+from bake.manifest import FlowSpec
+
+FlowSpec(
+    name="builtin_tmr_flow",
+    desc="TMRG triplication support",
+    run_cmd="run.py",
+)
+
+class TmrConfig:
+    def __init__(self):
+        self.options      = []
+        self.flow         = ""
+        self.flow_options = {}
+
+        # Cell-library simplification. Full standard-cell Verilog models are too
+        # heavy for tmrg, so library files whose path starts with one of
+        # `cell_lib_dirs` are reduced to port declarations before being passed
+        # on. Modules whose name matches one of the `ff_cell_patterns` regexes
+        # get `// tmrg seu_reset/seu_set` annotations naming the async pins;
+        # modules matching `skip_cell_patterns` are dropped altogether. All
+        # empty by default: fill them in for your technology, e.g.
+        #   config.tmr.cell_lib_dirs     = ["/opt/pdk/mytech/verilog"]
+        #   config.tmr.ff_cell_patterns  = [r"^DFF", r"^SDFF"]
+        #   config.tmr.seu_reset_pin     = "RN"
+        #   config.tmr.seu_set_pin       = "SN"
+        self.cell_lib_dirs      = []
+        self.ff_cell_patterns   = []
+        self.skip_cell_patterns = []
+        self.seu_reset_pin      = ""
+        self.seu_set_pin        = ""
+
+
+config.register('tmr', TmrConfig())
+
+
+class TmrStep(Step):
+    name = "tmr"
+    default_flow = "builtin_tmr_flow"
+
+    def get_rtl_filenames(self) -> list:
+        """Return expected post-triplication filenames (basenames only)."""
+        names_exts = [os.path.splitext(os.path.basename(f)) for f in self.data.rtl_files]
+        return ["TMR".join((name, ext)) for name, ext in names_exts]
+
+    def build_tpl_dict(self) -> dict:
+        tpl_dict = super().build_tpl_dict()
+
+        tpl_dict["BAKE_TOP"]    = self.data.top
+        tpl_dict["BAKE_BLOCK"] = self.data.target.name
+        tpl_dict["BAKE_RECIPE"]  = str(self.data.recipe_prefix)
+
+        all_incdirs = list(self.data.rtl_incdirs)
+        lib_verilog_files = []
+        for lib in self.data.libs:
+            lib_verilog_files.extend(lib.netlist_files)
+            all_incdirs.extend(lib.netlist_incdirs)
+
+        tpl_dict["BAKE_TMR_OUTPUT_DIR"]       = self.outputdir
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(all_incdirs)
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(self.data.rtl_files)
+        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = " ".join(lib_verilog_files)
+
+        tpl_dict["BAKE_RUN_OPTIONS"] = " ".join(self.config.options)
+
+        tpl_dict["BAKE_TMR_CELL_LIB_DIRS"]      = " ".join(self.config.cell_lib_dirs)
+        tpl_dict["BAKE_TMR_FF_CELL_PATTERNS"]   = " ".join(self.config.ff_cell_patterns)
+        tpl_dict["BAKE_TMR_SKIP_CELL_PATTERNS"] = " ".join(self.config.skip_cell_patterns)
+        tpl_dict["BAKE_TMR_SEU_RESET_PIN"]      = self.config.seu_reset_pin
+        tpl_dict["BAKE_TMR_SEU_SET_PIN"]        = self.config.seu_set_pin
+
+        return tpl_dict
+
+    @functools.cached_property
+    def source_files(self):
+        src_files = list(self.data.rtl_files)
+
+        for lib in self.data.libs:
+            src_files.extend(lib.netlist_files)
+
+        src_files.extend(file_utils.files_from_folder(self.flowdir))
+        return src_files
+
+    @functools.cached_property
+    def output_files(self):
+        return [os.path.join(self.outputdir, fname) for fname in self.get_rtl_filenames()]
+
+    @property
+    def output_data(self):
+        data = super().output_data
+        data.rtl_files   = self.output_files
+        data.rtl_incdirs = []
+        data.top         = data.top + "TMR"
+        data.vrf_defines.append("TMR")
+        return data

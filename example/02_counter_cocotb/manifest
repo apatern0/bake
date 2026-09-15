@@ -1,0 +1,70 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 02 - Reuse one environment across several tests, and mix frameworks.
+#
+# An env() is a test without an entry point: it bundles files that several
+# tests share. Three tests include the same base environment and add a
+# Verilog test bench, a cocotb test, or the same cocotb test on Verilator.
+#
+#   bake                                 # list the tests
+#   bake counter vrf -t counter_verilog_test
+#   bake counter vrf -t counter_cocotb_test
+#   bake counter vrf -t counter_cocotb_verilator
+#   bake counter vrf -o vrf.simulator=verilator -t counter_cocotb_test
+#
+# Needs: Icarus Verilog, cocotb; Verilator for the last test.
+
+from bake import block, env, test
+
+block(
+    name="counter",
+    top="counter",
+    rtl_files=["../counter/rtl/counter.v"],
+)
+
+# The wrapper is shared by every test bench of this block.
+env(
+    name="counter_base_env",
+    target="counter",
+    vrf_files=["../counter/vrf/verilog/counterWrapper.v"],
+)
+
+test(
+    name="counter_verilog_test",
+    includes=["counter_base_env"],
+    vrf_files=["../counter/vrf/verilog/counter_verilog_test.v"],
+    default_sim="icarus",
+)
+
+test(
+    name="counter_cocotb_test",
+    includes=["counter_base_env"],
+    vrf_top="counterWrapper",
+    vrf_files=["../counter/vrf/python/counter_cocotb_test.py"],
+    vrf_framework="cocotb",
+    vrf_framework_top="counter_cocotb_test",
+    default_sim="icarus",
+)
+
+test(
+    name="counter_cocotb_verilator",
+    includes=["counter_base_env"],
+    vrf_top="counterWrapper",
+    vrf_files=["../counter/vrf/python/counter_cocotb_test.py"],
+    vrf_framework="cocotb",
+    vrf_framework_top="counter_cocotb_test",
+    default_sim="verilator",
+)

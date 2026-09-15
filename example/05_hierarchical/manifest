@@ -1,0 +1,71 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 05 - Hierarchical designs: one block including another.
+#
+# `includes` lets a block depend on another block in two ways:
+#
+#   includes=["adder"]             pull in the adder's RTL files ("rtl" include)
+#   includes={"adder": "impl"}     use the *implemented* adder -- its netlist and
+#                                  timing library from `bake adder impl` -- as a
+#                                  hard macro inside this block
+#
+# The second form is validated when the manifest loads: the adder's impl output
+# must already exist. skip_on_include_errors=True lets the manifest load anyway
+# and just skips that block until you have run `bake adder impl`.
+#
+#   bake accumulator vrf               # RTL simulation, adder pulled in as RTL
+#   bake adder impl                    # implement the sub-block first ...
+#   bake accumulator_hard impl         # ... then the top with the adder as a macro
+#   bake accumulator_hard impl-vrf     # gate-level simulation of the result
+#
+# Needs: Icarus Verilog for vrf; yosys, openroad and the sky130 submodule for impl.
+
+from bake import block, test
+
+block(
+    name="adder",
+    top="adder",
+    rtl_files=["rtl/adder.v"],
+)
+
+block(
+    name="accumulator",
+    top="accumulator",
+    rtl_files=["rtl/accumulator.v"],
+    includes=["adder"],
+)
+
+block(
+    name="accumulator_hard",
+    top="accumulator",
+    rtl_files=["rtl/accumulator.v"],
+    includes={"adder": "impl"},
+    skip_on_include_errors=True,
+)
+
+test(
+    name="accumulator_test",
+    target="accumulator",
+    vrf_files=["vrf/accumulator_tb.v"],
+    default_sim="icarus",
+)
+
+test(
+    name="accumulator_test",
+    target="accumulator_hard",
+    vrf_files=["vrf/accumulator_tb.v"],
+    default_sim="icarus",
+)

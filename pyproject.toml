@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bake-eda"
+version = "4.0.0"
+description = "Recipe-driven build and verification system for ASIC designs"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Andrea Paterno'" }]
+keywords = ["asic", "eda", "rtl", "verification", "build-system", "tmr", "sky130"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "argcomplete",
+    "coloredlogs",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov", "pylint"]
+docs = ["mkdocs", "mkdocs-material"]
+
+[project.urls]
+Homepage = "https://github.com/apatern0/bake"
+Documentation = "https://apatern0.github.io/bake/"
+Source = "https://github.com/apatern0/bake"
+Issues = "https://github.com/apatern0/bake/issues"
+
+[project.scripts]
+bake = "bake.cli:main"
+
+[tool.setuptools]
+packages = ["bake"]
+
+# The built-in steps live inside the package so that a non-editable install can
+# find them (bake/cli.py resolves them relative to __file__). They are data, not
+# Python modules: `manifest` files have no extension and flows are .tpl scripts.
+[tool.setuptools.package-data]
+bake = ["builtin/**"]
+
+# Never ship the vendored PDK submodule (~412 MB).
+[tool.setuptools.exclude-package-data]
+bake = [
+    "builtin/impl/skywater-pdk/**",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

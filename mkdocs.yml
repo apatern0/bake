@@ -1,0 +1,43 @@
+site_name: bake
+site_description: Recipe-driven build and verification system for ASIC designs
+site_url: https://apatern0.github.io/bake/
+
+repo_name: apatern0/bake
+repo_url: https://github.com/apatern0/bake
+edit_uri: edit/main/docs/
+
+copyright: 'Copyright 2025 CERN, 2026 Andrea Paterno&#39; &mdash; Apache-2.0. Derived from tmake.'
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Introduction: introduction.md
+  - Quick Start: quickstart.md
+  - Installation: installation.md
+  - Command Line: cli.md
+  - User Guide:
+    - Glossary: glossary.md
+    - Design Modeling: manifest_design_model.md
+    - Verification Modeling: manifest_verif_model.md
+    - Configuration: configuration.md
+  - Extending:
+    - Custom Steps: custom_steps.md
+    - Custom Flows: custom_flows.md
+  - Releases: releases.md
