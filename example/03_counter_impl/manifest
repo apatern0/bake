@@ -1,0 +1,59 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 03 - Synthesise and place-and-route a block: the single-step recipe `impl`.
+#
+# The built-in impl step runs Yosys and OpenROAD; it needs standard-cell
+# libraries, which come from a PDK manifest. bake ships none: this example
+# loads the reference manifest for the open-source SkyWater sky130 PDK from
+# example/pdk/sky130, which registers every library it finds under PDK_ROOT
+# and makes sky130_fd_sc_hd the default. Copy that manifest to adapt bake to
+# your own PDK.
+#
+#   bake -l                # list the libraries the PDK manifest registered
+#   bake counter impl      # synthesis + P&R; outputs in work/counter/impl/output
+#   bake counter impl-vrf  # then simulate the netlist with the SDF annotated
+#   bake counter impl -p   # only populate flow/counter/impl with the scripts
+#
+# counter.sdc defines the clock, which is what clock tree synthesis works on.
+# The scripts in flow/counter/impl are yours to edit after the first run.
+#
+# Needs: yosys, openroad (icarus for impl-vrf), and PDK_ROOT set to a sky130
+#   open_pdks build (PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh && export
+#   PDK_ROOT=$HOME/.ciel).
+
+from bake import load, block, test
+
+load("../pdk/sky130")
+
+block(
+    name="counter",
+    top="counter",
+    rtl_files=["../counter/rtl/counter.v"],
+    sdc_files=["counter.sdc"],  # defines the clock, so P&R synthesises a clock tree
+    libs=["sky130_fd_sc_hd"],   # registered by ../pdk/sky130; any sky130_fd_sc_* works
+)
+
+# The same testbench as example 01, run on the implemented netlist with the
+# sky130 cell models: `bake counter impl-vrf`.
+test(
+    name="counter_test",
+    target="counter",
+    vrf_files=[
+        "../counter/vrf/verilog/counterWrapper.v",
+        "../counter/vrf/verilog/counter_verilog_test.v",
+    ],
+    default_sim="icarus",
+)

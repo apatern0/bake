@@ -1,0 +1,196 @@
+# Copyright 2025 CERN
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# This file is a modified version of a file from tmake
+# (https://gitlab.cern.ch/tmake/tmake), developed at CERN and
+# distributed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Implementation (synthesis / place-and-route) step."""
+
+import logging
+import os
+import functools
+from pathlib import Path
+
+from bake import file_utils
+from bake.exceptions import BakeManifestError
+from bake.step import Step
+from bake.manifest import FlowSpec
+
+
+class ImplConfig:
+    def __init__(self):
+        self.ldb_dir      = ""
+        self.tpl_dict     = config.TemplateDictionary()
+        self.options      = []
+        self.flow         = ""
+        self.flow_options = {}
+
+
+config.register('impl', ImplConfig())
+
+
+class ImplStep(Step):
+    name = "impl"
+
+    def check_pre(self):
+        # An implemented sub-block (an include after its impl recipe, or
+        # netlist_files declared on the block) is integrated as a hard macro
+        # from its abstracts: a LEF and Liberty for the flow's corners. Its
+        # netlist is not implemented again, only passed on for simulation.
+        if self.data.netlist_files and not (self.data.layout_info and self.data.liberty_files):
+            listed = "\n".join(f"   - {f}" for f in self.data.netlist_files)
+            raise BakeManifestError(
+                f"Step impl for block '{self.data.block}' needs abstracts (LEF and Liberty) for "
+                f"the implemented sub-block(s) it contains, and this block's data has none:\n"
+                f"{listed}\nImplement the sub-block with a flow that writes them (the built-in "
+                f"flow does when the libraries provide LEF), or declare them on the block with "
+                f"layout_info= and liberty_files=."
+            )
+
+    @property
+    def _has_physical_libs(self) -> bool:
+        return any(lib.layout_info for lib in self.data.libs)
+
+    def build_tpl_dict(self) -> dict:
+        tpl_dict = super().build_tpl_dict()
+
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(self.data.rtl_incdirs)
+        tpl_dict["BAKE_INCLUDE_FLAGS"]        = " ".join(f"-I{d}" for d in self.data.rtl_incdirs)
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(self.data.rtl_files)
+        tpl_dict["BAKE_SDC_FILES"]            = " ".join(self.data.sdc_files)
+
+        tpl_dict["BAKE_LIB_PHYSICAL"] = ""
+        for corner, _ in self.flow.corners:
+            tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = ""
+            tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = ""
+
+        # Hard macros: abstracts of implemented sub-blocks (or declared on the
+        # block). Kept apart from the cell libraries so the flow can place them.
+        flow_corners = {corner for corner, _ in self.flow.corners}
+        tpl_dict["BAKE_MACRO_PHYSICAL"] = self.data.layout_info
+        for corner in flow_corners:
+            tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = " ".join(
+                self.data.liberty_files.get(corner, [])
+            )
+        tpl_dict["BAKE_MACRO_NETLIST_FILES"] = " ".join(self.data.netlist_files)
+
+        for lib in self.data.libs:
+            tpl_dict["BAKE_LIB_PHYSICAL"] += lib.layout_info + " "
+            if not lib.liberty_files:
+                continue
+
+            for corner in lib.liberty_files:
+                if corner not in flow_corners:
+                    logging.warning("Library '%s' has liberty files for corner '%s' which is not in the flow corners %s — skipping",
+                                    lib.name, corner, sorted(flow_corners))
+                else:
+                    for lib_file in lib.liberty_files[corner]:
+                        tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] += lib_file + " "
+
+            for corner in lib.si_files:
+                if corner not in flow_corners:
+                    logging.warning("Library '%s' has SI files for corner '%s' which is not in the flow corners %s — skipping",
+                                    lib.name, corner, sorted(flow_corners))
+                else:
+                    for si_file in lib.si_files[corner]:
+                        tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] += si_file + " "
+
+        tpl_dict["BAKE_RUN_OPTIONS"] = " ".join(self.config.options)
+        tpl_dict["BAKE_LDB_DIR"] = self.config.ldb_dir or os.path.join(self.workdir, "ldbs")
+
+        return tpl_dict
+
+    @functools.cached_property
+    def source_files(self):
+        src_files = []
+        src_files.extend(self.data.rtl_files)
+        src_files.extend(self.data.sdc_files)
+        src_files.extend(file_utils.files_from_folder(self.flowdir))
+        return src_files
+
+    @functools.cached_property
+    def output_files(self):
+        v_file   = os.path.join(self.outputdir, f"{self.data.top}.v")
+        sdf_file = os.path.join(self.outputdir, f"{self.data.top}.sdf")
+        files = [v_file, sdf_file]
+        if self._has_physical_libs:
+            # Place-and-route ran: the abstracts that make this block a macro.
+            files.append(os.path.join(self.outputdir, f"{self.data.top}.lef"))
+        return files
+
+    @property
+    def output_data(self):
+        # The netlist replaces the RTL for whatever follows: a simulation
+        # (together with the netlists of any macros inside), or a block that
+        # includes this one after impl, which gets the abstracts as well.
+        data = super().output_data
+        data.rtl_files     = []
+        data.rtl_incdirs   = []
+        data.netlist_files = list(self.data.netlist_files) + [self.output_files[0]]
+        data.sdf_files     = {"default": self.output_files[1]}
+        data.vrf_defines.append("NETLIST")
+        if self._has_physical_libs:
+            corners = {c for lib in self.data.libs for c in lib.liberty_files}
+            data.layout_info   = os.path.join(self.outputdir, f"{self.data.top}.lef")
+            data.liberty_files = {
+                corner: [os.path.join(self.outputdir, f"{self.data.top}_{corner}.lib")]
+                for corner, _ in self.flow.corners if corner in corners
+            }
+        else:
+            data.layout_info   = ""
+            data.liberty_files = {}
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Built-in flow: Yosys synthesis and OpenROAD place-and-route.
+#
+# The flow is PDK-agnostic: it consumes whatever libraries the manifest
+# registers (Liberty per corner and LEF) through $BAKE_LIB_LIBERTY_FILES_*
+# and $BAKE_LIB_PHYSICAL, and takes the technology-dependent settings of
+# place-and-route from flow options. bake ships no PDK; example/pdk/sky130/
+# manifest shows how to register one and which options a PDK has to provide.
+# ---------------------------------------------------------------------------
+
+FlowSpec(
+    name="yosys-openroad",
+    desc="Yosys synthesis and OpenROAD place-and-route",
+    corners=[
+        ("TT", "Typical Case"),
+        ("FF", "Best Case"),
+        ("SS", "Worst Case"),
+    ],
+    tpl_defaults={
+        # Floorplan and placement (technology-neutral defaults)
+        "core_utilization": 30,     # percent
+        "aspect_ratio":     1.0,
+        "core_margin":      2,      # microns between core and die
+        "place_density":    0.6,
+        "macro_halo":       "2 2",  # microns kept free around hard macros (x y)
+        "macro_channel":    "4 4",  # microns between hard macros (x y)
+        # Technology-specific: a PDK manifest sets these in
+        # config.impl.flow_options (see example/pdk/sky130/manifest).
+        "site":           "",       # placement site name from the tech LEF
+        "pin_hor_layers": "",       # metal layer(s) for horizontal pins
+        "pin_ver_layers": "",       # metal layer(s) for vertical pins
+        "cts_buffers":    "",       # clock buffer cell(s) for CTS
+        "tie_cells": {"HI": "", "LO": ""},   # tie-high/low cell as (cell, output pin)
+        "signal_layer":   "",       # layer for signal wire RC estimation (optional)
+        "clock_layer":    "",       # layer for clock wire RC estimation (optional)
+    },
+)
+ImplStep.default_flow = "yosys-openroad"

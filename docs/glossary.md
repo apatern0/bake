@@ -1,0 +1,26 @@
+# Glossary
+This documentation uses a few terms with specific meaning in the context of *bake*, briefly explained below.
+The one-line version: you **bake** a **block** with a **recipe**; a recipe is a series of **steps**;
+each step runs a **flow**.
+
+**manifest**: File in which design intent (files, hierarchies, interactions between components, ...) is communicated to *bake*. Written in plain Python using the *bake* manifest API (`from bake import ...`). Always named literally `manifest` (no file extension). Executed by *bake* with `exec()`, so arbitrary Python is permitted.
+
+**block**: A unit of RTL files that can be used for implementation flows or as a DUT in a verification context. Assumed to be a self-contained set of files. Optionally linked to a set of **libraries** used during simulation or implementation, and optionally *including* other blocks (as RTL, or as their implemented output). Registered in a manifest using `block()`. The name `target` is a backward-compatible alias for `block`; the `target=` argument of `env()`/`test()` names the block a test runs on.
+
+**library**: A bundle of files representing a non-RTL design component such as a standard cell library or implemented macro block. Bundles both a simulation model (e.g. a gate-level Verilog or behavioral model) and timing and physical design information. Registered in a manifest using `lib()`.
+
+**step**: One unit of work in the design pipeline: something that takes a block's current state, runs a tool, and hands the result on. Built-in steps are `vrf` (simulation), `impl` (synthesis and place-and-route), `tmr` (triplication), and `dummy` (a do-nothing step that serves as the template for writing your own). Each step is a Python class that subclasses `Step`, sets a `name` attribute, and is registered automatically when *bake* loads the file containing it. A project defines its own in a manifest it `load()`s. Step names cannot contain hyphens, because the hyphen separates steps in a recipe.
+
+**recipe**: The series of steps to run on a block, written as step names joined by hyphens: `impl` is a single-step recipe, `dummy-impl` and `tmr-impl-vrf` are multi-step ones. Recipes are parsed dynamically — any sequence of known steps is valid, and no list of recipes has to be declared. The recipe is the second argument on the command line: `bake counter tmr-impl-vrf`. Each step in a recipe receives the output of the previous one, so `tmr-vrf` simulates the triplicated design while `vrf` simulates the original.
+
+**flow**: A directory of scripts and template files that implement a particular step. Registered by constructing a `FlowSpec` object (via `flow()`) in a manifest. Built-in flows for `vrf`, `impl`, `tmr` and `dummy` are provided and loaded automatically. Each flow declares which simulators or process corners it supports, and contains a **skeleton** implementation that is copied to the user work directory on first invocation. A flow is what a step *executes*; it is not a recipe.
+
+**skeleton**: The initial set of files placed in the user's flow directory when a block/recipe combination is executed for the first time. The skeleton is copied from the flow's source directory. Once copied, the files belong to the user and can be customized freely.
+
+**template**: A file inside a flow directory with a `.tpl` extension. *bake* replaces special tokens of the form `$BAKE_XYZ` with values derived from the manifest and configuration at execution time. All template variable names must start with the `BAKE_` prefix. Expanded templates are written to the step work directory.
+
+**StepData**: A Python dataclass that carries all design state through the pipeline. It is initialized from a `block()` and an optional `test()` at the start of each run, then passed from step to step. Each step reads from `StepData` to discover its inputs and writes to `StepData` (via `output_data`) to propagate results to the next step. `StepData` holds no manifest object — only the block, its directory and the test by name, plus working state (`rtl_files`, `netlist_files`, etc.) copied from the manifest and freely modifiable. Steps must not access the global `context` registries at runtime — they must use only `self.data` and `self.config`.
+
+**environment / test**: *bake*'s verification components. Both bundle verification-related files (Verilog, Python, ...), include directories, options, defines, and simulator settings. Two differences exist: tests are executable and directly invokable from the command line; environments are not. Environments can be inherited from (to create other environments or tests); tests cannot be inherited from. A test inherits the `target` and `default_sim` of the environments it includes. Composing tests from multiple environment components increases reuse and reduces redundancy in manifests.
+
+**config**: A Python object available in every manifest scope (no import required). Organized into sections: `config.bake` (global settings), `config.vrf`, `config.impl`, `config.tmr` (per-step settings), and `config.user` (free-form user attributes). Custom steps register their own section via `config.register()`. Any attribute can be overridden from the command line with `-o section.attribute=value`.

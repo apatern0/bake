@@ -1,0 +1,16 @@
+bake
+Copyright 2026 Andrea Paterno'
+
+This product is a modified derivative of tmake, a build system for
+fault-tolerant ASICs developed at CERN (https://gitlab.cern.ch/tmake/tmake).
+Copyright 2025 CERN. tmake is licensed under the Apache License, Version 2.0.
+
+bake forked from tmake at commit 5c13314af123079ee23e4ce12da1c59b437a0351
+(2023-05-15). Up to that point tmake was written by Stefan Biereigel and
+Szymon Kulis, with contributions from Pedro Leitao, Andrea Paterno',
+Adithya Pulli and Iraklis Kremastiotis; some material was later ported
+from subsequent tmake development. The manifest-driven design model, the
+recipe/step pipeline, the built-in step definitions and vrf/tmr flows, the
+counter example sources, the test suite, the documentation and its diagrams
+all derive from that work. Each derived source file carries both copyright
+notices and is marked as modified.

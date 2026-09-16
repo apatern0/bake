@@ -1,0 +1,10 @@
+include LICENSE
+include NOTICE
+include CLAUDE.md
+recursive-include bake/builtin *
+recursive-include example *
+recursive-include test *
+recursive-include docs *.md
+prune example/*/flow
+prune example/*/work
+global-exclude __pycache__ *.py[co] .pytest_cache

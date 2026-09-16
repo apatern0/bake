@@ -1,0 +1,7 @@
+#!/bin/bash
+# The expanded run.sh carries the template values; the tests read it back.
+echo 'DESIGN=${BAKE_DESIGN_VERILOG_FILES}'
+echo 'SIM_FILES=${BAKE_SIM_FILES}'
+echo 'SDF=${BAKE_SIM_SDF_FILES}'
+echo 'SIM=${BAKE_SIM_SIMULATOR} INTERACTIVE=${BAKE_INTERACTIVE} DELAY=${BAKE_SIM_DELAY_CORNER}'
+echo 'SPEED=${BAKE_FLOW_OPT_SPEED} TIE_HI=${BAKE_FLOW_OPT_TIE_CELLS_HI} TIE_LO=${BAKE_FLOW_OPT_TIE_CELLS_LO}'

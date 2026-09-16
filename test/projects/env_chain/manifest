@@ -1,0 +1,28 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Three-level environment inheritance: env -> env -> test.
+
+from bake import load, block, env, test
+
+load("../flows")
+config.vrf.flow = "dummy_vrf"
+
+block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])
+
+env(name="base_env", target="dut", vrf_files=["../rtl/base.v"])
+env(name="mid_env", target="dut", includes=["base_env"], vrf_files=["../rtl/mid.v"])
+
+test(name="leaf_test", target="dut", includes=["mid_env"], vrf_files=["../rtl/leaf.v"], default_sim="stub")

@@ -1,0 +1,45 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 04 - Triplicate a block, then simulate the triplicated RTL: `tmr` and `tmr-vrf`.
+#
+# The tmr step runs tmrg on the block's RTL and hands the triplicated files
+# (counterTMR.v, top module counterTMR, define TMR) to whatever step follows.
+# The wrapper test bench picks the right DUT via `ifdef TMR, so the same
+# test runs before and after triplication.
+#
+#   bake counter vrf        # plain RTL
+#   bake counter tmr        # triplicate only
+#   bake counter tmr-vrf    # triplicate, then simulate the result
+#
+# Needs: tmrg (https://github.com/rlf-arlut/tmrg), Icarus Verilog.
+
+from bake import block, test
+
+block(
+    name="counter",
+    top="counter",
+    rtl_files=["../counter/rtl/counter.v"],
+)
+
+test(
+    name="counter_test",
+    target="counter",
+    vrf_files=[
+        "../counter/vrf/verilog/counterWrapper.v",
+        "../counter/vrf/verilog/counter_verilog_test.v",
+    ],
+    default_sim="icarus",
+)

@@ -1,0 +1,68 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Stand-in flows for the test suite: shell scripts that produce the files a
+# step expects (or deliberately do not), so every recipe runs without an EDA
+# tool. The vrf script echoes its template variables into run.sh, which the
+# tests read back to check what reached the flow.
+
+from bake import flow
+
+flow(
+    name="dummy_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="impl",
+)
+
+flow(
+    name="dummy_vrf",
+    simulators=[("stub", "Sample Simulator")],
+    simulation_frameworks=[],
+    run_cmd="run.sh",
+    dir="vrf",
+    tpl_defaults={"speed": "slow", "tie_cells": {"HI": "", "LO": ""}},
+)
+
+# Same as dummy_vrf but the script exits non-zero.
+flow(
+    name="failing_vrf",
+    simulators=[("stub", "Sample Simulator")],
+    run_cmd="run.sh",
+    dir="vrf_fail",
+)
+
+# An impl flow whose script bakes a custom template variable into its output.
+flow(
+    name="tpl_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="tpl_impl",
+)
+
+# An impl flow whose script references a template variable nobody defines.
+flow(
+    name="bad_tpl_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="bad_tpl_impl",
+)
+
+# A flow whose script exits 0 without producing anything.
+flow(
+    name="nothing",
+    run_cmd="run.sh",
+    dir="nothing",
+)

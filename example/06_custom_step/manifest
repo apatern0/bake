@@ -1,0 +1,49 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 06 - A custom step, and recipes that use it.
+#
+# steps/lint/manifest defines a `lint` step (a Step subclass with its own
+# config section) and steps/lint/flow/ holds the script it runs -- the same
+# layout as the built-in steps. load() brings it in like any other manifest;
+# the step then appears next to the built-in ones and can be used in any
+# recipe.
+#
+#   bake                                  # lint is listed with vrf, impl, tmr, dummy
+#   bake counter lint                     # single-step recipe
+#   bake counter lint-vrf                 # lint, then simulate
+#   bake counter lint -o lint.options=-Wno-DECLFILENAME
+#
+# Needs: Verilator for lint, Icarus Verilog for vrf.
+
+from bake import load, block, test
+
+load("steps/lint")
+
+block(
+    name="counter",
+    top="counter",
+    rtl_files=["../counter/rtl/counter.v"],
+)
+
+test(
+    name="counter_test",
+    target="counter",
+    vrf_files=[
+        "../counter/vrf/verilog/counterWrapper.v",
+        "../counter/vrf/verilog/counter_verilog_test.v",
+    ],
+    default_sim="icarus",
+)

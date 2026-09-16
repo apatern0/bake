@@ -1,0 +1,90 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 05 - Hierarchical designs: one block including another.
+#
+# `includes` lets a block depend on another block in two ways:
+#
+#   includes=["adder"]             pull in the adder's RTL files ("rtl" include)
+#   includes={"adder": "impl"}     use the *implemented* adder -- its netlist and
+#                                  timing library from `bake adder impl` -- as a
+#                                  hard macro inside this block
+#
+# The second form is a dependency: `bake adder impl` runs first when its output
+# is missing or older than adder.v, then the accumulator's own steps run, each
+# taking what it needs from the implemented adder: vrf simulates its netlist,
+# impl places it as a hard macro from the LEF and Liberty its impl wrote.
+#
+#   bake                               # lists accumulator_hard with the state of "adder impl"
+#   bake accumulator vrf               # RTL simulation, adder pulled in as RTL
+#   bake accumulator impl              # flat implementation, adder synthesised with the rest
+#   bake accumulator_hard vrf -n       # dry run: shows "adder impl" would be built first
+#   bake accumulator_hard vrf          # implements the adder if needed, then simulates it
+#   bake accumulator_hard impl         # hierarchical implementation: adder as a macro
+#   bake accumulator_hard impl-vrf     # gate-level simulation of both netlists
+#
+# A hard macro has fixed ports, so accumulator.v instantiates the adder
+# without a parameter override.
+#
+# Needs: Icarus Verilog for vrf; yosys, openroad and PDK_ROOT pointing at sky130 for impl
+#   (libraries come from the reference PDK manifest in ../pdk/sky130).
+
+import os
+from bake import load, block, test
+
+# The vrf recipes need no PDK. Only load the sky130 libraries when one is
+# available, so that `bake accumulator vrf` works on a machine without it;
+# the blocks that can be implemented then get the standard-cell library.
+if os.environ.get("PDK_ROOT"):
+    load("../pdk/sky130")
+    impl_libs = ["sky130_fd_sc_hd"]
+else:
+    impl_libs = []
+
+block(
+    name="adder",
+    top="adder",
+    rtl_files=["rtl/adder.v"],
+    libs=impl_libs,
+)
+
+block(
+    name="accumulator",
+    top="accumulator",
+    rtl_files=["rtl/accumulator.v"],
+    includes=["adder"],
+)
+
+block(
+    name="accumulator_hard",
+    top="accumulator",
+    rtl_files=["rtl/accumulator.v"],
+    includes={"adder": "impl"},
+    libs=impl_libs,
+)
+
+test(
+    name="accumulator_test",
+    target="accumulator",
+    vrf_files=["vrf/accumulator_tb.v"],
+    default_sim="icarus",
+)
+
+test(
+    name="accumulator_test",
+    target="accumulator_hard",
+    vrf_files=["vrf/accumulator_tb.v"],
+    default_sim="icarus",
+)
