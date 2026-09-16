@@ -318,7 +318,10 @@ def main():
             logging.debug("Loading builtin step directory: %s", entry.name)
             loader.load(str(entry))
         except Exception as e:  # pylint: disable=broad-exception-caught
+            # A broken builtin is a broken installation: nothing sensible
+            # can run without the step it defines.
             logging.error("Failed to load builtin step '%s': %s", entry.name, e)
+            sys.exit(1)
 
     try:
         manifest_fname = str(Path(file_utils.absolute_path(args.manifestpath)) / "manifest")

@@ -142,6 +142,22 @@ def test_duplicate_block_raises(bake, capfd, project):
     assert_in_stderr(capfd, "Redefinition")
 
 
+def test_broken_builtin_is_fatal(bake, capfd, project, monkeypatch):
+    """A builtin step that fails to load stops bake instead of being skipped."""
+    project("sample")
+    import bake.loader as loader
+    real_load = loader.load
+
+    def load(path):
+        if path.endswith("/builtin/tmr"):
+            raise RuntimeError("boom")
+        return real_load(path)
+
+    monkeypatch.setattr(loader, "load", load)
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "Failed to load builtin step 'tmr': boom")
+
+
 def test_duplicate_test_raises(bake, capfd, project):
     """The same test name twice for one block is an error; the same name on
     another block is not."""
