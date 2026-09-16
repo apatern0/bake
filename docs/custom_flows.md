@@ -13,8 +13,13 @@ A flow directory typically contains:
 - Any additional helper scripts, config files, or data needed by the flow.
 
 On first invocation of a block/step combination, *bake* copies the entire flow directory into
-a per-block `flow/` directory in the project. The user may then edit those files freely.
-Subsequent invocations re-expand any `.tpl` files but do not overwrite non-template files.
+a per-block `flow/` directory in the project (`flow/<block>/<recipe>/`, plus the test name for
+`vrf`). That copy is yours: it is meant to be customised for the block, committed with the
+project, and *bake* never writes to it again — a later change to the flow it was copied from,
+or a bake upgrade, does not reach it. Subsequent invocations expand the copy's `.tpl` files
+into the work directory on every run, so edits take effect immediately (and re-run the step).
+To start over from the original flow, delete `flow/<block>/<recipe>/` and run again; `-c` and
+`-r` only touch the work directory.
 
 ## Registering a Flow
 
@@ -168,8 +173,9 @@ $ bake my_block vrf
 ...
 ```
 
-The custom `run.sh` is copied to the block's `flow/` directory on first run and executed from the
-step work directory on subsequent invocations.
+The custom `run.sh` is copied to the block's `flow/` directory on first run — from then on that
+copy is the one *bake* uses, and the place to customise the flow for this block — and executed
+from the step work directory on every invocation.
 
 ## Flow-Specific Options
 

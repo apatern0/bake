@@ -19,6 +19,12 @@ command line with the `-o` flag:
 bake counter vrf -o vrf.simulator=xcelium
 ```
 
+`-o` is applied after every manifest has loaded, so the command line wins over the manifest. The
+manifest code itself runs before that and sees the manifest's own values: do not branch on
+`config` inside a manifest expecting to see an override. Put anything that depends on a setting
+in the flow (through the template variables) or in a step's `build_tpl_dict()`, which both see
+the final value.
+
 ## Configuration Sections
 
 ### `config.bake`
