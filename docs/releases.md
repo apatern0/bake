@@ -35,6 +35,17 @@ compatibility patches rebased for each new release.
 
 ## Changelog
 
+### v1.1.0
+
+The `impl` step's sky130 reference flow now locates the PDK through the `PDK_ROOT` environment
+variable (optionally `PDK`, default `sky130A`), pointing at an
+[open_pdks](https://github.com/RTimothyEdwards/open_pdks) build such as the one `ciel` installs,
+and consumes its pre-built Liberty, LEF and Verilog files directly. The 400 MB `skywater-pdk`
+git submodule, the Liberty generation step and its `~/.cache/bake/sky130/` cache are gone;
+`bake` no longer carries any PDK. `test/pdk/fetch_sky130.sh` fetches the fixture for the test
+suite and `example/03_counter_impl`. OpenROAD now receives both the technology LEF and the cell
+LEF.
+
 ### v1.0.0
 
 First public release of **bake**. bake is a modified derivative of

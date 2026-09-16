@@ -2,4 +2,3 @@ include LICENSE
 include NOTICE
 recursive-include example *
 recursive-include bake/builtin *
-prune bake/builtin/impl/skywater-pdk

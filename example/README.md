@@ -8,7 +8,7 @@ The shared counter design lives in [`counter/`](counter/).
 |---|---|---|
 | [`01_counter_sim`](01_counter_sim/manifest) | `block()` + `test()`, the recipe `vrf` | Icarus Verilog |
 | [`02_counter_cocotb`](02_counter_cocotb/manifest) | `env()` reuse across tests; cocotb; choosing a simulator | Icarus Verilog, cocotb, Verilator |
-| [`03_counter_impl`](03_counter_impl/manifest) | synthesis + P&R on sky130, the single-step recipe `impl` | Yosys, OpenROAD, sky130 submodule |
+| [`03_counter_impl`](03_counter_impl/manifest) | synthesis + P&R on sky130, the single-step recipe `impl` | Yosys, OpenROAD, `PDK_ROOT` → sky130 |
 | [`04_counter_tmr`](04_counter_tmr/manifest) | TMR insertion; recipes `tmr` and `tmr-vrf` | tmrg, Icarus Verilog |
 | [`05_hierarchical`](05_hierarchical/manifest) | blocks including other blocks, as RTL or as an implemented macro | Icarus Verilog; Yosys, OpenROAD for `impl` |
 | [`06_custom_step`](06_custom_step/manifest) | `add_steps_dir()`, a `lint` step and its flow; recipe `lint-vrf` | Verilator, Icarus Verilog |

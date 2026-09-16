@@ -31,7 +31,7 @@
 #   bake accumulator_hard impl         # ... then the top with the adder as a macro
 #   bake accumulator_hard impl-vrf     # gate-level simulation of the result
 #
-# Needs: Icarus Verilog for vrf; yosys, openroad and the sky130 submodule for impl.
+# Needs: Icarus Verilog for vrf; yosys, openroad and PDK_ROOT pointing at sky130 for impl.
 
 from bake import block, test
 

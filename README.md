@@ -32,13 +32,13 @@ Tools are discovered on `PATH`. Out of the box the built-in steps drive:
 | `impl` | synthesis + place-and-route           | Yosys + OpenROAD (reference flow on sky130) | — |
 | `tmr`  | triple-modular-redundancy insertion   | [tmrg](https://github.com/rlf-arlut/tmrg)  | — |
 
-bake has **no PDK dependency**. The SkyWater sky130 PDK is vendored as an optional ~400 MB git
-submodule purely so that the built-in `impl` step has *some* open PDK to run against: it lets the
-test suite and `example/03_counter_impl` exercise synthesis and place-and-route end to end. A
-real project supplies its own implementation flow and PDK (see
-[Custom flows](docs/custom_flows.md)); leave the submodule uninitialised unless you want to run
-those tests. See [Installation](docs/installation.md). To enable tab-completion for the lifetime
-of a shell:
+bake has **no PDK dependency**. The built-in `impl` step includes a *reference flow* for the
+open-source SkyWater sky130 PDK purely so that synthesis and place-and-route can be exercised end
+to end on an open PDK — the test suite and `example/03_counter_impl` use it. The flow activates
+only when `PDK_ROOT` points at an open_pdks build of sky130 (`test/pdk/fetch_sky130.sh` fetches
+one with `ciel`); nothing is bundled. A real project supplies its own implementation flow and PDK,
+see [Custom flows](docs/custom_flows.md) and [Installation](docs/installation.md). To enable
+tab-completion for the lifetime of a shell:
 
 ```
 eval "$(register-python-argcomplete bake)"

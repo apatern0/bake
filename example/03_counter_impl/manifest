@@ -17,7 +17,8 @@
 #
 # The built-in impl step targets the open-source SkyWater sky130 PDK with
 # Yosys and OpenROAD, so nothing needs to be configured: the sky130 cell
-# libraries are registered automatically once the PDK submodule is present.
+# libraries are registered automatically once PDK_ROOT points at an
+# open_pdks build of sky130 (test/pdk/fetch_sky130.sh provides one).
 #
 #   bake -l                # list the sky130 libraries bake found
 #   bake counter impl      # synthesis + P&R; outputs in work/counter/impl/output
@@ -25,8 +26,8 @@
 #
 # The scripts in flow/counter/impl are yours to edit after the first run.
 #
-# Needs: yosys, openroad, and the skywater-pdk submodule
-#   (git submodule update --init bake/builtin/impl/skywater-pdk).
+# Needs: yosys, openroad, and PDK_ROOT set to a sky130 open_pdks build
+#   (PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh && export PDK_ROOT=$HOME/.ciel).
 
 from bake import block
 

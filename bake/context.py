@@ -151,6 +151,17 @@ class Config:
             object.__setattr__(self, name, section)
             logging.debug("Registered config section '%s' (%s)", name, type(section).__name__)
 
+    def reset_sections(self) -> None:
+        """Drop every dynamically registered section (impl, vrf, tmr, ...).
+
+        The step manifests register them again on the next load, so each run
+        starts from the section defaults. `bake` and `user` are class-level and
+        untouched: they carry the CLI options and free-form user attributes.
+        """
+        for name in list(vars(self)):
+            delattr(self, name)
+            logging.debug("Dropped config section '%s'", name)
+
     def __getattr__(self, key):
         raise BakeConfigError(
             f"Tried to access non-existent section `{key}` from config. "
@@ -206,6 +217,7 @@ class Context:
 
     def reset(self):
         logging.debug("Resetting context registries")
+        self.config.reset_sections()
         self.flows = {}
         self.libs = {}    # LibSpec objects (PDK/foundry cell libraries)
         self.blocks = {}  # BlockSpec objects (user design blocks)

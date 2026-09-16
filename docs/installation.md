@@ -17,13 +17,21 @@ git clone https://github.com/apatern0/bake.git
 pip install -e bake/
 ```
 
-The built-in `impl` step uses the open-source SkyWater sky130 PDK, which is a ~400 MB git
-submodule and is **not** fetched by default. Populate it only if you want to run implementation:
+*bake* has no PDK dependency. The built-in `impl` step ships a *reference flow* for the
+open-source SkyWater sky130 PDK (Yosys + OpenROAD) so that implementation can be exercised end
+to end without a foundry kit; the test suite and `example/03_counter_impl` use it. It registers
+itself only when `PDK_ROOT` points at an [open_pdks](https://github.com/RTimothyEdwards/open_pdks)
+build of sky130 — the layout shared by [ciel](https://github.com/fossi-foundation/ciel) and
+OpenLane. To obtain one (about 340 MB for the `sky130_fd_sc_hd` library):
 
 ```
-cd bake/
-git submodule update --init bake/builtin/impl/skywater-pdk
+PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh   # wraps: pip install ciel && ciel enable --pdk sky130 ...
+export PDK_ROOT=$HOME/.ciel                      # optional: export PDK=sky130B for the other variant
+bake -l                                          # now lists sky130_fd_sc_hd
 ```
+
+A real project provides its own implementation flow and libraries; see
+[Custom flows](custom_flows.md).
 
 The `tmr` step invokes [tmrg](https://github.com/rlf-arlut/tmrg) for TMR insertion; install it
 into the same virtual environment if you need triplication. Implementation tools and simulators

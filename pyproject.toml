@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bake-eda"
-version = "1.0.0"
+version = "1.1.0"
 description = "Recipe-driven build and verification system for ASIC designs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "pylint"]
+test = ["pytest", "pytest-cov", "pylint", "pylint-pydantic"]
 docs = ["mkdocs", "mkdocs-material"]
 
 [project.urls]
@@ -54,11 +54,10 @@ packages = ["bake"]
 [tool.setuptools.package-data]
 bake = ["builtin/**"]
 
-# Never ship the vendored PDK submodule (~412 MB).
-[tool.setuptools.exclude-package-data]
-bake = [
-    "builtin/impl/skywater-pdk/**",
-]
-
 [tool.pytest.ini_options]
 testpaths = ["test"]
+
+[tool.pylint.main]
+# The manifest specs are pydantic models; without the plugin pylint reports
+# their Field() defaults as FieldInfo instances.
+load-plugins = ["pylint_pydantic"]

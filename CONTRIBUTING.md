@@ -13,7 +13,7 @@ pytest
 ```
 
 The test suite runs without any EDA tool installed: tests that need `tmrg`, `yosys`,
-`openroad` or the sky130 submodule skip themselves. Install what you have and they run.
+`openroad` or a sky130 PDK under `PDK_ROOT` (see `test/pdk/fetch_sky130.sh`) skip themselves. Install what you have and they run.
 
 ## Making changes
 

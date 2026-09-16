@@ -43,7 +43,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from . import exceptions, file_utils
 from .context import context
@@ -96,8 +96,8 @@ class StepData:
     # Reassigning `target` or `test` raises AttributeError (enforced in
     # __post_init__ / __setattr__).  Mutating their *contents* is also
     # strongly discouraged; treat them as read-only snapshots.
-    target: object = None  # TargetSpec
-    test:   object = None  # EnvSpec | None
+    target: Any = None  # BlockSpec; read-only after __post_init__
+    test:   Any = None  # EnvSpec or None; read-only after __post_init__
 
     # ── Mutable target-derived working state ─────────────────────────────────
     top:         str  = ""

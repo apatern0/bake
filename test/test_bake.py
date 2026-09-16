@@ -18,7 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib.util
+import os
 import shutil
 from pathlib import Path
 import pytest
@@ -32,11 +32,18 @@ tmrg_required = pytest.mark.skipif(
     reason="tmrg not available"
 )
 
-_SKY130_README = Path(__file__).parent.parent / "bake" / "builtin" / "impl" / "skywater-pdk" / "README.rst"
+def _sky130_available():
+    """True when PDK_ROOT points at an open_pdks sky130 build (see test/pdk/fetch_sky130.sh)."""
+    pdk_root = os.environ.get("PDK_ROOT")
+    if not pdk_root:
+        return False
+    variant = os.environ.get("PDK", "sky130A")
+    return (Path(pdk_root) / variant / "libs.ref" / "sky130_fd_sc_hd" / "lib").is_dir()
+
+
 sky130_required = pytest.mark.skipif(
-    not _SKY130_README.is_file()
-    or importlib.util.find_spec("dataclasses_json") is None,
-    reason="skywater-pdk submodule not populated or dataclasses_json not installed"
+    not _sky130_available(),
+    reason="PDK_ROOT does not point at an open_pdks sky130 build"
 )
 
 openroad_required = pytest.mark.skipif(
@@ -88,7 +95,7 @@ def dummy_flows(tmp_run_dir):
         f.write(
             """
 import os
-from bake import flow
+from bake import flow, lib
 
 _base = os.path.dirname(os.path.abspath(__file__))
 
@@ -99,6 +106,11 @@ flow(
     dir=os.path.join(_base, "impl"),
 )
 
+# The impl step needs a library to hand to the flow; supply a stub one so the
+# tests do not depend on a PDK being present in the environment.
+lib(name="dummy_lib", liberty_files={"TC": [os.path.join(_base, "dummy_lib_tc.lib")]})
+config.impl.default_libs.append("dummy_lib")
+
 flow(
     name="dummy_vrf",
     simulators=[("stub", "Sample Simulator")],
@@ -108,6 +120,8 @@ flow(
 )
             """
         )
+
+    (flow_dir / "dummy_lib_tc.lib").write_text("library (dummy_lib_tc) {}\n")
 
     (flow_dir / "impl").mkdir()
     with open(flow_dir / "impl" / "run.sh.tpl", "w") as f:
@@ -814,7 +828,7 @@ def test_custom_step_chain_with_vrf(bake, sample_with_check_step):
 
 @sky130_required
 def test_sky130_libs_listed(bake, capfd):
-    """sky130 standard-cell libraries are listed when the submodule is present."""
+    """sky130 standard-cell libraries are listed when PDK_ROOT holds the PDK."""
     Path("manifest").touch()
     assert not bake.run(["-l"])
     assert_in_stderr(capfd, "sky130_fd_sc_hd")
@@ -825,7 +839,7 @@ def test_sky130_impl_available_without_config(bake, capfd, dummy_flows):
     """impl step is available without setting config.impl.flow when sky130 is present.
 
     The impl builtin manifest sets ImplStep.default_flow = 'sky130' when the
-    submodule is populated, making the step available by default.
+    PDK is found through PDK_ROOT, making the step available by default.
     """
     Path("manifest").write_text(
         'from bake import load, block\nload("dummy_flows")\n'
@@ -1148,7 +1162,7 @@ def tpl_var_flow(tmp_run_dir):
         f.write(
             """
 import os
-from bake import flow
+from bake import flow, lib
 _base = os.path.dirname(os.path.abspath(__file__))
 flow(
     name="tpl_impl",
@@ -1156,8 +1170,11 @@ flow(
     run_cmd="run.sh",
     dir=os.path.join(_base, "impl"),
 )
+lib(name="tpl_lib", liberty_files={"TC": [os.path.join(_base, "tpl_lib_tc.lib")]})
+config.impl.default_libs.append("tpl_lib")
             """
         )
+    (flow_dir / "tpl_lib_tc.lib").write_text("library (tpl_lib_tc) {}\n")
 
     (flow_dir / "impl").mkdir()
     # The .tpl substitutes BAKE_TOP and a custom BAKE_ variable.

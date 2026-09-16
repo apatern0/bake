@@ -44,6 +44,25 @@ jobs:
           bake 2>&1 | tee out.txt
           grep -q -- '- vrf' out.txt && grep -q -- '- impl' out.txt && grep -q -- '- tmr' out.txt
 
+  sky130:
+    # The impl step's reference flow on an open PDK. The PDK is a test
+    # fixture, fetched with ciel and cached; bake itself does not depend on it.
+    runs-on: ubuntu-latest
+    env:
+      PDK_ROOT: ${{ github.workspace }}/.pdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PDK_ROOT }}
+          key: sky130-${{ hashFiles('test/pdk/fetch_sky130.sh') }}
+      - run: pip install -e ".[test]"
+      - run: test/pdk/fetch_sky130.sh
+      - run: python -m pytest -k sky130 -rs
+
   docs:
     runs-on: ubuntu-latest
     steps:
