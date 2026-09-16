@@ -35,6 +35,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import hashlib
+import importlib.metadata
+import json
 import logging
 import os
 from pathlib import Path
@@ -56,6 +59,13 @@ def _fmt_elapsed(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _bake_version() -> str:
+    try:
+        return importlib.metadata.version("bake-eda")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 class RecipePath(list):
@@ -450,12 +460,97 @@ class Step(ABC):
     def outputdir(self) -> Path:
         return self.workdir / "output"
 
-    def run_required(self, log: bool = True) -> bool:
-        """Return True if step execution is needed.
+    # ---------------------------------------------------------------------------
+    # Up-to-date check
+    # ---------------------------------------------------------------------------
 
-        Uses ctime (inode change time) rather than mtime so that link
-        retargeting and permission changes also trigger a re-run.  With
-        log=False nothing is reported (used by listings and dry runs).
+    STAMP_NAME = ".bake_stamp.json"
+
+    @property
+    def stamp_path(self) -> Path:
+        """The success stamp: written after a run completes and its outputs
+        pass check_post(), removed before the flow starts. Its absence means
+        the last run did not complete."""
+        return self.workdir / self.STAMP_NAME
+
+    def fingerprint(self) -> dict:
+        """What the outputs were built from, besides the source files' contents:
+        one digest per component so a mismatch can say which one changed.
+
+        - `bake`:    the bake version
+        - `tpl`:     the rendered template variables (config, -o overrides,
+                     flow options, defines, ... — everything build_tpl_dict()
+                     exposes to the flow)
+        - `sources`: the list of source paths (a removed or added file changes
+                     it even when the remaining files are untouched)
+        - `flow`:    the contents of every file in the step's flow directory
+        """
+        def digest(data: str) -> str:
+            return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+        flow_hash = hashlib.sha256()
+        for current_dir, subdirs, files in os.walk(self.flowdir):
+            subdirs.sort()
+            for name in sorted(files):
+                path = Path(current_dir) / name
+                flow_hash.update(str(path.relative_to(self.flowdir)).encode("utf-8"))
+                flow_hash.update(b"\0")
+                with open(path, "rb") as f:
+                    flow_hash.update(f.read())
+                flow_hash.update(b"\0")
+
+        # How a run is watched is not what it builds: -v and -i do not
+        # invalidate outputs.
+        tpl_dict = {k: v for k, v in self.build_tpl_dict().items()
+                    if k not in self._FINGERPRINT_IGNORED_VARS}
+
+        return {
+            "bake":    _bake_version(),
+            "tpl":     digest(json.dumps(tpl_dict, sort_keys=True, default=str)),
+            "sources": digest(json.dumps(sorted(str(f) for f in self.source_files))),
+            "flow":    flow_hash.hexdigest(),
+        }
+
+    _FINGERPRINT_IGNORED_VARS = ("BAKE_VERBOSITY", "BAKE_INTERACTIVE")
+    _FINGERPRINT_LABELS = {
+        "bake":    "bake version",
+        "tpl":     "configuration (template variables)",
+        "sources": "source file list",
+        "flow":    "flow scripts",
+    }
+
+    def read_stamp(self) -> Optional[dict]:
+        try:
+            with open(self.stamp_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as err:
+            logging.debug("Cannot read stamp %s: %s", self.stamp_path, err)
+            return None
+
+    def write_stamp(self, fingerprint: dict) -> None:
+        with open(self.stamp_path, "w", encoding="utf-8") as f:
+            json.dump({"fingerprint": fingerprint}, f, indent=2)
+            f.write("\n")
+
+    def remove_stamp(self) -> None:
+        try:
+            self.stamp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def stale_reason(self, log: bool = False) -> Optional[str]:
+        """Why this step has to run, or None when its outputs are up to date.
+
+        A step is stale when it declares no outputs, an output is missing, the
+        last run did not complete (no stamp), anything it was built from
+        changed (fingerprint), or a source file is newer than the oldest
+        output. Inputs are compared by mtime, following symlinks, so an
+        edited PDK or IP file behind a link is noticed; outputs by the mtime
+        of the entry the flow produced (a link counts as its own creation).
+        With log=True the details are reported at INFO level (the reason
+        itself is not: callers phrase it); listings and dry runs use log=False.
         """
 
         def info(msg, *args):
@@ -470,48 +565,52 @@ class Step(ABC):
 
         if not self.output_files:
             logging.debug("Step '%s' declares no output files; will always run.", self.name)
-            return True  # step produces no trackable output; always execute
+            return "no output files declared"
 
         output_missing = [f for f in self.output_files if not Path(f).is_file()]
         if output_missing:
             info("Expected output files missing for step '%s':", self.name)
             log_first_five(output_missing)
-            return True
+            return "output files missing"
 
-        in_files  = [f for f in self.source_files if not Path(f).is_symlink()]
-        out_files = [f for f in self.output_files if not Path(f).is_symlink()]
+        stamp = self.read_stamp()
+        if stamp is None:
+            info("The last run of step '%s' did not complete.", self.name)
+            return "last run did not complete"
 
-        if self.source_files and not in_files:
-            raise exceptions.BakeRuntimeError(
-                "All input files are symlinks — cannot reliably check modification dates."
-            )
-        if not out_files:
-            if log:
-                logging.warning(
-                    "All output files for step '%s' are symlinks — treating as up-to-date.",
-                    self.name,
-                )
-            return False
+        current = self.fingerprint()
+        previous = stamp.get("fingerprint", {})
+        changed = [k for k in current if previous.get(k) != current[k]]
+        if changed:
+            what = ", ".join(self._FINGERPRINT_LABELS[k] for k in changed)
+            info("Step '%s' was built with a different %s.", self.name, what)
+            return f"{what} changed"
 
-        oldest_out  = min(out_files, key=lambda f: Path(f).stat().st_ctime)
-        oldest_time = datetime.datetime.fromtimestamp(Path(oldest_out).stat().st_ctime)
-        newer_files = [f for f in in_files if Path(f).stat().st_ctime > Path(oldest_out).stat().st_ctime]
+        oldest_out  = min(self.output_files, key=lambda f: Path(f).lstat().st_mtime)
+        oldest_mtime = Path(oldest_out).lstat().st_mtime
+        oldest_time  = datetime.datetime.fromtimestamp(oldest_mtime)
+        newer_files  = [f for f in self.source_files if Path(f).stat().st_mtime > oldest_mtime]
         if newer_files:
             info(
                 "Source files are newer than oldest output '%s' (modified %s) for step '%s':",
                 Path(oldest_out).name, oldest_time.strftime("%Y-%m-%d %H:%M:%S"), self.name,
             )
             log_first_five(newer_files)
-            return True
+            return "source files changed"
 
         logging.debug(
             "Step '%s' outputs are up-to-date (oldest output: %s, modified %s)",
             self.name, Path(oldest_out).name, oldest_time.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        return False
+        return None
+
+    def run_required(self, log: bool = True) -> bool:
+        """Return True if step execution is needed (see stale_reason)."""
+        return self.stale_reason(log) is not None
 
     def run(self, force: Optional[bool] = None):
-        """Execute the step unless its outputs are up to date.
+        """Execute the step unless its outputs are up to date, then verify
+        them with check_post(); an up-to-date step is verified too.
 
         `force` defaults to the -f flag; cli.run passes False for dependency
         recipes so that -f only applies to the block the user asked for."""
@@ -521,9 +620,16 @@ class Step(ABC):
             logging.info("Force flag set — running step '%s' unconditionally.", self.name)
         elif not self.run_required():
             logging.info("Output files are up-to-date, skipping step %s.", self.name)
+            self.check_post()
             return
         self.copy_and_template()
+        # No stamp while the flow runs: a failure, or an interrupted run,
+        # leaves the step stale even when it wrote its output files.
+        self.remove_stamp()
+        fingerprint = self.fingerprint()
         self.execute_flow_step()
+        self.check_post()
+        self.write_stamp(fingerprint)
 
     def build_tpl_dict(self) -> dict:
         """Template variables available to every flow.

@@ -56,11 +56,12 @@ series of known steps is a valid recipe.
 
 ![bake recipes](img/bake_recipes.svg)
 
-*bake* performs timestamp-based dependency tracking, similar to GNU Make: a step whose outputs
-are newer than its inputs is skipped, and a block that includes the implemented results of
-another block has that block implemented first when its outputs are missing or stale. *bake*
-also tracks the expected output artifacts of each step and reports any step that fails to
-produce them.
+*bake* performs dependency tracking, similar to GNU Make: a step whose outputs are newer than
+its inputs, and were produced by a completed run with the same configuration and flow scripts,
+is skipped; a block that includes the implemented results of another block has that block
+implemented first when its outputs are missing or stale. *bake* also tracks the expected output
+artifacts of each step and reports any step that fails to produce them. See
+[When a step runs](cli.md#when-a-step-runs) for the exact rules.
 
 On first invocation of a block/recipe pair, a `flow` directory is populated with a
 skeleton of the flow scripts. This directory can be placed under version control, and the skeleton

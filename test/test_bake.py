@@ -257,6 +257,87 @@ def test_check_post_failure_reported(bake, capfd, project):
 
 
 # ===========================================================================
+# Tests — up-to-date check
+# ===========================================================================
+
+def test_failed_step_is_not_up_to_date(bake, capfd, project, monkeypatch):
+    """A step whose script fails after writing its outputs runs again next
+    time instead of being reported up to date."""
+    project("incremental")
+    monkeypatch.setenv("CHECK_EXIT", "1")
+    assert bake.run(["sample_target", "gen"])
+    assert Path("work/sample_target/gen/output/gen.txt").is_file()
+    assert not Path("work/sample_target/gen/.bake_stamp.json").exists()
+    assert not bake.run(["sample_target", "gen", "-n"])
+    assert_in_stderr(capfd, "would run:         sample_target gen  [last run did not complete]")
+    monkeypatch.delenv("CHECK_EXIT")
+    assert not bake.run(["sample_target", "gen"])
+    assert_stderr(capfd, expect=["did not complete", "Step gen completed"], expect_not=["up-to-date"])
+    assert not bake.run(["sample_target", "gen"])
+    assert_in_stderr(capfd, "up-to-date")
+
+
+def test_config_change_reruns_step(bake, capfd, project):
+    """A different config value reaching the flow re-runs the step; the same
+    value again does not."""
+    project("incremental")
+    assert not bake.run(["sample_target", "gen"])
+    assert not bake.run(["sample_target", "gen", "-o", "gen.mode=fast"])
+    assert_stderr(capfd, expect=["different configuration", "Step gen completed"])
+    assert Path("work/sample_target/gen/output/gen.txt").read_text().strip() == "MODE=fast"
+    assert not bake.run(["sample_target", "gen", "-o", "gen.mode=fast"])
+    assert_in_stderr(capfd, "up-to-date")
+
+
+def test_verbosity_does_not_rerun_step(bake, capfd, project):
+    """-v and -i are not build inputs."""
+    project("incremental")
+    assert not bake.run(["sample_target", "gen"])
+    assert not bake.run(["sample_target", "gen", "-v", "-i"])
+    assert_in_stderr(capfd, "up-to-date")
+
+
+def test_flow_script_change_reruns_step(bake, capfd, project):
+    """Editing the block's copy of a flow script re-runs the step."""
+    project("incremental")
+    assert not bake.run(["sample_target", "gen"])
+    script = Path("flow/sample_target/gen/run.sh.tpl")
+    script.write_text(script.read_text() + "# edited\n")
+    assert not bake.run(["sample_target", "gen"])
+    assert_stderr(capfd, expect=["different flow scripts", "Step gen completed"])
+
+
+def test_source_list_change_reruns_step(bake, capfd, project):
+    """Removing a file from rtl_files re-runs the step even though the
+    remaining files are untouched."""
+    project("incremental")
+    assert not bake.run(["sample_target", "gen"])
+    manifest = Path("manifest")
+    manifest.write_text(manifest.read_text().replace(', "../rtl/base.v"', ""))
+    assert not bake.run(["sample_target", "gen"])
+    assert_stderr(capfd, expect=["different source file list", "Step gen completed"])
+
+
+def test_symlinked_source_change_detected(bake, capfd, project):
+    """A source reached through a symlink is compared by its target's mtime."""
+    project("incremental")
+    assert Path("linked.v").is_symlink()
+    assert not bake.run(["sample_target", "gen"])
+    time.sleep(0.05)
+    Path("../rtl/sample_tb.v").touch()
+    assert not bake.run(["sample_target", "gen"])
+    assert_stderr(capfd, expect=["Source files are newer", "linked.v", "Step gen completed"])
+
+
+def test_up_to_date_step_still_checks_outputs(bake, capfd, project):
+    """A skipped step's outputs are verified as if it had just run."""
+    project("incremental")
+    assert not bake.run(["sample_target", "gen"])
+    assert not bake.run(["sample_target", "gen"])
+    assert_in_stderr(capfd, "up-to-date")
+
+
+# ===========================================================================
 # Tests — vrf, impl and dummy steps and their recipes
 # ===========================================================================
 
@@ -459,7 +540,7 @@ def test_include_stale_dependency_rebuilt(bake, capfd, project):
     time.sleep(0.05)
     Path("../rtl/block.v").touch()
     assert not bake.run([])
-    assert_in_stderr(capfd, "top2  (needs block impl: stale)")
+    assert_in_stderr(capfd, "top2  (needs block impl: stale (source files changed))")
     assert not bake.run(["top2", "vrf"])
     assert_stderr(capfd, expect=["Source files are newer", "Step impl completed"])
 

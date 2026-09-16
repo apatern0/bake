@@ -27,6 +27,28 @@ when its outputs are missing or older than its sources.
 
 `-f`, `-c`, `-r` and `-p` are mutually exclusive.
 
+## When a step runs
+
+A step is skipped when all of the following hold; otherwise it runs, and *bake* says why:
+
+- every file in its `output_files` exists;
+- its last run completed: the flow script returned 0 and the outputs were verified. *bake*
+  records this in `work/<block>/<recipe>/.bake_stamp.json`, removed before the flow starts, so a
+  step that fails after writing some outputs — or is interrupted — stays "would run";
+- what it was built from has not changed: the bake version, the template variables the flow
+  received (config, `-o` overrides, flow options, ...), the list of source files, and the contents
+  of the block's flow directory (`flow/<block>/<recipe>/`). Which of these differs is reported;
+- no source file is newer than the oldest output. Sources are compared by modification time,
+  following symlinks, so editing a file behind a link is noticed.
+
+A step that declares no `output_files` always runs. `-v` and `-i` are not build inputs and do not
+cause a re-run. `-n` reports the reason for each step that would run, in brackets:
+
+```
+[bake] INFO     up to date:        block impl  (dependency of top2)
+[bake] INFO     would run:         top2 vrf  [no output files declared]
+```
+
 ## Exit status
 
 `0` on success. `1` when a manifest cannot be loaded, a block/test/step is unknown, or a step's
