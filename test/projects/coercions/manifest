@@ -1,0 +1,28 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Argument forms the specs accept besides a list of strings: a single
+# string, Path objects, a single file per corner; and a layout_info entry
+# that does not exist, which is a warning.
+
+from pathlib import Path
+from bake import block, lib, env, test
+
+rtl = Path(__file__).parent / ".." / "rtl"
+
+lib(name="l", liberty_files={"TT": "../rtl/base.v"}, layout_info="../rtl/leaf.v missing.lef")
+block(name="x", top="sample", rtl_files=rtl / "sample.v", libs="l", sdc_files="../rtl/base.v")
+env(name="e", vrf_files="../rtl/sample_tb.v", vrf_defines="X")
+test(name="t", target="x", includes="e")

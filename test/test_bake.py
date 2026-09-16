@@ -167,6 +167,22 @@ def test_manifest_python_errors_reported_with_line(bake, capfd, project):
     assert_stderr(capfd, expect=["manifest:20: SyntaxError"], expect_not=["Traceback"])
 
 
+def test_spec_argument_coercions(bake, capfd, project):
+    """A single string or a Path where a list is expected, and a single file
+    per corner, are accepted; a missing layout_info entry is a warning."""
+    project("coercions")
+    assert not bake.run([])
+    assert_in_stderr(capfd, "layout_info 'missing.lef' does not exist")
+    from bake.context import context
+    x, lib, e, t = context.blocks["x"], context.libs["l"], context.envs["e"], context.tests[0]
+    assert [Path(f).name for f in x.rtl_files] == ["sample.v"]
+    assert x.libs == ["l"] and [Path(f).name for f in x.sdc_files] == ["base.v"]
+    assert [Path(f).name for f in lib.liberty_files["TT"]] == ["base.v"]
+    assert lib.layout_info.endswith("rtl/leaf.v missing.lef") and lib.layout_info.startswith("/")
+    assert [Path(f).name for f in e.vrf_files] == ["sample_tb.v"] and e.vrf_defines == ["X"]
+    assert t.includes == ["e"]
+
+
 def test_duplicate_block_raises(bake, capfd, project):
     """Registering two blocks with the same name raises a manifest error."""
     project("duplicate_block")

@@ -46,6 +46,38 @@ def load(path):
     loader.load(path)
 
 
+# Argument normalisation shared by the specs. Manifest authors write a
+# single file where a list is expected, and Path objects where strings are;
+# both are accepted before validation.
+def _as_list(value):
+    if isinstance(value, (str, os.PathLike)):
+        value = [value]
+    if isinstance(value, (list, tuple)):
+        return [str(v) if isinstance(v, os.PathLike) else v for v in value]
+    return value
+
+
+def _as_corner_dict(value):
+    """{corner: [files]}, with a single file per corner accepted."""
+    if isinstance(value, dict):
+        return {corner: _as_list(files) for corner, files in value.items()}
+    return value
+
+
+def _resolve_layout_info(value: str, owner: str) -> str:
+    """layout_info names one or more LEF files or OpenAccess directories,
+    space-separated. Each is made absolute; one that does not exist is
+    reported, since the implementation flow will not find it either."""
+    resolved = []
+    for token in os.path.expandvars(value).split():
+        if Path(token).exists():
+            resolved.append(file_utils.absolute_path(token))
+        else:
+            logging.warning("%s: layout_info '%s' does not exist", owner, token)
+            resolved.append(token)
+    return " ".join(resolved)
+
+
 class FlowSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
 
@@ -80,11 +112,14 @@ class LibSpec(BaseModel):
 
     name: str = ""
     desc: str = ""
-    netlist_files: list = Field(default_factory=list)
-    netlist_incdirs: list = Field(default_factory=list)
-    liberty_files: dict = Field(default_factory=dict)
+    netlist_files: list[str] = Field(default_factory=list)
+    netlist_incdirs: list[str] = Field(default_factory=list)
+    liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
     layout_info: str = ""
-    si_files: dict = Field(default_factory=dict)
+    si_files: dict[str, list[str]] = Field(default_factory=dict)        # {corner: [files]}
+
+    _lists = field_validator("netlist_files", "netlist_incdirs", mode="before")(_as_list)
+    _corner_dicts = field_validator("liberty_files", "si_files", mode="before")(_as_corner_dict)
 
     def model_post_init(self, __context: Any) -> None:
         if self.name in context.libs:
@@ -94,15 +129,11 @@ class LibSpec(BaseModel):
         file_utils.resolve_dir_list(self.netlist_incdirs)
 
         if self.layout_info:
-            self.layout_info = os.path.expandvars(self.layout_info)
-            if Path(self.layout_info).is_dir() or Path(self.layout_info).is_file():
-                self.layout_info = file_utils.absolute_path(self.layout_info)
+            self.layout_info = _resolve_layout_info(self.layout_info, f"Library '{self.name}'")
 
-        for attr in (self.liberty_files, self.si_files):
-            for corner_name, corner_files in attr.items():
-                if not isinstance(corner_files, list):
-                    attr[corner_name] = [corner_files]
-                file_utils.resolve_file_list(attr[corner_name])
+        for corner_dict in (self.liberty_files, self.si_files):
+            for corner_files in corner_dict.values():
+                file_utils.resolve_file_list(corner_files)
 
         context.libs[self.name] = self
         logging.debug(
@@ -124,23 +155,27 @@ class BlockSpec(BaseModel):
 
     # RTL step
     top: str = ""
-    rtl_files: list = Field(default_factory=list)
-    rtl_incdirs: list = Field(default_factory=list)
+    rtl_files: list[str] = Field(default_factory=list)
+    rtl_incdirs: list[str] = Field(default_factory=list)
 
     # Gate-level / implementation step (user-declared post-impl info)
-    netlist_files: list = Field(default_factory=list)
-    netlist_incdirs: list = Field(default_factory=list)
-    liberty_files: dict = Field(default_factory=dict)   # {corner: [files]}
-    si_files: dict = Field(default_factory=dict)    # {corner: [files]}
+    netlist_files: list[str] = Field(default_factory=list)
+    netlist_incdirs: list[str] = Field(default_factory=list)
+    liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
+    si_files: dict[str, list[str]] = Field(default_factory=dict)        # {corner: [files]}
     layout_info: str = ""
 
     # Pipeline step files
-    sdc_files: list = Field(default_factory=list)   # design constraints
-    vcd_files: dict = Field(default_factory=dict)   # value change dump {corner: [files]}
-    saif_files: dict = Field(default_factory=dict)  # switching activity {corner: [files]}
+    sdc_files: list[str] = Field(default_factory=list)                  # design constraints
+    vcd_files: dict[str, list[str]] = Field(default_factory=dict)       # value change dump {corner: [files]}
+    saif_files: dict[str, list[str]] = Field(default_factory=dict)      # switching activity {corner: [files]}
 
     # PDK cell library dependencies (LibSpec names)
-    libs: list = Field(default_factory=list)
+    libs: list[str] = Field(default_factory=list)
+
+    _lists = field_validator("rtl_files", "rtl_incdirs", "netlist_files", "netlist_incdirs",
+                             "sdc_files", "libs", mode="before")(_as_list)
+    _corner_dicts = field_validator("liberty_files", "si_files", mode="before")(_as_corner_dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -154,14 +189,12 @@ class BlockSpec(BaseModel):
 
     @field_validator("vcd_files", "saif_files", mode="before")
     @classmethod
-    def coerce_corner_files(cls, v):
+    def coerce_activity_files(cls, v):
         # Convenience: a file or a list of files, with no corner, is the
         # "default" corner.
-        if isinstance(v, str):
-            return {"default": [v]}
-        if isinstance(v, list):
-            return {"default": v}
-        return v
+        if isinstance(v, (str, os.PathLike, list, tuple)):
+            v = {"default": v}
+        return _as_corner_dict(v)
 
     @field_validator("includes", mode="before")
     @classmethod
@@ -201,16 +234,11 @@ class BlockSpec(BaseModel):
         file_utils.resolve_file_list(self.netlist_files)
         file_utils.resolve_dir_list(self.netlist_incdirs)
         file_utils.resolve_file_list(self.sdc_files)
-        for attr_name in ("liberty_files", "si_files", "vcd_files", "saif_files"):
-            corner_dict = getattr(self, attr_name)
-            for corner_name, corner_files in corner_dict.items():
-                if not isinstance(corner_files, list):
-                    corner_dict[corner_name] = [corner_files]
-                file_utils.resolve_file_list(corner_dict[corner_name])
+        for corner_dict in (self.liberty_files, self.si_files, self.vcd_files, self.saif_files):
+            for corner_files in corner_dict.values():
+                file_utils.resolve_file_list(corner_files)
         if self.layout_info:
-            self.layout_info = os.path.expandvars(self.layout_info)
-            if Path(self.layout_info).is_dir() or Path(self.layout_info).is_file():
-                self.layout_info = file_utils.absolute_path(self.layout_info)
+            self.layout_info = _resolve_layout_info(self.layout_info, f"Block '{self.name}'")
         # Includes are checked once every manifest has loaded (context.validate())
         # and resolved when a recipe is elaborated, so a block may include one
         # that is defined later, and whether an included recipe has been run is
@@ -227,14 +255,17 @@ class EnvSpec(BaseModel):
 
     name: str = ""
     desc: str = ""
-    includes: list = Field(default_factory=list)
+    includes: list[str] = Field(default_factory=list)
     target: str = ""
     vrf_top: str = ""
-    vrf_files: list = Field(default_factory=list)
-    vrf_incdirs: list = Field(default_factory=list)
-    vrf_libs: list = Field(default_factory=list)
+    vrf_files: list[str] = Field(default_factory=list)
+    vrf_incdirs: list[str] = Field(default_factory=list)
+    vrf_libs: list[str] = Field(default_factory=list)
     vrf_options: dict = Field(default_factory=dict)
-    vrf_defines: list = Field(default_factory=list)
+    vrf_defines: list[str] = Field(default_factory=list)
+
+    _lists = field_validator("includes", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
+                             mode="before")(_as_list)
     vrf_framework: str = ""
     vrf_framework_top: str = ""
     default_sim: str = ""
