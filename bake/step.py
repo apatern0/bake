@@ -649,16 +649,35 @@ class Step(ABC):
         self.check_post()
         self.write_stamp(fingerprint)
 
+    VARS_FILE = "bake_vars.json"
+
+    @property
+    def vars_path(self) -> Path:
+        """The template variables as JSON, written next to the expanded flow
+        on every run; the flow finds it through $BAKE_VARS as well."""
+        return self.workdir / self.VARS_FILE
+
+    @staticmethod
+    def render_tpl_value(value) -> str:
+        """How a template variable appears in a .tpl file: a list is joined
+        with spaces, anything else is str()'d. The JSON keeps the list."""
+        if isinstance(value, (list, tuple)):
+            return " ".join(str(v) for v in value)
+        return str(value)
+
     def build_tpl_dict(self) -> dict:
         """Template variables available to every flow.
 
         Combines config.bake.tpl_dict, the step's own config.<step>.tpl_dict,
         the block/recipe identity, and the flow options: the flow's
         tpl_defaults overlaid with config.<step>.flow_options, exposed as
-        $BAKE_FLOW_OPT_<NAME> (name upper-cased, lists space-joined).  A dict
-        option expands to one variable per key, $BAKE_FLOW_OPT_<NAME>_<KEY>,
-        and an override merges into the flow's default dict key by key so
-        that every key the flow declares stays defined.
+        $BAKE_FLOW_OPT_<NAME> (name upper-cased).  A dict option expands to
+        one variable per key, $BAKE_FLOW_OPT_<NAME>_<KEY>, and an override
+        merges into the flow's default dict key by key so that every key the
+        flow declares stays defined.
+
+        Values may be lists: they are space-joined in .tpl files and kept as
+        lists in bake_vars.json (see render_tpl_value).
         """
         tpl_dict = dict(context.config.bake.tpl_dict)
         tpl_dict.update(getattr(self.config, "tpl_dict", None) or {})
@@ -669,11 +688,6 @@ class Step(ABC):
         tpl_dict["BAKE_BLOCK"]       = self.data.block
         tpl_dict["BAKE_RECIPE"]      = str(self.data.recipe_prefix)
 
-        def as_string(value):
-            if isinstance(value, (list, tuple)):
-                return " ".join(str(v) for v in value)
-            return value
-
         flow_options = dict(self.flow.tpl_defaults)
         for opt_name, opt_val in (getattr(self.config, "flow_options", None) or {}).items():
             if isinstance(opt_val, dict) and isinstance(flow_options.get(opt_name), dict):
@@ -683,9 +697,9 @@ class Step(ABC):
         for opt_name, opt_val in flow_options.items():
             if isinstance(opt_val, dict):
                 for key, val in opt_val.items():
-                    tpl_dict[f"BAKE_FLOW_OPT_{opt_name.upper()}_{key.upper()}"] = as_string(val)
+                    tpl_dict[f"BAKE_FLOW_OPT_{opt_name.upper()}_{key.upper()}"] = val
             else:
-                tpl_dict[f"BAKE_FLOW_OPT_{opt_name.upper()}"] = as_string(opt_val)
+                tpl_dict[f"BAKE_FLOW_OPT_{opt_name.upper()}"] = opt_val
 
         return tpl_dict
 
@@ -710,6 +724,10 @@ class Step(ABC):
         )
 
         tpl_dict = self.build_tpl_dict()
+        with open(self.vars_path, "w", encoding="utf-8") as f:
+            json.dump(tpl_dict, f, indent=2, sort_keys=True, default=str)
+            f.write("\n")
+        rendered = {k: self.render_tpl_value(v) for k, v in tpl_dict.items()}
 
         for current_dir_src, subdirs, files in os.walk(self.flowdir):
             current_dir_src = Path(current_dir_src)
@@ -725,7 +743,7 @@ class Step(ABC):
                          open(subfile_dest, "w", encoding="utf-8") as f_out:
                         template = BakeTemplate(f_in.read())
                         try:
-                            f_out.write(template.substitute(tpl_dict))
+                            f_out.write(template.substitute(rendered))
                         except KeyError as err:
                             raise exceptions.BakeConfigError(
                                 f"{subfile_src}: template variable {err} is undefined."
@@ -794,8 +812,9 @@ class Step(ABC):
         backup_sigint  = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGTERM, handle_signal)
         signal.signal(signal.SIGINT,  handle_signal)
+        env = dict(os.environ, BAKE_VARS=str(self.vars_path.resolve()))
         try:
-            with subprocess.Popen("./" + run_executable, shell=True, cwd=run_dir,
+            with subprocess.Popen("./" + run_executable, shell=True, cwd=run_dir, env=env,
                                   start_new_session=True) as proc:
                 heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
                 heartbeat_thread.start()

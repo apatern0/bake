@@ -229,25 +229,28 @@ Setting `config.bake.file_copy_method = "symlink"` makes *bake* symlink the flow
 instead of copying it, which is useful for read-only shared flow installations where the user
 should always run the latest version without a local copy.
 
-## Writing a Python Flow Script
+## Reading the Variables from a Script: `bake_vars.json`
 
-For complex flows, a Python entry point has full access to the *bake* environment variables
-injected via the template. A minimal `run.py.tpl` pattern:
+Pasting `$BAKE_XYZ` into a script works for Tcl and shell, but a value containing a quote or a
+path with a space breaks a script that puts it in a string literal and splits it. So on every
+run *bake* also writes all template variables to `bake_vars.json` in the step's work directory
+— the same values, with lists kept as lists — and hands the flow its absolute path in the
+`BAKE_VARS` environment variable. A Python entry point reads them from there; the built-in
+`run.py` scripts do:
 
 ```python
 #!/usr/bin/env python3
+import json
+import os
 import subprocess
 import sys
-import os
 
-RTL_FILES = "$BAKE_SIM_FILES".split()
-SIMULATOR  = "$BAKE_SIM_SIMULATOR"
-DEFINES    = "$BAKE_SIM_DEFINES".split()
+with open(os.environ.get("BAKE_VARS", "bake_vars.json")) as f:
+    V = json.load(f)
 
-cmd = [SIMULATOR] + [f"+define+{d}" for d in DEFINES] + RTL_FILES
-result = subprocess.run(cmd)
-sys.exit(result.returncode)
+cmd = [V["BAKE_SIM_SIMULATOR"]] + [f"+define+{d}" for d in V["BAKE_SIM_DEFINES"]] + V["BAKE_SIM_FILES"]
+sys.exit(subprocess.run(cmd).returncode)
 ```
 
-All `$BAKE_XYZ` tokens are literal Python string values after template expansion — no subprocess
-environment variable lookup is needed.
+The file is a plain `{"BAKE_XYZ": value}` object. A variable that is a list in *bake* (file
+lists, options, defines) is a JSON list there and space-joined in `.tpl` files.

@@ -952,6 +952,22 @@ def test_tpl_custom_variable_expanded(bake, project):
     assert "hello_bake" in run_sh and "${BAKE_CUSTOM_VAR}" not in run_sh
 
 
+def test_bake_vars_json_keeps_lists(bake, project):
+    """Every run writes the template variables to bake_vars.json, lists kept
+    as lists, and hands the flow its path in $BAKE_VARS; a path with a space
+    is one entry there, while the template variable is space-joined."""
+    import json
+    project("spaces")
+    assert not bake.run(["sample_target", "impl"])
+    work = Path("work/sample_target/impl")
+    v = json.loads((work / "bake_vars.json").read_text())
+    assert v["BAKE_TOP"] == "sample"
+    assert [Path(f).name for f in v["BAKE_DESIGN_VERILOG_FILES"]] == ["sample.v", "base.v"]
+    assert " " in v["BAKE_DESIGN_VERILOG_FILES"][0]
+    files = (work / "output/files.txt").read_text().splitlines()
+    assert files == v["BAKE_DESIGN_VERILOG_FILES"]
+
+
 def test_tpl_undefined_variable_in_flow_errors(bake, capfd, project):
     """A .tpl file referencing an undefined $BAKE_ variable surfaces as an error."""
     project("tpl_undefined")

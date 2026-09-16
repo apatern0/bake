@@ -21,9 +21,9 @@
 
 """Verification run script template"""
 
+import json
 import logging
 import os
-import shlex
 import signal
 import subprocess
 import glob
@@ -162,22 +162,25 @@ def run_command(cmd):
 
 
 def main():
-    # All values below are replaced by bake during template evaluation
-    BAKE_TOP = "$BAKE_TOP"
-    BAKE_INCLUDE_DIRS = shlex.split("$BAKE_INCLUDE_DIRS")
-    BAKE_DESIGN_VERILOG_FILES = shlex.split("$BAKE_DESIGN_VERILOG_FILES")
-    BAKE_INTERACTIVE = "$BAKE_INTERACTIVE"
-    BAKE_SIM_TOP = "$BAKE_SIM_TOP"
-    BAKE_SIM_FILES = shlex.split("$BAKE_SIM_FILES")
-    BAKE_LIB_VERILOG_FILES = shlex.split("$BAKE_LIB_VERILOG_FILES")
-    BAKE_SIM_SIMULATOR = "$BAKE_SIM_SIMULATOR"
-    BAKE_SIM_OPTIONS = "$BAKE_SIM_OPTIONS"
-    BAKE_RUN_OPTIONS = "$BAKE_RUN_OPTIONS"
-    BAKE_SIM_DEFINES = "$BAKE_SIM_DEFINES".split()
-    BAKE_SIM_DELAY_CORNER = "$BAKE_SIM_DELAY_CORNER"
-    BAKE_SIM_SDF_FILES = shlex.split("$BAKE_SIM_SDF_FILES")
-    BAKE_SIM_FRAMEWORK = "$BAKE_SIM_FRAMEWORK"
-    BAKE_SIM_FRAMEWORK_TOP = "$BAKE_SIM_FRAMEWORK_TOP"
+    # The template variables, as bake wrote them to bake_vars.json (lists
+    # stay lists, so paths with spaces survive).
+    with open(os.environ.get("BAKE_VARS", "bake_vars.json"), encoding="utf-8") as f:
+        V = json.load(f)
+    BAKE_TOP = V["BAKE_TOP"]
+    BAKE_INCLUDE_DIRS = V["BAKE_INCLUDE_DIRS"]
+    BAKE_DESIGN_VERILOG_FILES = V["BAKE_DESIGN_VERILOG_FILES"]
+    BAKE_INTERACTIVE = str(V["BAKE_INTERACTIVE"])
+    BAKE_SIM_TOP = V["BAKE_SIM_TOP"]
+    BAKE_SIM_FILES = V["BAKE_SIM_FILES"]
+    BAKE_LIB_VERILOG_FILES = V["BAKE_LIB_VERILOG_FILES"]
+    BAKE_SIM_SIMULATOR = V["BAKE_SIM_SIMULATOR"]
+    BAKE_SIM_OPTIONS = " ".join(V["BAKE_SIM_OPTIONS"])
+    BAKE_RUN_OPTIONS = " ".join(V["BAKE_RUN_OPTIONS"])
+    BAKE_SIM_DEFINES = V["BAKE_SIM_DEFINES"]
+    BAKE_SIM_DELAY_CORNER = V["BAKE_SIM_DELAY_CORNER"]
+    BAKE_SIM_SDF_FILES = V["BAKE_SIM_SDF_FILES"]
+    BAKE_SIM_FRAMEWORK = V["BAKE_SIM_FRAMEWORK"]
+    BAKE_SIM_FRAMEWORK_TOP = V["BAKE_SIM_FRAMEWORK_TOP"]
 
     # basic data validation
     if not BAKE_DESIGN_VERILOG_FILES:

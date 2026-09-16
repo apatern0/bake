@@ -94,16 +94,16 @@ class TmrStep(Step):
             lib_verilog_files.extend(lib.netlist_files)
             all_incdirs.extend(lib.netlist_incdirs)
 
-        tpl_dict["BAKE_TMR_OUTPUT_DIR"]       = self.outputdir
-        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(all_incdirs)
-        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(self.data.rtl_files)
-        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = " ".join(lib_verilog_files)
+        tpl_dict["BAKE_TMR_OUTPUT_DIR"]       = str(self.outputdir)
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = all_incdirs
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = list(self.data.rtl_files)
+        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = lib_verilog_files
 
-        tpl_dict["BAKE_RUN_OPTIONS"] = " ".join(self.config.options)
+        tpl_dict["BAKE_RUN_OPTIONS"] = list(self.config.options)
 
-        tpl_dict["BAKE_TMR_CELL_LIB_DIRS"]      = " ".join(self.config.cell_lib_dirs)
-        tpl_dict["BAKE_TMR_FF_CELL_PATTERNS"]   = " ".join(self.config.ff_cell_patterns)
-        tpl_dict["BAKE_TMR_SKIP_CELL_PATTERNS"] = " ".join(self.config.skip_cell_patterns)
+        tpl_dict["BAKE_TMR_CELL_LIB_DIRS"]      = list(self.config.cell_lib_dirs)
+        tpl_dict["BAKE_TMR_FF_CELL_PATTERNS"]   = list(self.config.ff_cell_patterns)
+        tpl_dict["BAKE_TMR_SKIP_CELL_PATTERNS"] = list(self.config.skip_cell_patterns)
         tpl_dict["BAKE_TMR_SEU_RESET_PIN"]      = self.config.seu_reset_pin
         tpl_dict["BAKE_TMR_SEU_SET_PIN"]        = self.config.seu_set_pin
 
