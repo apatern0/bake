@@ -243,11 +243,11 @@ def test_config_missing_section_is_attribute_error():
 # Tests — step and block listing
 # ===========================================================================
 
-def test_steps_all_four_always_listed(bake, capfd, project):
-    """All four builtin steps always appear in the step listing."""
+def test_builtin_steps_always_listed(bake, capfd, project):
+    """The builtin steps always appear in the step listing; only they do."""
     project("flows_only")
     assert not bake.run()
-    assert_stderr(capfd, expect=["vrf", "impl", "tmr", "dummy"])
+    assert_stderr(capfd, expect=["- vrf", "- impl", "- tmr"], expect_not=["dummy"])
 
 
 def test_blocks_listed(bake, capfd, project):

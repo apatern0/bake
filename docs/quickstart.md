@@ -79,7 +79,6 @@ files exist. It also lists the available steps:
 
 ```
 [bake] INFO     Available steps:
-[bake] INFO     - dummy
 [bake] INFO     - vrf
 [bake] INFO     - tmr
 [bake] INFO     - impl
@@ -95,7 +94,7 @@ known steps is a valid recipe:
   * `tmr-impl` — triplicate, then implement
   * `tmr-impl-vrf` — triplicate, implement, then gate-level simulation
 
-(`dummy` does nothing; it is the template for writing [your own steps](custom_steps.md).)
+Projects can add [steps of their own](custom_steps.md) to this list.
 
 ## Running a Simulation
 ```

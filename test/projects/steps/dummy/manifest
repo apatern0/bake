@@ -18,10 +18,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dummy step — template for user-defined steps.
-
-Copy this file, rename the class and set the class attributes to match your
-flow.  Implement run(), check_post(), and clean().
+"""A do-nothing step: it declares no sources and no outputs, so it runs
+every time, and its flow only prints a line. The recipe tests combine it
+with the real steps. For the template of a step of your own, see
+example/06_custom_step and docs/custom_steps.md.
 """
 
 

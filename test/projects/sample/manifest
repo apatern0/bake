@@ -18,6 +18,7 @@
 from bake import load, block, test, env
 
 load("../flows")
+load("../steps/dummy")
 config.impl.flow = "dummy_impl"
 config.vrf.flow = "dummy_vrf"
 

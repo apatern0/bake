@@ -76,7 +76,7 @@ centralized in `manifest` files — where they can be shared between RTL develop
 and verification tasks.
 
 ## Step and Flow Discovery
-*bake* discovers available steps automatically. Built-in steps (`vrf`, `impl`, `tmr`, `dummy`) are
+*bake* discovers available steps automatically. Built-in steps (`vrf`, `impl`, `tmr`) are
 located in the `bake/builtin/` directory of the package and are loaded on every invocation
 without any action required from the user.
 
