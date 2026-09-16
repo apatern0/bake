@@ -170,7 +170,25 @@ def test_removed_bake_option_rejected(bake, capfd, project):
     """config.bake.vrf_simulator no longer exists; setting it is an error."""
     project("removed_option")
     assert bake.run([])
-    assert_in_stderr(capfd, "Cannot add new attributes")
+    assert_in_stderr(capfd, "config.bake has no attribute")
+
+
+def test_step_config_typo_rejected(bake, capfd, project):
+    """Assigning an attribute a builtin step's config does not declare is an
+    error, not silently ignored."""
+    project("config_typo")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["config.vrf has no attribute", "simulater", "Known attributes: defines, delays, flow"])
+
+
+def test_config_missing_section_is_attribute_error():
+    """A missing section raises an AttributeError too, so hasattr() works."""
+    from bake.context import context
+    from bake.exceptions import BakeConfigError
+    assert not hasattr(context.config, "no_such_section")
+    assert getattr(context.config, "no_such_section", None) is None
+    with pytest.raises(BakeConfigError):
+        _ = context.config.no_such_section
 
 
 # ===========================================================================

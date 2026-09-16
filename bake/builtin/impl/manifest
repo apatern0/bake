@@ -31,7 +31,7 @@ from bake.step import Step
 from bake.manifest import FlowSpec
 
 
-class ImplConfig:
+class ImplConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.ldb_dir      = ""
         self.tpl_dict     = config.TemplateDictionary()

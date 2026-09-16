@@ -9,6 +9,9 @@ config.vrf.simulator = "xcelium"
 config.bake.file_copy_method = "symlink"
 ```
 
+Assigning an attribute a section does not have is an error that names the known attributes, so
+a typo cannot pass unnoticed (`config.user` is the exception: it is free-form, see below).
+
 Settings take effect before any step is executed. Configuration can also be overridden at the
 command line with the `-o` flag:
 
