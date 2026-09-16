@@ -500,6 +500,13 @@ def test_tmr_recipes(bake, project, recipe, outputs):
         assert Path(f"work/sample_target/{step_dir}/output/sampleTMR.v").exists()
 
 
+def test_tmr_refuses_same_basename(bake, capfd, project):
+    """Two RTL files with the same name would collide in tmr's output."""
+    project("tmr_clash")
+    assert bake.run(["sample_target", "tmr", "-n"])
+    assert_stderr(capfd, expect=["would overwrite each other", "sample.v:", "Rename one of them"])
+
+
 @tmrg_required
 def test_tmr_impl_update_required(bake, project):
     """tmr-impl is skipped on re-run when outputs are up-to-date."""

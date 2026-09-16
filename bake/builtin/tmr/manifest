@@ -26,6 +26,7 @@ import functools
 from bake import file_utils
 from bake.step import Step
 from bake.manifest import FlowSpec
+from bake.exceptions import BakeManifestError
 
 FlowSpec(
     name="builtin_tmr_flow",
@@ -64,6 +65,20 @@ config.register('tmr', TmrConfig())
 class TmrStep(Step):
     name = "tmr"
     default_flow = "builtin_tmr_flow"
+
+    def check_pre(self):
+        # tmrg names each output after its input's basename, so two RTL
+        # files with the same name would overwrite each other.
+        by_name = {}
+        for f in self.data.rtl_files:
+            by_name.setdefault(os.path.basename(f), []).append(f)
+        clashes = {name: files for name, files in by_name.items() if len(files) > 1}
+        if clashes:
+            listed = "\n".join(f"   - {name}: {', '.join(files)}" for name, files in clashes.items())
+            raise BakeManifestError(
+                f"Step tmr for block '{self.data.block}': RTL files with the same name would "
+                f"overwrite each other's triplicated output:\n{listed}\nRename one of them."
+            )
 
     def get_rtl_filenames(self) -> list:
         """Return expected post-triplication filenames (basenames only)."""
