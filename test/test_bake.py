@@ -195,6 +195,20 @@ def test_custom_step_appears_in_listing(bake, capfd, project):
     assert_in_stderr(capfd, "- check")
 
 
+def test_vcd_and_saif_files_accepted(bake, capfd, project):
+    """vcd_files/saif_files take a file, a list or a corner dict; the plain
+    forms become the "default" corner."""
+    project("vcd_files")
+    assert not bake.run([])
+    from bake.context import context
+    assert list(context.blocks["plain"].vcd_files) == ["default"]
+    assert set(context.blocks["corners"].vcd_files) == {"tt", "ss"}
+    assert context.blocks["corners"].vcd_files["ss"][0].endswith("rtl/base.v")
+    assert context.blocks["corners"].saif_files["default"][0].endswith("rtl/base.v")
+    # they reach the step data (dict(block.vcd_files) used to raise on a list)
+    assert not bake.run(["corners", "impl"])
+
+
 # ===========================================================================
 # Tests — custom steps
 # ===========================================================================

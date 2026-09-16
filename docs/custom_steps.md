@@ -269,6 +269,7 @@ alter the registered manifest.
 | `liberty_files` | `dict[str, list[str]]` | Manifest or `impl` output |
 | `layout_info` | `str` | Manifest or `impl` output |
 | `sdc_files` | `list[str]` | Manifest `block()` |
+| `vcd_files`, `saif_files` | `dict[str, list[str]]` | Manifest `block()` |
 | `sdf_files` | `dict[str, str]` | `impl` output |
 | `vrf_top` | `str` | Manifest `test()` / `env()` |
 | `vrf_files` | `list[str]` | Manifest `test()` / `env()` |
