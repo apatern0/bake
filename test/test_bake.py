@@ -142,6 +142,14 @@ def test_duplicate_block_raises(bake, capfd, project):
     assert_in_stderr(capfd, "Redefinition")
 
 
+def test_duplicate_test_raises(bake, capfd, project):
+    """The same test name twice for one block is an error; the same name on
+    another block is not."""
+    project("duplicate_test")
+    assert bake.run([])
+    assert_in_stderr(capfd, "Redefinition of test t for block a")
+
+
 def test_removed_bake_option_rejected(bake, capfd, project):
     """config.bake.vrf_simulator no longer exists; setting it is an error."""
     project("removed_option")

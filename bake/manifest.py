@@ -282,6 +282,10 @@ class EnvSpec(BaseModel):
         self._inherit_target()
 
         if self.is_test:
+            if context.test_exists(self.name, self.target):
+                raise BakeManifestError(
+                    f"Redefinition of test {self.name} for block {self.target} detected"
+                )
             context.tests.append(self)
             logging.debug(
                 "Registered test '%s' for target '%s' (%d vrf files, framework=%s)",
