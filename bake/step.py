@@ -666,18 +666,21 @@ class Step(ABC):
             self.recipe_path, run_executable, run_dir,
         )
 
-        with subprocess.Popen("./" + run_executable, shell=True, cwd=run_dir,
-                              start_new_session=True) as proc:
-            heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
-            heartbeat_thread.start()
-
-            backup_sigterm = signal.getsignal(signal.SIGTERM)
-            backup_sigint  = signal.getsignal(signal.SIGINT)
-            signal.signal(signal.SIGTERM, handle_signal)
-            signal.signal(signal.SIGINT,  handle_signal)
-            proc.wait()
-            heartbeat_stop.set()
-            heartbeat_thread.join()
+        backup_sigterm = signal.getsignal(signal.SIGTERM)
+        backup_sigint  = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGTERM, handle_signal)
+        signal.signal(signal.SIGINT,  handle_signal)
+        try:
+            with subprocess.Popen("./" + run_executable, shell=True, cwd=run_dir,
+                                  start_new_session=True) as proc:
+                heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+                heartbeat_thread.start()
+                try:
+                    proc.wait()
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join()
+        finally:
             signal.signal(signal.SIGTERM, backup_sigterm)
             signal.signal(signal.SIGINT, backup_sigint)
 
