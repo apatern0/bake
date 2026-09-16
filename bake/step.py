@@ -611,7 +611,7 @@ class Step(ABC):
                     shutil.copymode(subfile_src, subfile_dest)
                 else:
                     subfile_dest = current_dir_dest / subfile
-                    if subfile_dest.exists():
+                    if subfile_dest.exists() or subfile_dest.is_symlink():
                         subfile_dest.unlink()
                     copy_method(subfile_src, subfile_dest)
 
