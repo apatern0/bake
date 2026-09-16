@@ -164,7 +164,10 @@ Arguments:
   * `netlist_files` — Verilog files used to model the library during simulation
   * `netlist_incdirs` — include directories for the netlist Verilog files — optional
   * `liberty_files` — dictionary mapping corner names to Liberty files for implementation timing.
-    Example: `{"TT": ["block_tt.lib"], "SS": ["block_ss.lib"], "FF": ["block_ff.lib"]}`.
+    Example: `{"TT": ["block_tt.lib"], "SS": ["block_ss.lib"], "FF": ["block_ff.lib"]}`. The
+    corner names are those the implementation flow declares (`TT`, `FF`, `SS` in the built-in
+    flow). A corner is in use when any library of a block provides it; every library with
+    Liberty files must then provide it too, or `impl` refuses the block before running.
   * `layout_info` — LEF file or OpenAccess library folder for physical implementation — optional
   * `si_files` — SI-related (cdb) library information, same format as `liberty_files` — optional
 

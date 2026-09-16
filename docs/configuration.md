@@ -76,8 +76,9 @@ Clock tree synthesis needs a clock: declare an SDC with `create_clock` in the bl
 `sdc_files`. Without one the flow warns and skips CTS.
 
 When the libraries provide LEF, the flow also writes the block's abstracts — `<top>.lef` and
-`<top>_<corner>.lib` — and publishes them on `StepData` (`layout_info`, `liberty_files`), so a
-block that includes this one after `impl` integrates it as a hard macro. Implemented sub-blocks
+`<top>_<corner>.lib` for every corner the libraries have Liberty for — and publishes them on
+`StepData` (`layout_info`, `liberty_files`), so a block that includes this one after `impl`
+integrates it as a hard macro. They are expected outputs: a run that does not produce them fails. Implemented sub-blocks
 reach the flow through the `$BAKE_MACRO_*` variables below.
 
 ### `config.tmr`

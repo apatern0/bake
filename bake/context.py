@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 from .exceptions import (
     BakeConfigAttributeError,
     BakeConfigError,
-    BakeInternalError,
     BakeManifestError,
 )
 
@@ -276,23 +275,6 @@ class Context:
 
     def flows_defined(self):
         return len(self.flows) > 0
-
-    # ------------------------------------------------------------------
-    # Library corner helpers
-    # ------------------------------------------------------------------
-
-    def get_impl_corners(self):
-        flow_name = self.config.impl.flow
-        if not flow_name or flow_name not in self.flows:
-            raise BakeInternalError("No implementation flow configured while checking library corners.")
-        return self.flows[flow_name].corners
-
-    def check_lib_corners(self, lib_spec):
-        # TODO: corner validation is disabled. resolved_libs calls this while
-        # a manifest is being parsed, before config.impl.flow is necessarily
-        # set, so the impl flow's corner list is not reliably known here.
-        del lib_spec
-        return True
 
     # ---------------------------------------------------------------------------
     # Helper functions for test discovery

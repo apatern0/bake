@@ -185,14 +185,11 @@ class BlockSpec(BaseModel):
 
     @functools.cached_property
     def resolved_libs(self):
-        # Cached so repeated accesses (e.g. from multiple steps) don't
-        # re-validate corner consistency on every call.
         libs = []
         for n in self.libs:
             if n not in context.libs:
                 raise BakeManifestError(f"Library {n} not defined")
             libs.append(context.libs[n])
-            context.check_lib_corners(context.libs[n])
         return libs
 
     def model_post_init(self, __context: Any) -> None:
@@ -245,8 +242,6 @@ class EnvSpec(BaseModel):
 
     @functools.cached_property
     def resolved_libs(self):
-        # Cached so repeated accesses (e.g. from multiple steps) don't
-        # re-validate corner consistency on every call.
         libs = []
         for n in self.vrf_libs:
             if n in context.libs:
@@ -256,7 +251,6 @@ class EnvSpec(BaseModel):
             else:
                 raise BakeManifestError(f"Library {n} not defined")
             libs.append(spec)
-            context.check_lib_corners(spec)
         return libs
 
     def _inherit_target(self) -> None:

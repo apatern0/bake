@@ -60,10 +60,36 @@ class ImplStep(Step):
                 f"flow does when the libraries provide LEF), or declare them on the block with "
                 f"layout_info= and liberty_files=."
             )
+        self._check_corners()
+
+    def _check_corners(self):
+        # A corner is used when any library (or the macro abstracts) has
+        # Liberty for it; every other one with Liberty must have it too, or
+        # timing analysis fails later on unresolved cells.
+        flow_corners = [c for c, _ in self.flow.corners]
+        sources = {f"library '{lib.name}'": set(lib.liberty_files)
+                   for lib in self.data.libs if lib.liberty_files}
+        if self.data.liberty_files:
+            sources[f"abstracts of block '{self.data.block}'"] = set(self.data.liberty_files)
+        used = [c for c in flow_corners if any(c in corners for corners in sources.values())]
+        missing = {name: [c for c in used if c not in corners] for name, corners in sources.items()}
+        missing = {name: corners for name, corners in missing.items() if corners}
+        if missing:
+            listed = "\n".join(f"   - {name}: {', '.join(c)}" for name, c in missing.items())
+            raise BakeManifestError(
+                f"Step impl for block '{self.data.block}': the flow corners in use are "
+                f"{', '.join(used)}, but no Liberty files are given for:\n{listed}"
+            )
 
     @property
     def _has_physical_libs(self) -> bool:
         return any(lib.layout_info for lib in self.data.libs)
+
+    @property
+    def _macro_corners(self) -> list:
+        """Flow corners the abstracts are written for: those with Liberty files."""
+        have = {c for lib in self.data.libs for c in lib.liberty_files}
+        return [c for c, _ in self.flow.corners if c in have]
 
     def build_tpl_dict(self) -> dict:
         tpl_dict = super().build_tpl_dict()
@@ -130,6 +156,8 @@ class ImplStep(Step):
         if self._has_physical_libs:
             # Place-and-route ran: the abstracts that make this block a macro.
             files.append(os.path.join(self.outputdir, f"{self.data.top}.lef"))
+            files.extend(os.path.join(self.outputdir, f"{self.data.top}_{corner}.lib")
+                         for corner in self._macro_corners)
         return files
 
     @property
@@ -144,11 +172,10 @@ class ImplStep(Step):
         data.sdf_files     = {"default": self.output_files[1]}
         data.vrf_defines.append("NETLIST")
         if self._has_physical_libs:
-            corners = {c for lib in self.data.libs for c in lib.liberty_files}
             data.layout_info   = os.path.join(self.outputdir, f"{self.data.top}.lef")
             data.liberty_files = {
                 corner: [os.path.join(self.outputdir, f"{self.data.top}_{corner}.lib")]
-                for corner, _ in self.flow.corners if corner in corners
+                for corner in self._macro_corners
             }
         else:
             data.layout_info   = ""

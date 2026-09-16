@@ -437,6 +437,16 @@ def test_impl_update_required(bake, capfd, project):
     assert_in_stderr(capfd, "up-to-date")
 
 
+def test_impl_liberty_corners_consistent(bake, capfd, project):
+    """A library lacking Liberty for a corner another library uses is
+    rejected before anything runs; a corner nobody uses is not required."""
+    project("lib_corners")
+    assert not bake.run(["ok", "impl", "-n"])
+    assert not bake.run(["partial", "impl", "-n"])
+    assert bake.run(["broken", "impl", "-n"])
+    assert_stderr(capfd, expect=["flow corners in use are TT, SS", "tt_only", ": SS"])
+
+
 def test_impl_sdf_reaches_vrf(bake, project):
     """The SDF an impl step produces is handed to the following vrf step."""
     project("sample")
