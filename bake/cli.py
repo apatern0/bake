@@ -21,14 +21,18 @@
 
 import logging
 import argparse
+import difflib
+import os
 import re
 import sys
 from pathlib import Path
 import traceback
 import coloredlogs
 import argcomplete
+import pydantic
 
 from . import loader
+from . import manifest
 from . import step
 from . import exceptions
 from . import completion_cache
@@ -122,6 +126,75 @@ def apply_option_overrides(options):
                 raise exceptions.BakeConfigError(f"Option '{o}': {err}") from err
             setattr(section_obj, attribute, new_value)
             logging.debug("Config option applied: %s.%s = %r", section, attribute, new_value)
+
+
+# ---------------------------------------------------------------------------
+# Manifest errors
+# ---------------------------------------------------------------------------
+
+# The manifest function behind each spec, for messages: "block(): ...".
+_SPEC_FUNCTIONS = {
+    manifest.FlowSpec: "flow", manifest.LibSpec: "lib", manifest.BlockSpec: "block",
+    manifest.EnvSpec: "env", manifest.TestSpec: "test",
+}
+
+
+def _manifest_location(err: BaseException) -> tuple:
+    """(`file:line`, raised_there) for the innermost manifest frame the error
+    passed through, relative to the current directory. raised_there says
+    the error came from the manifest's own code (a NameError for a typo,
+    say) rather than from bake underneath it. ("", False) without one."""
+    if isinstance(err, SyntaxError) and err.filename:
+        return f"{os.path.relpath(err.filename)}:{err.lineno}", True
+    frames = traceback.extract_tb(err.__traceback__)
+    manifest_frames = [f for f in frames if Path(f.filename).name == "manifest"]
+    if not manifest_frames:
+        return "", False
+    last = manifest_frames[-1]
+    return f"{os.path.relpath(last.filename)}:{last.lineno}", last is frames[-1]
+
+
+def _validation_messages(err: pydantic.ValidationError) -> list:
+    """One line per pydantic error, in manifest terms: the function, the
+    argument, and a suggestion for an unknown one."""
+    spec = next((cls for cls in _SPEC_FUNCTIONS if cls.__name__ == err.title), None)
+    func = f"{_SPEC_FUNCTIONS[spec]}()" if spec else err.title
+    fields = list(spec.model_fields) if spec else []  # type: ignore[attr-defined]
+    lines = []
+    for e in err.errors():
+        arg = ".".join(str(x) for x in e["loc"]) or "<arguments>"
+        if e["type"] == "extra_forbidden":
+            msg = f"unknown argument '{arg}'"
+            close = difflib.get_close_matches(arg, fields, n=1)
+            if close:
+                msg += f" (did you mean '{close[0]}'?)"
+        else:
+            msg = f"{arg}: {e['msg']}"
+        lines.append(f"{func}: {msg}")
+    return lines
+
+
+def report_manifest_error(err: BaseException, verbose: bool) -> None:
+    """Log a manifest loading error as one line per problem, prefixed with
+    where in the manifest it happened. Errors the manifest author can act
+    on (a bad argument, a bake error, a Python error in the manifest
+    itself) get the traceback only with -v; anything else is a problem in
+    bake and always shows it."""
+    where, raised_in_manifest = _manifest_location(err)
+    if isinstance(err, pydantic.ValidationError):
+        messages, expected = _validation_messages(err), True
+    elif isinstance(err, exceptions.BakeRuntimeError):
+        messages, expected = [str(err)], True
+    else:
+        messages, expected = [f"{type(err).__name__}: {err}"], raised_in_manifest
+
+    prefix = f"{where}: " if where else "Error while loading manifest: "
+    for msg in messages:
+        logging.error("%s%s", prefix, msg)
+    if verbose or not expected:
+        for line in traceback.format_exception(err):
+            for sub in line.rstrip("\n").split("\n"):
+                logging.error(sub)
 
 
 # ---------------------------------------------------------------------------
@@ -341,10 +414,7 @@ def main():
         loader.load(args.manifestpath)
         context.validate()
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.error("Error while loading manifest: %s", str(e))
-        logging.error("")
-        for line in str(traceback.format_exc()).split('\n'):
-            logging.error(line)
+        report_manifest_error(e, verbose=bool(args.verbose))
         sys.exit(1)
 
     logging.debug(

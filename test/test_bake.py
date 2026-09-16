@@ -149,14 +149,29 @@ def test_unknown_manifest_field_rejected(bake, capfd, project):
     """A misspelled block() argument is an error rather than being dropped."""
     project("unknown_field")
     assert bake.run([])
-    assert_in_stderr(capfd, "rtl_file")
+    assert_stderr(capfd,
+                  expect=["manifest:22: block(): unknown argument", "rtl_file", "did you mean", "rtl_files"],
+                  expect_not=["Traceback"])
+    assert bake.run(["-v"])
+    assert_in_stderr(capfd, "Traceback")
+
+
+def test_manifest_python_errors_reported_with_line(bake, capfd, project):
+    """A NameError or SyntaxError in the manifest's own code is one line with
+    the location; the traceback only with -v."""
+    project("name_error")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["manifest:20: NameError: name", "blok"], expect_not=["Traceback"])
+    project("syntax_error")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["manifest:20: SyntaxError"], expect_not=["Traceback"])
 
 
 def test_duplicate_block_raises(bake, capfd, project):
     """Registering two blocks with the same name raises a manifest error."""
     project("duplicate_block")
     assert bake.run([])
-    assert_in_stderr(capfd, "Redefinition")
+    assert_stderr(capfd, expect=["manifest:23: Redefinition of block dup"], expect_not=["Traceback"])
 
 
 def test_broken_builtin_is_fatal(bake, capfd, project, monkeypatch):
