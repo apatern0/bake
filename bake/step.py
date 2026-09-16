@@ -41,6 +41,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import string
@@ -69,6 +70,19 @@ def bake_version() -> str:
         return importlib.metadata.version("bake-eda")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
+
+
+class BakeTemplate(string.Template):
+    """string.Template that only knows $BAKE_* placeholders.
+
+    Any other `$` — Tcl and shell variables, `${x}`, `$1` — is left as it
+    is, so flow scripts need no `$$` escaping (which still works: `$$`
+    becomes `$`). An unknown $BAKE_ name is still an error.
+    """
+    flags = re.RegexFlag(0)  # the default IGNORECASE would take $bake_x for a placeholder
+    # A str here; Template's metaclass compiles it. `invalid` never matches:
+    # a `$` that is not a placeholder is not an error, it is text.
+    pattern = r"\$(?:(?P<escaped>\$)|(?P<named>BAKE_[A-Z0-9_]+)|\{(?P<braced>BAKE_[A-Z0-9_]+)\}|(?P<invalid>(?!)))"  # type: ignore[assignment]  # noqa: E501
 
 
 class RecipePath(list):
@@ -709,7 +723,7 @@ class Step(ABC):
                     logging.debug("Expanding template: %s → %s", subfile_src.name, subfile_dest.name)
                     with open(subfile_src, "r", encoding="utf-8") as f_in, \
                          open(subfile_dest, "w", encoding="utf-8") as f_out:
-                        template = string.Template(f_in.read())
+                        template = BakeTemplate(f_in.read())
                         try:
                             f_out.write(template.substitute(tpl_dict))
                         except KeyError as err:

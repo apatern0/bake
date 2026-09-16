@@ -75,11 +75,14 @@ config.mystep.flow = "another_flow"
 ## Template Expansion
 
 Any file in the flow directory with a `.tpl` extension is treated as a template. *bake* reads the
-`.tpl` source, substitutes all `$BAKE_XYZ` tokens using Python `string.Template`, and writes the
-result to a file of the same name without the `.tpl` extension in the step work directory.
+`.tpl` source, substitutes all `$BAKE_XYZ` and `${BAKE_XYZ}` tokens, and writes the result to a
+file of the same name without the `.tpl` extension in the step work directory.
 
-All token names must be uppercase and start with `BAKE_`. Any `$` not followed by a valid
-`BAKE_` prefix is left unchanged. To include a literal `$` in the output, write `$$`.
+Only `$BAKE_...` tokens (upper case, digits and underscores) are placeholders. Every other `$` —
+a Tcl or shell variable, `${x}`, `$1` — is copied as it is, so scripts need no escaping. `$$`
+still yields a single `$`, for templates written against earlier versions. Use the braced form
+when a placeholder is followed by a letter, digit or underscore: `${BAKE_TOP}_tb`. A `$BAKE_`
+token nobody defines is an error naming the file and the variable.
 
 See [Configuration](configuration.md) for the full list of built-in template variables.
 

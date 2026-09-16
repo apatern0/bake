@@ -969,6 +969,16 @@ def test_recipe_objects_are_not_shared():
 # Tests — TemplateDictionary validation (unit)
 # ===========================================================================
 
+def test_bake_template_leaves_other_dollars_alone():
+    """Only $BAKE_* is a placeholder: shell/Tcl variables need no escaping,
+    $$ still collapses, and an unknown $BAKE_ name is an error."""
+    from bake.step import BakeTemplate
+    tpl = BakeTemplate("read_lef $lef ${x} $$y $1 $BAKE_TOP ${BAKE_TOP}_x $bake_top ${BAKE_TOP")
+    assert tpl.substitute({"BAKE_TOP": "cnt"}) == "read_lef $lef ${x} $y $1 cnt cnt_x $bake_top ${BAKE_TOP"
+    with pytest.raises(KeyError):
+        BakeTemplate("$BAKE_NOPE").substitute({"BAKE_TOP": "cnt"})
+
+
 def test_template_dict_prefix_enforced():
     from bake.context import TemplateDictionary
     d = TemplateDictionary()
