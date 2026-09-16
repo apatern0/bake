@@ -107,6 +107,23 @@ def test_no_manifest(bake, capfd):
     assert_in_stderr(capfd, "Manifest file not found")
 
 
+def test_version_flag(bake, capfd):
+    """--version prints the installed version and exits 0, manifest or not."""
+    assert bake.run(["--version"]) == 0
+    assert "bake 1." in str(capfd.readouterr())
+
+
+def test_dry_run_excludes_clean_restart_populate(bake, capfd, project):
+    """-n with -c, -r or -p is a usage error; with -f it is fine."""
+    project("sample")
+    for flag in ("-c", "-r", "-p"):
+        assert bake.run(["sample_target", "impl", "-n", flag]) == 2
+        assert_in_stderr(capfd, "cannot be combined")
+    assert not bake.run(["sample_target", "impl"])
+    assert not bake.run(["sample_target", "impl", "-n", "-f"])
+    assert_in_stderr(capfd, "would run:         sample_target impl  [forced]")
+
+
 def test_empty_manifest(bake, capfd, project):
     """Empty manifest is valid — no error."""
     project("empty")

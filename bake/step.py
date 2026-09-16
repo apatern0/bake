@@ -64,7 +64,7 @@ def _fmt_elapsed(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def _bake_version() -> str:
+def bake_version() -> str:
     try:
         return importlib.metadata.version("bake-eda")
     except importlib.metadata.PackageNotFoundError:
@@ -509,7 +509,7 @@ class Step(ABC):
                     if k not in self._FINGERPRINT_IGNORED_VARS}
 
         return {
-            "bake":    _bake_version(),
+            "bake":    bake_version(),
             "tpl":     digest(json.dumps(tpl_dict, sort_keys=True, default=str)),
             "sources": digest(json.dumps(sorted(str(f) for f in self.source_files))),
             "flow":    flow_hash.hexdigest(),
