@@ -25,7 +25,7 @@ from pathlib import Path
 from . import file_utils
 from .context import context
 
-loaded = []
+loaded: list = []
 
 
 def reset_loaded():

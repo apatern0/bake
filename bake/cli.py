@@ -267,7 +267,8 @@ def main():
         help="Selects a test for the given block.").completer = complete_test
     parser.add_argument("-o", "--options", dest="options", type=str, default=[], action="append",
         metavar="section.attribute=value",
-        help="Override a config attribute for this run (e.g. -o vrf.simulator=icarus). Repeatable.").completer = complete_config
+        help="Override a config attribute for this run (e.g. -o vrf.simulator=icarus). Repeatable."
+    ).completer = complete_config
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
         help="Elaborate the recipe and report what would run (dependencies included) without executing anything.")
 

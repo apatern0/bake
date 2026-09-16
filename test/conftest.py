@@ -15,7 +15,6 @@
 
 """Fixtures: an isolated copy of the test projects, and an in-process bake runner."""
 
-import os
 import shutil
 from pathlib import Path
 

@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from conftest import stderr
+from bake.exceptions import BakeConfigError
 
 # ---------------------------------------------------------------------------
 # Skip markers
@@ -470,7 +471,11 @@ def test_include_forms_parse(bake, capfd, project):
     listed with the state of its dependency."""
     project("hier")
     assert not bake.run([])
-    assert_stderr(capfd, expect=["- top_dict", "- top2  (needs block impl: not built)", "- top3  (needs block tmr-impl: not built)"])
+    assert_stderr(capfd, expect=[
+        "- top_dict",
+        "- top2  (needs block impl: not built)",
+        "- top3  (needs block tmr-impl: not built)",
+    ])
 
 
 def test_include_string_rejected(bake, capfd, project):
@@ -518,7 +523,7 @@ def test_include_builds_dependency(bake, capfd, project):
     assert not bake.run(["top2", "vrf"])
     assert "Running impl on block block (dependency of top2)" in stderr(capfd)
     assert Path("work/block/impl/output/block.v").is_file()
-    design = [l for l in vrf_run_sh("top2", "top2_test").splitlines() if l.startswith("echo 'DESIGN=")][0]
+    design = next(ln for ln in vrf_run_sh("top2", "top2_test").splitlines() if ln.startswith("echo 'DESIGN="))
     assert "work/block/impl/output/block.v" in design    # the netlist stands in ...
     assert "rtl/block.v" not in design                   # ... for the RTL
     assert "rtl/top.v" in design
@@ -877,14 +882,14 @@ def test_recipe_objects_are_not_shared():
 def test_template_dict_prefix_enforced():
     from bake.context import TemplateDictionary
     d = TemplateDictionary()
-    with pytest.raises(Exception, match="BAKE_"):
+    with pytest.raises(BakeConfigError, match="BAKE_"):
         d["NO_PREFIX"] = "value"
 
 
 def test_template_dict_uppercase_enforced():
     from bake.context import TemplateDictionary
     d = TemplateDictionary()
-    with pytest.raises(Exception):
+    with pytest.raises(BakeConfigError):
         d["BAKE_lower_case"] = "value"
 
 
@@ -892,7 +897,7 @@ def test_template_dict_no_overwrite():
     from bake.context import TemplateDictionary
     d = TemplateDictionary()
     d["BAKE_KEY"] = "first"
-    with pytest.raises(Exception):
+    with pytest.raises(BakeConfigError):
         d["BAKE_KEY"] = "second"
 
 

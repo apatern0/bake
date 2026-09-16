@@ -49,10 +49,13 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from . import exceptions
 from .context import context
+
+if TYPE_CHECKING:
+    from .manifest import BlockSpec, EnvSpec
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -152,7 +155,7 @@ class StepData:
         Containers are copied one level deep (lists inside the corner dicts
         included) so that a step appending to its output data cannot alter
         the data of the steps before it."""
-        changes = {}
+        changes: dict[str, Any] = {}
         for f in dataclasses.fields(self):
             value = getattr(self, f.name)
             if isinstance(value, RecipePath):
@@ -401,6 +404,7 @@ class Step(ABC):
         unsupported; the message is shown to the user as the reason the
         block/recipe combination cannot run.
         """
+        return  # a hook: most steps consume anything  # noqa: B027
 
     def check_post(self):
         """Verify that expected output files were produced."""
@@ -885,6 +889,7 @@ class Recipe:
                     logging.debug("Using explicitly selected test '%s'", test.name)
                 elif len(block.available_tests) == 1:
                     test = context.find_test(block.available_tests[0], block.name)
+                    assert test is not None
                     logging.info("Auto-selecting test '%s' (only test for block '%s')", test.name, block.name)
                 elif not block.available_tests:
                     raise exceptions.BakeManifestError(
