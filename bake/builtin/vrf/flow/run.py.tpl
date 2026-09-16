@@ -337,8 +337,12 @@ def main():
             makefile.write("PYTHONPATH:=$$(PYTHONPATH):%s\n" % ":".join(vrf_py_dirs))
             makefile.write("TOPLEVEL_LANG = verilog\n")
             makefile.write("SIM = %s\n" % BAKE_SIM_SIMULATOR)
+            # cocotb 2.x renamed TOPLEVEL and MODULE; both spellings are
+            # written so either version picks up its own.
             makefile.write("TOPLEVEL = %s\n" % BAKE_SIM_TOP)
+            makefile.write("COCOTB_TOPLEVEL = %s\n" % BAKE_SIM_TOP)
             makefile.write("MODULE = %s\n" % BAKE_SIM_FRAMEWORK_TOP)
+            makefile.write("COCOTB_TEST_MODULES = %s\n" % BAKE_SIM_FRAMEWORK_TOP)
             makefile.write("RANDOM_SEED = %d\n" % seed)
             makefile.write("COCOTB_RANDOM_SEED = %d\n" % seed)
             makefile.write("COMPILE_ARGS = %s\n" % " ".join(simulator_options))
