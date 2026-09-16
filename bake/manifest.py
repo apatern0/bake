@@ -269,6 +269,11 @@ class EnvSpec(BaseModel):
     vrf_framework: str = ""
     vrf_framework_top: str = ""
     default_sim: str = ""
+    # Pass/fail criteria on the simulation log, besides the exit code: a
+    # line matching vrf_fail_regex fails the test; with vrf_pass_regex set,
+    # so does a log with no line matching it.
+    vrf_pass_regex: str = ""
+    vrf_fail_regex: str = ""
     is_test: bool = False
 
     @functools.cached_property
