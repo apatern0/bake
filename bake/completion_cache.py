@@ -22,18 +22,25 @@
 
 The cache is keyed by absolute cwd so that different project directories each
 get their own set of completions.  It is stored as JSON in
-~/.cache/bake/completion_cache.json and is updated after every successful
-manifest load.  Setting BAKE_NO_CACHE suppresses all cache I/O.
+$XDG_CACHE_HOME/bake/completion_cache.json (~/.cache/bake/ by default) and
+is updated after every successful manifest load.  Setting BAKE_NO_CACHE
+suppresses all cache I/O.
 """
 
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 from .context import context
 
 cache: dict = {}
+
+
+def cache_file() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+    return Path(base) / "bake" / "completion_cache.json"
 
 
 def load_from_file():
@@ -44,20 +51,22 @@ def load_from_file():
     """
     global cache
     cache = {}
-    cache_file = Path.home() / ".cache" / "bake" / "completion_cache.json"
+    path = cache_file()
 
     if "BAKE_NO_CACHE" in os.environ:
         logging.debug("BAKE_NO_CACHE set — skipping completion cache load")
         return
 
     try:
-        with open(cache_file, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             cache = json.load(f)
-        logging.debug("Loaded completion cache from %s (%d entries)", cache_file, len(cache))
+        logging.debug("Loaded completion cache from %s (%d entries)", path, len(cache))
     except FileNotFoundError:
-        logging.debug("Completion cache not found at %s, starting empty", cache_file)
+        logging.debug("Completion cache not found at %s, starting empty", path)
     except (OSError, json.JSONDecodeError) as e:
-        logging.debug("Completion cache at %s cannot be read and will be ignored: %s", cache_file, e)
+        logging.debug("Completion cache at %s cannot be read and will be ignored: %s", path, e)
+        cache = {}
+    if not isinstance(cache, dict):
         cache = {}
 
 
@@ -65,10 +74,12 @@ def store_to_file():
     """Update the cache storage in the local user's home directory.
 
     Will create a new cache file if none exists. Will fail silently if the
-    cache directory or file cannot be created.
+    cache directory or file cannot be created. Entries for directories
+    that no longer exist are dropped; the file is replaced atomically so
+    two bake runs cannot leave it half-written.
     """
     cwd = str(Path.cwd())
-    cache_file = Path.home() / ".cache" / "bake" / "completion_cache.json"
+    path = cache_file()
 
     if "BAKE_NO_CACHE" in os.environ:
         logging.debug("BAKE_NO_CACHE set — skipping completion cache store")
@@ -83,16 +94,26 @@ def store_to_file():
     cache[cwd]["config_keys"] = context.config.get_options_str_list()
     cache[cwd]["steps"] = list(context.steps.keys())
 
+    for stale in [d for d in cache if not Path(d).is_dir()]:
+        del cache[stale]
+        logging.debug("Dropped completion cache entry for missing directory %s", stale)
+
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(cache, f)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(cache, f)
+            os.replace(tmp, path)
+        except BaseException:
+            os.unlink(tmp)
+            raise
         logging.debug(
             "Stored completion cache for '%s' (%d targets)",
             cwd, len(cache[cwd]["targets_tests"]),
         )
-    except (IOError, OSError) as e:
-        logging.debug("Could not write completion cache to %s: %s", cache_file, e)
+    except OSError as e:
+        logging.debug("Could not write completion cache to %s: %s", path, e)
 
 
 def get_targets():

@@ -284,6 +284,69 @@ def test_vcd_and_saif_files_accepted(bake, capfd, project):
 
 
 # ===========================================================================
+# Tests — tab-completion cache
+# ===========================================================================
+
+def _cache_enabled(monkeypatch, tmp_run_dir):
+    monkeypatch.delenv("BAKE_NO_CACHE")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_run_dir / "xdg"))
+    return tmp_run_dir / "xdg" / "bake" / "completion_cache.json"
+
+
+def test_completion_cache_written_and_read(bake, project, monkeypatch, tmp_run_dir):
+    """A successful load stores the project's blocks, tests, steps and config
+    keys under $XDG_CACHE_HOME; the completers read them back."""
+    from bake import completion_cache
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    project("sample")
+    assert not bake.run([])
+    assert cache_file.is_file()
+    assert not (cache_file.parent / "completion_cache.json.tmp").exists()
+
+    completion_cache.load_from_file()
+    assert "sample_target" in completion_cache.get_targets()
+    assert completion_cache.get_tests("sample_target") == ["sample_test"]
+    assert "vrf" in completion_cache.get_steps()
+    assert "vrf.simulator" in completion_cache.get_config_keys()
+
+
+def test_completion_cache_prunes_missing_directories(bake, project, monkeypatch, tmp_run_dir):
+    """Entries whose directory is gone are dropped on the next store."""
+    import json
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    project("sample")
+    assert not bake.run([])
+    gone = str(tmp_run_dir / "gone")
+    data = json.loads(cache_file.read_text())
+    data[gone] = {"targets_tests": {}, "config_keys": [], "steps": []}
+    cache_file.write_text(json.dumps(data))
+    assert not bake.run([])
+    assert gone not in json.loads(cache_file.read_text())
+
+
+def test_completion_cache_corrupt_file_ignored(bake, project, monkeypatch, tmp_run_dir):
+    """A corrupt cache file is ignored and rewritten, never fatal."""
+    from bake import completion_cache
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text("{not json")
+    project("sample")
+    completion_cache.load_from_file()
+    assert completion_cache.get_targets() == []
+    assert not bake.run([])
+    completion_cache.load_from_file()
+    assert "sample_target" in completion_cache.get_targets()
+
+
+def test_completion_cache_disabled_by_env(bake, project, monkeypatch, tmp_run_dir):
+    """BAKE_NO_CACHE suppresses all cache I/O (the fixture sets it)."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_run_dir / "xdg"))
+    project("sample")
+    assert not bake.run([])
+    assert not (tmp_run_dir / "xdg").exists()
+
+
+# ===========================================================================
 # Tests — custom steps
 # ===========================================================================
 
