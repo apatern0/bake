@@ -51,6 +51,7 @@ class VrfConfig(config.FixedSchemaAttributes):
         self.options      = []
         self.defines      = []
         self.delays       = ""   # delay corner for SDF back-annotation: typ, min or max
+        self.seed         = ""   # simulation seed; empty picks a random one (always logged)
         self.simulator    = ""
         self.flow         = None
         self.flow_options = {}
@@ -71,6 +72,9 @@ class VrfStep(Step):
         tpl_dict["BAKE_SIM_FILES"]         = list(self.data.vrf_files)
         tpl_dict["BAKE_SIM_FRAMEWORK"]     = self.data.vrf_framework
         tpl_dict["BAKE_SIM_FRAMEWORK_TOP"] = self.data.vrf_framework_top
+        tpl_dict["BAKE_SIM_PASS_REGEX"]    = self.data.vrf_pass_regex
+        tpl_dict["BAKE_SIM_FAIL_REGEX"]    = self.data.vrf_fail_regex
+        tpl_dict["BAKE_SIM_SEED"]          = str(self.config.seed)
 
         tpl_dict["BAKE_SIM_DEFINES"]      = ["SIM"] + list(self.config.defines) + list(self.data.vrf_defines)
         tpl_dict["BAKE_SIM_DELAY_CORNER"] = self.config.delays or "typ"
