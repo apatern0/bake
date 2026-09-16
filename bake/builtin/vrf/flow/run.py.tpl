@@ -291,7 +291,7 @@ def main():
             makefile.write("include $$(shell cocotb-config --makefiles)/Makefile.sim\n")
         if os.path.isfile("results.xml"):
             os.remove("results.xml")
-        logging.error(f"Running generated Makefile in {os.getcwd()}")
+        logging.info(f"Running generated Makefile in {os.getcwd()}")
         retval = run_command("make")
         if os.path.isfile("results.xml"):
             results = ET.parse('results.xml')
