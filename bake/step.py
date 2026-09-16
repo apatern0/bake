@@ -603,11 +603,11 @@ class Step(ABC):
                         try:
                             f_out.write(template.substitute(tpl_dict))
                         except KeyError as err:
-                            raise exceptions.BakeInternalError(
-                                f"{subfile_src}: Template variable {err} is undefined."
+                            raise exceptions.BakeConfigError(
+                                f"{subfile_src}: template variable {err} is undefined."
                             ) from err
                         except ValueError as err:
-                            raise exceptions.BakeInternalError(f"{subfile_src}: {err}") from err
+                            raise exceptions.BakeConfigError(f"{subfile_src}: {err}") from err
                     shutil.copymode(subfile_src, subfile_dest)
                 else:
                     subfile_dest = current_dir_dest / subfile
