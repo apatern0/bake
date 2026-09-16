@@ -31,9 +31,16 @@
 #   bake accumulator_hard impl         # ... then the top with the adder as a macro
 #   bake accumulator_hard impl-vrf     # gate-level simulation of the result
 #
-# Needs: Icarus Verilog for vrf; yosys, openroad and PDK_ROOT pointing at sky130 for impl.
+# Needs: Icarus Verilog for vrf; yosys, openroad and PDK_ROOT pointing at sky130 for impl
+#   (libraries come from the reference PDK manifest in ../pdk/sky130).
 
-from bake import block, test
+import os
+from bake import load, block, test
+
+# The vrf recipes need no PDK; only load the sky130 libraries when one is
+# available so that `bake accumulator vrf` works on a machine without it.
+if os.environ.get("PDK_ROOT"):
+    load("../pdk/sky130")
 
 block(
     name="adder",

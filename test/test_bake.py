@@ -823,42 +823,33 @@ def test_custom_step_chain_with_vrf(bake, sample_with_check_step):
 
 
 # ===========================================================================
-# Tests — SkyWater PDK (sky130_required)
+# Tests — the reference PDK manifest (example/pdk/sky130, sky130_required)
 # ===========================================================================
+
+_SKY130_MANIFEST_DIR = Path(__file__).parent.parent / "example" / "pdk" / "sky130"
+
+
+def _write_sky130_manifest(extra=""):
+    Path("manifest").write_text(
+        "from bake import load, block\n"
+        f'load("{_SKY130_MANIFEST_DIR}")\n' + extra
+    )
+
 
 @sky130_required
 def test_sky130_libs_listed(bake, capfd):
-    """sky130 standard-cell libraries are listed when PDK_ROOT holds the PDK."""
-    Path("manifest").touch()
+    """Loading the reference PDK manifest registers the sky130 libraries."""
+    _write_sky130_manifest()
     assert not bake.run(["-l"])
     assert_in_stderr(capfd, "sky130_fd_sc_hd")
 
 
 @sky130_required
-def test_sky130_impl_available_without_config(bake, capfd, dummy_flows):
-    """impl step is available without setting config.impl.flow when sky130 is present.
-
-    The impl builtin manifest sets ImplStep.default_flow = 'sky130' when the
-    PDK is found through PDK_ROOT, making the step available by default.
-    """
-    Path("manifest").write_text(
-        'from bake import load, block\nload("dummy_flows")\n'
-        'block(name="my_block", top="top", rtl_files=[])\n'
-    )
-    assert not bake.run()
-    assert_in_stderr(capfd, "impl")
-
-
-@sky130_required
 def test_sky130_impl_populate(bake):
-    """impl step populates flow dir without running synthesis (-p flag).
-
-    Uses the sky130 default flow (no config.impl.flow needed).
-    """
+    """impl populates its flow dir with no libs= on the block: the PDK manifest
+    made sky130_fd_sc_hd the default library, and yosys-openroad is the default flow."""
     Path("sample.v").write_text(SAMPLE_V)
-    Path("manifest").write_text(
-        'from bake import block\nblock(name="my_block", top="sample", rtl_files=["sample.v"])\n'
-    )
+    _write_sky130_manifest('block(name="my_block", top="sample", rtl_files=["sample.v"])\n')
     assert not bake.run(["my_block", "impl", "-p"])
     assert Path("flow/my_block/impl").is_dir()
 
@@ -866,14 +857,32 @@ def test_sky130_impl_populate(bake):
 @sky130_required
 @openroad_required
 def test_sky130_impl_run(bake):
-    """Full impl run with the sky130 flow produces a netlist and SDF file."""
+    """Full impl run on sky130 produces a netlist and SDF file."""
     Path("sample.v").write_text(SAMPLE_V)
-    Path("manifest").write_text(
-        'from bake import block\nblock(name="my_block", top="sample", rtl_files=["sample.v"])\n'
-    )
+    _write_sky130_manifest('block(name="my_block", top="sample", rtl_files=["sample.v"])\n')
     assert not bake.run(["my_block", "impl"])
     assert Path("work/my_block/impl/output/sample.v").exists()
     assert Path("work/my_block/impl/output/sample.sdf").exists()
+
+
+def test_sky130_manifest_requires_pdk_root(bake, capfd, monkeypatch):
+    """Without PDK_ROOT the reference PDK manifest fails to load with a clear message."""
+    monkeypatch.delenv("PDK_ROOT", raising=False)
+    _write_sky130_manifest()
+    assert bake.run(["-l"])
+    assert_in_stderr(capfd, "PDK_ROOT is not set")
+
+
+def test_impl_without_libs_explains_how_to_add_them(bake, capfd, dummy_flows):
+    """impl on a block with no libraries and no defaults points at lib()/default_libs."""
+    Path("sample.v").write_text(SAMPLE_V)
+    Path("manifest").write_text(
+        'from bake import load, block\nload("dummy_flows")\n'
+        'config.impl.flow = "dummy_impl"\nconfig.impl.default_libs.clear()\n'
+        'block(name="my_block", top="sample", rtl_files=["sample.v"])\n'
+    )
+    assert bake.run(["my_block", "impl"])
+    assert_in_stderr(capfd, "has no libraries for the impl step")
 
 
 # ===========================================================================

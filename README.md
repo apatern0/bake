@@ -29,16 +29,17 @@ Tools are discovered on `PATH`. Out of the box the built-in steps drive:
 | Step   | What it does                          | Open-source tools                          | Commercial |
 |--------|---------------------------------------|--------------------------------------------|-----------|
 | `vrf`  | compile and run a test                | Icarus Verilog, Verilator, cocotb          | Xcelium, Questa, VCS (incl. UVM) |
-| `impl` | synthesis + place-and-route           | Yosys + OpenROAD (reference flow on sky130) | — |
+| `impl` | synthesis + place-and-route           | Yosys + OpenROAD, with the PDK libraries your manifest registers | — |
 | `tmr`  | triple-modular-redundancy insertion   | [tmrg](https://github.com/rlf-arlut/tmrg)  | — |
 
-bake has **no PDK dependency**. The built-in `impl` step includes a *reference flow* for the
-open-source SkyWater sky130 PDK purely so that synthesis and place-and-route can be exercised end
-to end on an open PDK — the test suite and `example/03_counter_impl` use it. The flow activates
-only when `PDK_ROOT` points at an open_pdks build of sky130 (`test/pdk/fetch_sky130.sh` fetches
-one with `ciel`); nothing is bundled. A real project supplies its own implementation flow and PDK,
-see [Custom flows](docs/custom_flows.md) and [Installation](docs/installation.md). To enable
-tab-completion for the lifetime of a shell:
+bake has **no PDK dependency** and ships no PDK-specific code. The `impl` step consumes whatever
+standard-cell libraries a manifest registers with `lib()`. The reference for doing that is
+[`example/pdk/sky130/manifest`](example/pdk/sky130/manifest), which registers the open-source
+SkyWater sky130 PDK from `PDK_ROOT` — used by the test suite and examples 03/05 purely so that
+synthesis and place-and-route can be exercised end to end on an open PDK
+(`test/pdk/fetch_sky130.sh` fetches one with `ciel`). Copy that manifest to adapt bake to your
+own kit; see [Installation](docs/installation.md). To enable tab-completion for the lifetime of a
+shell:
 
 ```
 eval "$(register-python-argcomplete bake)"

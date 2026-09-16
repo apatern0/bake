@@ -1,0 +1,91 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Reference PDK manifest: SkyWater sky130 from an open_pdks build.
+#
+# bake has no PDK dependency and ships no PDK-specific code. This manifest is
+# the reference for how a project makes a PDK's standard-cell libraries known
+# to the impl step: one lib() per library, with Liberty files per corner,
+# simulation models and LEF. Copy and adapt it for your own kit.
+#
+# Load it from a project manifest:
+#
+#     from bake import load
+#     load("path/to/example/pdk/sky130")
+#
+# It expects PDK_ROOT to point at an open_pdks build of sky130 -- the layout
+# shared by ciel and OpenLane (test/pdk/fetch_sky130.sh obtains one). The
+# optional PDK variable selects the variant (default sky130A). Every library
+# found under <PDK_ROOT>/<PDK>/libs.ref/sky130_fd_sc_* is registered;
+# sky130_fd_sc_hd becomes the impl step's default library.
+#
+# The built-in yosys-openroad flow reads the TT/FF/SS corners registered here.
+
+import logging
+import os
+from pathlib import Path
+
+from bake import lib, context
+from bake.exceptions import BakeManifestError
+
+CORNERS = {
+    "TT": "tt_025C_1v80",
+    "FF": "ff_100C_1v95",
+    "SS": "ss_100C_1v60",
+}
+
+pdk_root = os.environ.get("PDK_ROOT")
+if not pdk_root:
+    raise BakeManifestError(
+        "PDK_ROOT is not set. Point it at an open_pdks build of sky130 "
+        "(test/pdk/fetch_sky130.sh fetches one with ciel)."
+    )
+pdk_dir = Path(pdk_root) / os.environ.get("PDK", "sky130A")
+if not (pdk_dir / "libs.ref").is_dir():
+    raise BakeManifestError(f"{pdk_dir} is not an open_pdks PDK: no libs.ref directory.")
+
+for lib_dir in sorted((pdk_dir / "libs.ref").glob("sky130_fd_sc_*")):
+    name = lib_dir.name
+
+    liberty = {}
+    for corner, suffix in CORNERS.items():
+        lib_file = lib_dir / "lib" / f"{name}__{suffix}.lib"
+        if lib_file.is_file():
+            liberty[corner] = [str(lib_file)]
+    if "TT" not in liberty:
+        logging.debug("sky130: %s has no %s Liberty file, skipping", name, CORNERS["TT"])
+        continue
+
+    verilog_dir = lib_dir / "verilog"
+    models = [verilog_dir / "primitives.v", verilog_dir / f"{name}.v"]
+    if not all(f.is_file() for f in models):
+        logging.debug("sky130: %s has no simulation models, skipping", name)
+        continue
+
+    # OpenROAD needs the technology LEF before the cell LEF.
+    tech_lef = lib_dir / "techlef" / f"{name}__nom.tlef"
+    cell_lef = lib_dir / "lef" / f"{name}.lef"
+
+    lib(
+        name=name,
+        desc=f"SkyWater sky130 standard cells ({name.split('_')[-1]})",
+        netlist_files=[str(f) for f in models],
+        netlist_incdirs=[str(verilog_dir)],
+        liberty_files=liberty,
+        layout_info=" ".join(str(f) for f in (tech_lef, cell_lef) if f.is_file()),
+    )
+
+if "sky130_fd_sc_hd" in context.libs:
+    config.impl.default_libs.append("sky130_fd_sc_hd")

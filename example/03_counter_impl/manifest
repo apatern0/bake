@@ -15,12 +15,14 @@
 
 # 03 - Synthesise and place-and-route a block: the single-step recipe `impl`.
 #
-# The built-in impl step targets the open-source SkyWater sky130 PDK with
-# Yosys and OpenROAD, so nothing needs to be configured: the sky130 cell
-# libraries are registered automatically once PDK_ROOT points at an
-# open_pdks build of sky130 (test/pdk/fetch_sky130.sh provides one).
+# The built-in impl step runs Yosys and OpenROAD; it needs standard-cell
+# libraries, which come from a PDK manifest. bake ships none: this example
+# loads the reference manifest for the open-source SkyWater sky130 PDK from
+# example/pdk/sky130, which registers every library it finds under PDK_ROOT
+# and makes sky130_fd_sc_hd the default. Copy that manifest to adapt bake to
+# your own PDK.
 #
-#   bake -l                # list the sky130 libraries bake found
+#   bake -l                # list the libraries the PDK manifest registered
 #   bake counter impl      # synthesis + P&R; outputs in work/counter/impl/output
 #   bake counter impl -p   # only populate flow/counter/impl with the scripts
 #
@@ -29,7 +31,9 @@
 # Needs: yosys, openroad, and PDK_ROOT set to a sky130 open_pdks build
 #   (PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh && export PDK_ROOT=$HOME/.ciel).
 
-from bake import block
+from bake import load, block
+
+load("../pdk/sky130")
 
 block(
     name="counter",

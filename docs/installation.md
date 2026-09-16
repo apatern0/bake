@@ -17,21 +17,23 @@ git clone https://github.com/apatern0/bake.git
 pip install -e bake/
 ```
 
-*bake* has no PDK dependency. The built-in `impl` step ships a *reference flow* for the
-open-source SkyWater sky130 PDK (Yosys + OpenROAD) so that implementation can be exercised end
-to end without a foundry kit; the test suite and `example/03_counter_impl` use it. It registers
-itself only when `PDK_ROOT` points at an [open_pdks](https://github.com/RTimothyEdwards/open_pdks)
-build of sky130 — the layout shared by [ciel](https://github.com/fossi-foundation/ciel) and
-OpenLane. To obtain one (about 340 MB for the `sky130_fd_sc_hd` library):
+*bake* has no PDK dependency and ships no PDK-specific code. The built-in `impl` step runs a
+Yosys + OpenROAD flow on whatever standard-cell libraries a manifest registers with `lib()`.
+The reference for registering a PDK is `example/pdk/sky130/manifest`, which picks up the
+open-source SkyWater sky130 PDK from an [open_pdks](https://github.com/RTimothyEdwards/open_pdks)
+build located through `PDK_ROOT` — the layout shared by
+[ciel](https://github.com/fossi-foundation/ciel) and OpenLane. The test suite and examples 03/05
+load it. To obtain the PDK (about 340 MB for the `sky130_fd_sc_hd` library):
 
 ```
 PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh   # wraps: pip install ciel && ciel enable --pdk sky130 ...
 export PDK_ROOT=$HOME/.ciel                      # optional: export PDK=sky130B for the other variant
-bake -l                                          # now lists sky130_fd_sc_hd
+cd example/03_counter_impl && bake -l            # lists sky130_fd_sc_hd
 ```
 
-A real project provides its own implementation flow and libraries; see
-[Custom flows](custom_flows.md).
+For your own PDK, copy that manifest, point it at your kit's Liberty, LEF and simulation-model
+files, and `load()` it from your project manifest. A different implementation flow is a
+[custom flow](custom_flows.md).
 
 The `tmr` step invokes [tmrg](https://github.com/rlf-arlut/tmrg) for TMR insertion; install it
 into the same virtual environment if you need triplication. Implementation tools and simulators

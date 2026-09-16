@@ -14,16 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fetch the open_pdks build of the SkyWater sky130 PDK that the test suite and
-# example/03_counter_impl use to exercise the impl step. bake itself has no
-# PDK dependency; this is a test fixture.
+# Fetch the open_pdks build of the SkyWater sky130 PDK that the reference PDK
+# manifest (example/pdk/sky130) registers; the test suite and examples 03/05
+# use it to exercise the impl step. bake itself has no PDK dependency; this is
+# a test fixture.
 #
 # Usage:  PDK_ROOT=/some/dir test/pdk/fetch_sky130.sh
 #
 # Installs `ciel` into the current Python environment and enables the pinned
 # PDK version under $PDK_ROOT (default: ~/.ciel). Only the sky130_fd_sc_hd
 # library is downloaded (~340 MB unpacked). Afterwards export PDK_ROOT and the
-# built-in `sky130` flow registers itself.
+# reference manifest finds the PDK.
 set -eu
 
 : "${PDK_ROOT:=$HOME/.ciel}"

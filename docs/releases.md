@@ -37,14 +37,19 @@ compatibility patches rebased for each new release.
 
 ### v1.1.0
 
-The `impl` step's sky130 reference flow now locates the PDK through the `PDK_ROOT` environment
-variable (optionally `PDK`, default `sky130A`), pointing at an
-[open_pdks](https://github.com/RTimothyEdwards/open_pdks) build such as the one `ciel` installs,
-and consumes its pre-built Liberty, LEF and Verilog files directly. The 400 MB `skywater-pdk`
-git submodule, the Liberty generation step and its `~/.cache/bake/sky130/` cache are gone;
-`bake` no longer carries any PDK. `test/pdk/fetch_sky130.sh` fetches the fixture for the test
-suite and `example/03_counter_impl`. OpenROAD now receives both the technology LEF and the cell
-LEF.
+*bake* no longer ships any PDK-specific code. The `impl` step's built-in flow is now simply
+`yosys-openroad`: Yosys synthesis and OpenROAD place-and-route on whatever standard-cell
+libraries the manifest registers with `lib()` (Liberty per TT/FF/SS corner, LEF, simulation
+models). Registering a PDK is the job of a manifest; `example/pdk/sky130/manifest` is the
+reference, locating an [open_pdks](https://github.com/RTimothyEdwards/open_pdks) build of the
+SkyWater sky130 PDK through `PDK_ROOT` (optionally `PDK`, default `sky130A`) and consuming its
+pre-built files directly. Examples 03 and 05 and the test suite `load()` it;
+`test/pdk/fetch_sky130.sh` fetches the PDK with `ciel`.
+
+Gone: the 400 MB `skywater-pdk` git submodule, the Liberty generation step and its
+`~/.cache/bake/sky130/` cache, and the implicit activation of a `sky130` flow from inside the
+package. OpenROAD now receives both the technology LEF and the cell LEF. A block that reaches
+`impl` with no libraries gets an error that says how to provide them.
 
 ### v1.0.0
 
