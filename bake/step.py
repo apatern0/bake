@@ -311,7 +311,7 @@ class StepData:
             top         = block.top if block else "",
             rtl_files   = list(block.rtl_files) if block else [],
             rtl_incdirs = list(block.rtl_incdirs) if block else [],
-            libs        = list(block.resolved_libs) if block else [],
+            libs        = StepData._block_libs(block) if block else [],
             netlist_files   = list(block.netlist_files) if block else [],
             netlist_incdirs = list(block.netlist_incdirs) if block else [],
             liberty_files   = {k: list(v) for k, v in block.liberty_files.items()} if block else {},
@@ -340,6 +340,27 @@ class StepData:
             obj._process_block_includes(block, dependencies, _visiting + (block.name,))
 
         return obj
+
+    @staticmethod
+    def _block_libs(block: "BlockSpec") -> list:
+        """The block's libraries: its own libs=[...], or config.bake.default_libs
+        when it declares none, so that a project sets its libraries once and a
+        block (shared IP, say) is implementable wherever it is used. Resolved
+        here, at elaboration, so that steps never need the registry."""
+        if block.libs:
+            return list(block.resolved_libs)
+        names = list(context.config.bake.default_libs)
+        if not names:
+            return []
+        logging.debug("Block '%s' declares no libs; using default libs %s", block.name, ", ".join(names))
+        libs = []
+        for name in names:
+            if name not in context.libs:
+                raise exceptions.BakeManifestError(
+                    f"config.bake.default_libs names '{name}', which is not a registered library."
+                )
+            libs.append(context.libs[name])
+        return libs
 
     @staticmethod
     def create_from_env(env: "EnvSpec"):
