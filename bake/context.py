@@ -90,6 +90,7 @@ class BakeConfig(FixedSchemaAttributes):
 
     # The mutable ones are given fresh values per instance in __init__.
     tpl_dict = None
+    default_libs = None   # libraries of every block that declares none
     file_copy_method = "copy"
     options = None
     output_dir = None
@@ -104,6 +105,7 @@ class BakeConfig(FixedSchemaAttributes):
 
     def __init__(self):
         self.tpl_dict = TemplateDictionary()
+        self.default_libs = []
         self.options = []
 
 

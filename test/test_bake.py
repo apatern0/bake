@@ -548,6 +548,35 @@ def test_impl_update_required(bake, capfd, project):
     assert_in_stderr(capfd, "up-to-date")
 
 
+def _elaborated_lib_names(block, recipe="impl"):
+    from bake.step import Recipe
+    r = Recipe(block, recipe)
+    r.elaborate()
+    return [lib.name for lib in r.data[0].libs]
+
+
+def test_default_libs(bake, capfd, project):
+    """A block without libs= gets config.bake.default_libs; one with libs=
+    uses exactly those; the manifest can spell out defaults plus extras."""
+    project("default_libs")
+    assert not bake.run([])
+    assert _elaborated_lib_names("plain") == ["cells"]
+    assert _elaborated_lib_names("own") == ["other"]
+    assert _elaborated_lib_names("more") == ["cells", "other"]
+    assert not bake.run(["plain", "impl"])
+    assert_not_in_stderr(capfd, "default libs")   # a silent fallback
+
+
+def test_default_libs_option_appends_and_must_exist(bake, capfd, project):
+    """-o bake.default_libs=name adds to the defaults for the run; an unknown
+    name is a manifest error."""
+    project("default_libs")
+    assert not bake.run(["plain", "impl", "-o", "bake.default_libs=other"])
+    assert _elaborated_lib_names("plain") == ["cells", "other"]
+    assert bake.run(["plain", "impl", "-o", "bake.default_libs=nope"])
+    assert_in_stderr(capfd, "default_libs names 'nope', which is not a registered library")
+
+
 def test_impl_liberty_corners_consistent(bake, capfd, project):
     """A library lacking Liberty for a corner another library uses is
     rejected before anything runs; a corner nobody uses is not required."""

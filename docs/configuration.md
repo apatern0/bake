@@ -33,6 +33,7 @@ Global *bake* settings.
 | Attribute | Default | Description |
 |-----------|---------|-------------|
 | `tpl_dict` | `{}` | Extra template variables injected into all `.tpl` files. Keys must start with `BAKE_` and contain only uppercase letters, digits, and underscores. Example: `config.bake.tpl_dict["BAKE_PDK_DIR"] = "/opt/pdk/sky130A"`. |
+| `default_libs` | `[]` | Library names (`lib()`) for every block that declares no `libs=`. A project usually implements everything in one set of libraries: set it once here and leave `libs=` off the blocks; a block with its own `libs=[...]` uses exactly those (to add to the defaults, write `libs=[*config.bake.default_libs, "sram_macro"]`). `-o bake.default_libs=name` appends for one run. |
 | `file_copy_method` | `"copy"` | How flow skeleton files are placed in the work directory. `"copy"` duplicates files; `"symlink"` creates symbolic links (useful for shared, read-only flow installations). |
 | `output_dir` | `None` | Override the root output directory for all steps. When unset, each step writes results relative to the manifest directory. |
 

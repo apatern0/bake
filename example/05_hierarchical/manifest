@@ -45,19 +45,17 @@ import os
 from bake import load, block, test
 
 # The vrf recipes need no PDK. Only load the sky130 libraries when one is
-# available, so that `bake accumulator vrf` works on a machine without it;
-# the blocks that can be implemented then get the standard-cell library.
+# available, so that `bake accumulator vrf` works on a machine without it.
+# The project's libraries are set once: every block that declares no libs=
+# of its own is implemented in them.
 if os.environ.get("PDK_ROOT"):
     load("../pdk/sky130")
-    impl_libs = ["sky130_fd_sc_hd"]
-else:
-    impl_libs = []
+    config.bake.default_libs = ["sky130_fd_sc_hd"]
 
 block(
     name="adder",
     top="adder",
     rtl_files=["rtl/adder.v"],
-    libs=impl_libs,
 )
 
 block(
@@ -72,7 +70,6 @@ block(
     top="accumulator",
     rtl_files=["rtl/accumulator.v"],
     includes={"adder": "impl"},
-    libs=impl_libs,
 )
 
 test(
