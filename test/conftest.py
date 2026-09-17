@@ -15,7 +15,6 @@
 
 """Fixtures: an isolated copy of the test projects, and an in-process bake runner."""
 
-import os
 import shutil
 from pathlib import Path
 
@@ -39,7 +38,7 @@ def project(tmp_run_dir, monkeypatch):
     temporary directory, keeping the repository layout so relative paths hold,
     and change into the named project. Returns its path."""
     dest = tmp_run_dir / "test" / "projects"
-    shutil.copytree(PROJECTS_DIR, dest)
+    shutil.copytree(PROJECTS_DIR, dest, symlinks=True)
     shutil.copytree(REPO_DIR / "example", tmp_run_dir / "example",
                     ignore=shutil.ignore_patterns("work", "flow"))
 

@@ -33,13 +33,16 @@ class MyStep(Step):
     @property
     def source_files(self):
         """Return a list of absolute paths that serve as inputs to this step.
-        bake uses this list for timestamp-based dependency tracking."""
+        bake re-runs the step when one is newer than the outputs (symlinks
+        are followed) or when the list itself changes."""
         return list(self.data.rtl_files)
 
     @property
     def output_files(self):
         """Return a list of absolute paths that this step is expected to produce.
-        bake reports an error if any of these files are missing after the step runs."""
+        bake reports an error if any of these files are missing after the step
+        runs, and again on later runs if one disappears. A step declaring no
+        outputs always runs."""
         return [str(self.outputdir / "report.txt")]
 
     def check_pre(self):
@@ -81,6 +84,8 @@ Key rules:
 - `name` must be a non-empty string with no hyphens (hyphens are the recipe separator).
 - `source_files` and `output_files` are abstract — you must implement both.
 - `build_tpl_dict()` and `output_data` are optional overrides; call `super()` in both.
+- Everything `build_tpl_dict()` returns is part of what the step was built from: a change in
+  any variable re-runs the step (see [When a step runs](cli.md#when-a-step-runs)).
 - `config` is available in every manifest's scope, so `config.register()` can be called at module level.
 - Steps **must not** access `context` registries (`context.libs`, `context.blocks`, etc.) at
   runtime. Read everything from `self.data` and `self.config` only.

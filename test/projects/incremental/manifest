@@ -1,0 +1,58 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A project for the up-to-date check: a `gen` step whose script can be made
+# to fail after writing its output (CHECK_EXIT=1 in the environment), whose
+# config reaches the flow as $BAKE_GEN_MODE, and which reads one of its
+# sources through a symlink it lists itself (linked.v -> ../rtl/sample_tb.v;
+# a manifest list would have resolved the link already).
+
+from pathlib import Path
+
+from bake import block, flow
+from bake.step import Step
+
+
+class GenConfig:
+    def __init__(self):
+        self.flow = ""
+        self.flow_options = {}
+        self.mode = "slow"
+
+
+config.register("gen", GenConfig())
+
+
+class GenStep(Step):
+    name = "gen"
+    default_flow = "gen_flow"
+
+    @property
+    def source_files(self):
+        return list(self.data.rtl_files) + [str(Path(self.data.block_dir) / "linked.v")]
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / "gen.txt")]
+
+    def build_tpl_dict(self):
+        tpl = super().build_tpl_dict()
+        tpl["BAKE_GEN_MODE"] = self.config.mode
+        return tpl
+
+
+flow(name="gen_flow", run_cmd="run.sh", dir="gen_flow")
+
+block(name="sample_target", top="sample", rtl_files=["../rtl/sample.v", "../rtl/base.v"])

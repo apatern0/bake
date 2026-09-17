@@ -20,11 +20,15 @@
 
 import re
 import logging
+from typing import TYPE_CHECKING
 from .exceptions import (
     BakeConfigError,
     BakeInternalError,
     BakeManifestError,
 )
+
+if TYPE_CHECKING:
+    from .manifest import TestSpec
 
 
 class FixedSchemaAttributes:
@@ -41,7 +45,9 @@ class TemplateDictionary(dict):
             raise BakeConfigError(f"Template variable '{key}' doesn't begin with 'BAKE_'")
 
         if re.search(r"[^A-Z0-9_]", key) is not None:
-            raise BakeConfigError(f"Template variable '{key}' can only contain upper case letters, numbers, and underscores")
+            raise BakeConfigError(
+                f"Template variable '{key}' can only contain upper case letters, numbers, and underscores"
+            )
 
         if key in self:
             raise BakeConfigError(f"Cannot overwrite template variable '{key}'")

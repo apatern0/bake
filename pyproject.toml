@@ -7,19 +7,18 @@ name = "bake-eda"
 version = "1.0.0"
 description = "EDA flow manager for ASIC designs: manifest-driven simulation, synthesis and place-and-route"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Andrea Paterno'" }]
 keywords = ["asic", "eda", "rtl", "verification", "build-system", "tmr", "sky130"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -33,7 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "pylint", "pylint-pydantic", "build", "twine"]
+test = ["pytest", "pytest-cov", "pylint", "pylint-pydantic", "ruff", "mypy", "build", "twine"]
 docs = ["zensical"]
 
 [project.urls]
@@ -59,6 +58,16 @@ bake = ["builtin/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle and bugbear: mistakes, not style.
+select = ["E", "F", "W", "B"]
+
+[tool.mypy]
+ignore_missing_imports = true
 
 [tool.pylint.main]
 # The manifest specs are pydantic models; without the plugin pylint reports

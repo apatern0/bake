@@ -133,7 +133,8 @@ def _dependency_state(dep_recipe) -> str:
     last = dep_recipe.last_step
     if not last.outputdir.is_dir():
         return "not built"
-    return "stale" if last.run_required(log=False) else "up to date"
+    reason = last.stale_reason()
+    return f"stale ({reason})" if reason else "up to date"
 
 
 def log_blocks_and_tests():
@@ -197,19 +198,21 @@ def _run_steps(recipe, force, owner=None):
         else:
             logging.info("Running %s on block %s", s.recipe_path, recipe.block_name)
         s.run(force=force)
-        s.check_post()
 
 
 def _dry_run(recipe):
     """Report what a run would do, without executing anything."""
     def report(r, is_dependency):
         for s in r.steps:
-            state = "would run" if s.run_required(log=False) else "up to date"
-            if not is_dependency and context.config.bake.force and state == "up to date":
-                state = "would run (forced)"
+            reason = s.stale_reason()
+            state = "would run" if reason else "up to date"
+            if not is_dependency and context.config.bake.force and not reason:
+                state, reason = "would run", "forced"
             what = f"{r.block_name} {s.recipe_path}"
             if is_dependency:
                 what += f"  (dependency of {recipe.block_name})"
+            if reason:
+                what += f"  [{reason}]"
             logging.info("%-18s %s", state + ":", what)
 
     for dep in recipe.all_dependencies():
@@ -264,7 +267,8 @@ def main():
         help="Selects a test for the given block.").completer = complete_test
     parser.add_argument("-o", "--options", dest="options", type=str, default=[], action="append",
         metavar="section.attribute=value",
-        help="Override a config attribute for this run (e.g. -o vrf.simulator=icarus). Repeatable.").completer = complete_config
+        help="Override a config attribute for this run (e.g. -o vrf.simulator=icarus). Repeatable."
+    ).completer = complete_config
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
         help="Elaborate the recipe and report what would run (dependencies included) without executing anything.")
 

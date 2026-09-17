@@ -1,0 +1,1 @@
+../rtl/sample_tb.v

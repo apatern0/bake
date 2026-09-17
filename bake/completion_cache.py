@@ -33,7 +33,7 @@ from pathlib import Path
 
 from .context import context
 
-cache = {}
+cache: dict = {}
 
 
 def load_from_file():
