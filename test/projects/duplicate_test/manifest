@@ -1,0 +1,25 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The same test name twice for the same block: rejected. The same name on
+# another block is fine.
+
+from bake import block, test
+
+block(name="a", top="sample", rtl_files=["../rtl/sample.v"])
+block(name="b", top="sample", rtl_files=["../rtl/sample.v"])
+test(name="t", target="a", vrf_files=["../rtl/sample_tb.v"])
+test(name="t", target="b", vrf_files=["../rtl/sample_tb.v"])
+test(name="t", target="a", vrf_files=["../rtl/tb1.v"])

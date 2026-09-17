@@ -136,7 +136,7 @@ class BlockSpec(BaseModel):
 
     # Pipeline step files
     sdc_files: list = Field(default_factory=list)   # design constraints
-    vcd_files: list = Field(default_factory=list)   # value change dump
+    vcd_files: dict = Field(default_factory=dict)   # value change dump {corner: [files]}
     saif_files: dict = Field(default_factory=dict)  # switching activity {corner: [files]}
 
     # PDK cell library dependencies (LibSpec names)
@@ -151,6 +151,17 @@ class BlockSpec(BaseModel):
                 "recipe runs and dependencies are built on demand. Remove the argument."
             )
         return values
+
+    @field_validator("vcd_files", "saif_files", mode="before")
+    @classmethod
+    def coerce_corner_files(cls, v):
+        # Convenience: a file or a list of files, with no corner, is the
+        # "default" corner.
+        if isinstance(v, str):
+            return {"default": [v]}
+        if isinstance(v, list):
+            return {"default": v}
+        return v
 
     @field_validator("includes", mode="before")
     @classmethod
@@ -174,14 +185,11 @@ class BlockSpec(BaseModel):
 
     @functools.cached_property
     def resolved_libs(self):
-        # Cached so repeated accesses (e.g. from multiple steps) don't
-        # re-validate corner consistency on every call.
         libs = []
         for n in self.libs:
             if n not in context.libs:
                 raise BakeManifestError(f"Library {n} not defined")
             libs.append(context.libs[n])
-            context.check_lib_corners(context.libs[n])
         return libs
 
     def model_post_init(self, __context: Any) -> None:
@@ -193,8 +201,7 @@ class BlockSpec(BaseModel):
         file_utils.resolve_file_list(self.netlist_files)
         file_utils.resolve_dir_list(self.netlist_incdirs)
         file_utils.resolve_file_list(self.sdc_files)
-        file_utils.resolve_file_list(self.vcd_files)
-        for attr_name in ("liberty_files", "si_files", "saif_files"):
+        for attr_name in ("liberty_files", "si_files", "vcd_files", "saif_files"):
             corner_dict = getattr(self, attr_name)
             for corner_name, corner_files in corner_dict.items():
                 if not isinstance(corner_files, list):
@@ -235,8 +242,6 @@ class EnvSpec(BaseModel):
 
     @functools.cached_property
     def resolved_libs(self):
-        # Cached so repeated accesses (e.g. from multiple steps) don't
-        # re-validate corner consistency on every call.
         libs = []
         for n in self.vrf_libs:
             if n in context.libs:
@@ -246,7 +251,6 @@ class EnvSpec(BaseModel):
             else:
                 raise BakeManifestError(f"Library {n} not defined")
             libs.append(spec)
-            context.check_lib_corners(spec)
         return libs
 
     def _inherit_target(self) -> None:
@@ -272,6 +276,10 @@ class EnvSpec(BaseModel):
         self._inherit_target()
 
         if self.is_test:
+            if context.test_exists(self.name, self.target):
+                raise BakeManifestError(
+                    f"Redefinition of test {self.name} for block {self.target} detected"
+                )
             context.tests.append(self)
             logging.debug(
                 "Registered test '%s' for target '%s' (%d vrf files, framework=%s)",

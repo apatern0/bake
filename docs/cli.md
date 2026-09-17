@@ -24,8 +24,9 @@ when its outputs are missing or older than its sources.
 | `-l`, `--list-libs` | List the libraries (`lib()`) registered by the manifests, then exit. |
 | `-i`, `--interactive` | Ask flows to run interactively where they can (e.g. open the simulator GUI). |
 | `-v`, `--verbose` | Debug logging. Repeat for more. |
+| `--version` | Print the bake version and exit. |
 
-`-f`, `-c`, `-r` and `-p` are mutually exclusive.
+`-f`, `-c`, `-r` and `-p` are mutually exclusive; `-n` combines with `-f` only.
 
 ## When a step runs
 

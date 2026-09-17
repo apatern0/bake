@@ -1,0 +1,28 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Switching-activity files on a block: as a plain list (the "default"
+# corner) and as a corner dict.
+
+from bake import load, block
+
+load("../flows")
+config.impl.flow = "dummy_impl"
+
+block(name="plain", top="sample", rtl_files=["../rtl/sample.v"],
+      vcd_files=["../rtl/sample.v"])
+block(name="corners", top="sample", rtl_files=["../rtl/sample.v"],
+      vcd_files={"tt": ["../rtl/sample.v"], "ss": "../rtl/base.v"},
+      saif_files="../rtl/base.v")

@@ -107,6 +107,23 @@ def test_no_manifest(bake, capfd):
     assert_in_stderr(capfd, "Manifest file not found")
 
 
+def test_version_flag(bake, capfd):
+    """--version prints the installed version and exits 0, manifest or not."""
+    assert bake.run(["--version"]) == 0
+    assert "bake 1." in str(capfd.readouterr())
+
+
+def test_dry_run_excludes_clean_restart_populate(bake, capfd, project):
+    """-n with -c, -r or -p is a usage error; with -f it is fine."""
+    project("sample")
+    for flag in ("-c", "-r", "-p"):
+        assert bake.run(["sample_target", "impl", "-n", flag]) == 2
+        assert_in_stderr(capfd, "cannot be combined")
+    assert not bake.run(["sample_target", "impl"])
+    assert not bake.run(["sample_target", "impl", "-n", "-f"])
+    assert_in_stderr(capfd, "would run:         sample_target impl  [forced]")
+
+
 def test_empty_manifest(bake, capfd, project):
     """Empty manifest is valid — no error."""
     project("empty")
@@ -142,11 +159,53 @@ def test_duplicate_block_raises(bake, capfd, project):
     assert_in_stderr(capfd, "Redefinition")
 
 
+def test_broken_builtin_is_fatal(bake, capfd, project, monkeypatch):
+    """A builtin step that fails to load stops bake instead of being skipped."""
+    project("sample")
+    import bake.loader as loader
+    real_load = loader.load
+
+    def load(path):
+        if path.endswith("/builtin/tmr"):
+            raise RuntimeError("boom")
+        return real_load(path)
+
+    monkeypatch.setattr(loader, "load", load)
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "Failed to load builtin step 'tmr': boom")
+
+
+def test_duplicate_test_raises(bake, capfd, project):
+    """The same test name twice for one block is an error; the same name on
+    another block is not."""
+    project("duplicate_test")
+    assert bake.run([])
+    assert_in_stderr(capfd, "Redefinition of test t for block a")
+
+
 def test_removed_bake_option_rejected(bake, capfd, project):
     """config.bake.vrf_simulator no longer exists; setting it is an error."""
     project("removed_option")
     assert bake.run([])
-    assert_in_stderr(capfd, "Cannot add new attributes")
+    assert_in_stderr(capfd, "config.bake has no attribute")
+
+
+def test_step_config_typo_rejected(bake, capfd, project):
+    """Assigning an attribute a builtin step's config does not declare is an
+    error, not silently ignored."""
+    project("config_typo")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["config.vrf has no attribute", "simulater", "Known attributes: defines, delays, flow"])
+
+
+def test_config_missing_section_is_attribute_error():
+    """A missing section raises an AttributeError too, so hasattr() works."""
+    from bake.context import context
+    from bake.exceptions import BakeConfigError
+    assert not hasattr(context.config, "no_such_section")
+    assert getattr(context.config, "no_such_section", None) is None
+    with pytest.raises(BakeConfigError):
+        _ = context.config.no_such_section
 
 
 # ===========================================================================
@@ -193,6 +252,20 @@ def test_custom_step_appears_in_listing(bake, capfd, project):
     project("sample_check")
     assert not bake.run()
     assert_in_stderr(capfd, "- check")
+
+
+def test_vcd_and_saif_files_accepted(bake, capfd, project):
+    """vcd_files/saif_files take a file, a list or a corner dict; the plain
+    forms become the "default" corner."""
+    project("vcd_files")
+    assert not bake.run([])
+    from bake.context import context
+    assert list(context.blocks["plain"].vcd_files) == ["default"]
+    assert set(context.blocks["corners"].vcd_files) == {"tt", "ss"}
+    assert context.blocks["corners"].vcd_files["ss"][0].endswith("rtl/base.v")
+    assert context.blocks["corners"].saif_files["default"][0].endswith("rtl/base.v")
+    # they reach the step data (dict(block.vcd_files) used to raise on a list)
+    assert not bake.run(["corners", "impl"])
 
 
 # ===========================================================================
@@ -381,6 +454,16 @@ def test_impl_update_required(bake, capfd, project):
     assert_in_stderr(capfd, "up-to-date")
 
 
+def test_impl_liberty_corners_consistent(bake, capfd, project):
+    """A library lacking Liberty for a corner another library uses is
+    rejected before anything runs; a corner nobody uses is not required."""
+    project("lib_corners")
+    assert not bake.run(["ok", "impl", "-n"])
+    assert not bake.run(["partial", "impl", "-n"])
+    assert bake.run(["broken", "impl", "-n"])
+    assert_stderr(capfd, expect=["flow corners in use are TT, SS", "tt_only", ": SS"])
+
+
 def test_impl_sdf_reaches_vrf(bake, project):
     """The SDF an impl step produces is handed to the following vrf step."""
     project("sample")
@@ -432,6 +515,13 @@ def test_tmr_recipes(bake, project, recipe, outputs):
     assert not bake.run(["sample_target", recipe])
     for step_dir in outputs:
         assert Path(f"work/sample_target/{step_dir}/output/sampleTMR.v").exists()
+
+
+def test_tmr_refuses_same_basename(bake, capfd, project):
+    """Two RTL files with the same name would collide in tmr's output."""
+    project("tmr_clash")
+    assert bake.run(["sample_target", "tmr", "-n"])
+    assert_stderr(capfd, expect=["would overwrite each other", "sample.v:", "Rename one of them"])
 
 
 @tmrg_required

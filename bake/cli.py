@@ -284,9 +284,15 @@ def main():
         help="Only populates flow directories (dependencies included), does not invoke any step.")
     parser.add_argument("-l", "--list-libs", dest="listlibs", action="store_true",
         help="List all known libraries after evaluating manifests.")
+    parser.add_argument("--version", action="version", version=f"bake {step.bake_version()}")
 
     argcomplete.autocomplete(argument_parser=parser, always_complete_options=False)
     args = parser.parse_args()
+
+    # -n reports what a run would do, so it combines with -f but not with
+    # the modes that do something else instead of running.
+    if args.dry_run and (args.clean or args.restart or args.populate):
+        parser.error("-n/--dry-run cannot be combined with -c, -r or -p")
 
     if args.verbose:
         coloredlogs.set_level(logging.DEBUG)
@@ -318,7 +324,10 @@ def main():
             logging.debug("Loading builtin step directory: %s", entry.name)
             loader.load(str(entry))
         except Exception as e:  # pylint: disable=broad-exception-caught
+            # A broken builtin is a broken installation: nothing sensible
+            # can run without the step it defines.
             logging.error("Failed to load builtin step '%s': %s", entry.name, e)
+            sys.exit(1)
 
     try:
         manifest_fname = str(Path(file_utils.absolute_path(args.manifestpath)) / "manifest")

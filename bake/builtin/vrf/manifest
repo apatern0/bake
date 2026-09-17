@@ -45,7 +45,7 @@ FlowSpec(
 )
 
 
-class VrfConfig:
+class VrfConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.tpl_dict     = config.TemplateDictionary()
         self.options      = []

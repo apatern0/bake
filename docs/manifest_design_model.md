@@ -7,7 +7,8 @@ backward-compatible alias for `block` and can be used interchangeably. The full 
 
 ```python
 block(name, desc, includes, top, rtl_files, rtl_incdirs, libs,
-      netlist_files, netlist_incdirs, liberty_files, sdc_files, layout_info)
+      netlist_files, netlist_incdirs, liberty_files, si_files, sdc_files,
+      vcd_files, saif_files, layout_info)
 ```
 
 Arguments:
@@ -22,7 +23,10 @@ Arguments:
   * `netlist_files` — gate-level Verilog files for this block (used when the block has already been implemented externally) — optional
   * `netlist_incdirs` — include directories for netlist files — optional
   * `liberty_files` — timing libraries, same format as `lib()` — optional
+  * `si_files` — signal-integrity libraries, same format as `lib()` — optional
   * `sdc_files` — design constraint files — optional
+  * `vcd_files`, `saif_files` — switching-activity files for power analysis, per corner
+    (`{"tt": ["run.vcd"]}`); a plain list or a single file is the `"default"` corner — optional
   * `layout_info` — LEF file or OpenAccess library folder for physical implementation — optional
 
 ## Manifest Conventions
@@ -160,7 +164,10 @@ Arguments:
   * `netlist_files` — Verilog files used to model the library during simulation
   * `netlist_incdirs` — include directories for the netlist Verilog files — optional
   * `liberty_files` — dictionary mapping corner names to Liberty files for implementation timing.
-    Example: `{"TT": ["block_tt.lib"], "SS": ["block_ss.lib"], "FF": ["block_ff.lib"]}`.
+    Example: `{"TT": ["block_tt.lib"], "SS": ["block_ss.lib"], "FF": ["block_ff.lib"]}`. The
+    corner names are those the implementation flow declares (`TT`, `FF`, `SS` in the built-in
+    flow). A corner is in use when any library of a block provides it; every library with
+    Liberty files must then provide it too, or `impl` refuses the block before running.
   * `layout_info` — LEF file or OpenAccess library folder for physical implementation — optional
   * `si_files` — SI-related (cdb) library information, same format as `liberty_files` — optional
 

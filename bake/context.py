@@ -18,12 +18,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import re
 import logging
 from typing import TYPE_CHECKING
 from .exceptions import (
+    BakeConfigAttributeError,
     BakeConfigError,
-    BakeInternalError,
     BakeManifestError,
 )
 
@@ -32,11 +33,37 @@ if TYPE_CHECKING:
 
 
 class FixedSchemaAttributes:
-    """Mixin that allows writes to declared attributes but prevents adding new ones."""
+    """Base class for config sections whose attributes are fixed: __init__
+    defines them, and once it returns, assigning a name that does not exist
+    is an error — so a typo like `config.vrf.simulater = ...` stops bake
+    instead of being ignored."""
+
+    _bake_frozen = False
+    _bake_section = ""
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        init = cls.__init__
+
+        @functools.wraps(init)
+        def init_then_freeze(self, *args, **kw):
+            init(self, *args, **kw)
+            if type(self) is cls:  # the most derived class' __init__ has finished
+                object.__setattr__(self, "_bake_frozen", True)
+
+        cls.__init__ = init_then_freeze
+
     def __setattr__(self, key, value):
-        if key not in self.__dir__():
-            raise BakeConfigError(f"Cannot add new attributes to class {self.__class__.__name__}")
+        if self._bake_frozen and key not in dir(self):
+            section = self._bake_section or self.__class__.__name__
+            raise BakeConfigAttributeError(
+                f"config.{section} has no attribute '{key}'. "
+                f"Known attributes: {', '.join(self._bake_attributes())}."
+            )
         super().__setattr__(key, value)
+
+    def _bake_attributes(self) -> list:
+        return [a for a in dir(self) if not a.startswith("_") and not callable(getattr(self, a))]
 
 
 class TemplateDictionary(dict):
@@ -59,8 +86,9 @@ class BakeConfig(FixedSchemaAttributes):
     """Global bake settings: what manifests set (tpl_dict, file_copy_method,
     output_dir) and what the command line sets (the rest)."""
 
-    # Declared at class level so that FixedSchemaAttributes knows the schema;
-    # the mutable ones are given fresh values per instance in __init__.
+    _bake_section = "bake"
+
+    # The mutable ones are given fresh values per instance in __init__.
     tpl_dict = None
     file_copy_method = "copy"
     options = None
@@ -92,7 +120,9 @@ class Config:
 
     bake = BakeConfig()   # replaced by a fresh instance on every reset_sections()
     user = UserConfig()
-    TemplateDictionary = TemplateDictionary  # exposed for use in manifest exec scope
+    # Exposed for use in manifest exec scope
+    TemplateDictionary = TemplateDictionary
+    FixedSchemaAttributes = FixedSchemaAttributes
 
     def __setattr__(self, key, value):
         object.__setattr__(self, key, value)
@@ -100,6 +130,8 @@ class Config:
     def register(self, name: str, section) -> None:
         """Register a config section by name. Idempotent."""
         if name not in vars(self):
+            if isinstance(section, FixedSchemaAttributes):
+                object.__setattr__(section, "_bake_section", name)
             object.__setattr__(self, name, section)
             logging.debug("Registered config section '%s' (%s)", name, type(section).__name__)
 
@@ -117,7 +149,7 @@ class Config:
         Config.bake = BakeConfig()
 
     def __getattr__(self, key):
-        raise BakeConfigError(
+        raise BakeConfigAttributeError(
             f"Tried to access non-existent section `{key}` from config. "
             f"Legal sections are: {', '.join(self._section_names())}"
         )
@@ -243,23 +275,6 @@ class Context:
 
     def flows_defined(self):
         return len(self.flows) > 0
-
-    # ------------------------------------------------------------------
-    # Library corner helpers
-    # ------------------------------------------------------------------
-
-    def get_impl_corners(self):
-        flow_name = self.config.impl.flow
-        if not flow_name or flow_name not in self.flows:
-            raise BakeInternalError("No implementation flow configured while checking library corners.")
-        return self.flows[flow_name].corners
-
-    def check_lib_corners(self, lib_spec):
-        # TODO: corner validation is disabled. resolved_libs calls this while
-        # a manifest is being parsed, before config.impl.flow is necessarily
-        # set, so the impl flow's corner list is not reliably known here.
-        del lib_spec
-        return True
 
     # ---------------------------------------------------------------------------
     # Helper functions for test discovery

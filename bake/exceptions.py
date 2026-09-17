@@ -38,6 +38,10 @@ class BakeManifestError(BakeRuntimeError):
 class BakeConfigError(BakeRuntimeError):
     """Exception to indicate errors with bake configuration."""
 
+class BakeConfigAttributeError(BakeConfigError, AttributeError):
+    """A config section or attribute that does not exist. Also an
+    AttributeError, so hasattr()/getattr(..., default) work on config."""
+
 class BakeUserRuntimeError(BakeRuntimeError):
     """Exception that can be raised from user manifest code for error handling."""
 

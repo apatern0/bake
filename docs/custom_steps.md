@@ -15,8 +15,11 @@ from bake.step import Step, StepData
 from bake.manifest import FlowSpec
 from bake.exceptions import BakeRuntimeError
 
-# 1. Optional config section — register before the class definition
-class MyStepConfig:
+# 1. Optional config section — register before the class definition.
+#    Deriving from config.FixedSchemaAttributes makes the attributes
+#    __init__ defines the only ones: a typo in a manifest
+#    (config.mystep.optoins = ...) is then an error instead of a no-op.
+class MyStepConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.flow         = ""
         self.flow_options = {}
@@ -87,6 +90,8 @@ Key rules:
 - Everything `build_tpl_dict()` returns is part of what the step was built from: a change in
   any variable re-runs the step (see [When a step runs](cli.md#when-a-step-runs)).
 - `config` is available in every manifest's scope, so `config.register()` can be called at module level.
+- A config class deriving from `config.FixedSchemaAttributes` rejects assignments to attributes
+  its `__init__` did not define (the builtin steps do this); a plain class accepts anything.
 - Steps **must not** access `context` registries (`context.libs`, `context.blocks`, etc.) at
   runtime. Read everything from `self.data` and `self.config` only.
 
@@ -148,7 +153,7 @@ from bake.step import Step
 from bake.manifest import FlowSpec
 
 
-class LintConfig:
+class LintConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.flow         = ""
         self.flow_options = {}
@@ -269,6 +274,7 @@ alter the registered manifest.
 | `liberty_files` | `dict[str, list[str]]` | Manifest or `impl` output |
 | `layout_info` | `str` | Manifest or `impl` output |
 | `sdc_files` | `list[str]` | Manifest `block()` |
+| `vcd_files`, `saif_files` | `dict[str, list[str]]` | Manifest `block()` |
 | `sdf_files` | `dict[str, str]` | `impl` output |
 | `vrf_top` | `str` | Manifest `test()` / `env()` |
 | `vrf_files` | `list[str]` | Manifest `test()` / `env()` |
