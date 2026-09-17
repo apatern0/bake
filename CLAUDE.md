@@ -50,8 +50,8 @@ bake -o step.attr=value     # override a config attribute from the CLI
 - **Block** (`BlockSpec`) — a design unit with RTL files, a top module, and optional timing/netlist libraries.
 - **Test** (`TestSpec`) / **Env** (`EnvSpec`) — a simulation environment associated with a block. Tests carry verification files; envs are reusable base environments that tests include via `includes=`.
 - **Flow** (`FlowSpec`) — a directory of scripts (`.tpl` templated) that one step executes. Steps use flows; a flow is not a recipe.
-- **Step** — one unit of the pipeline (e.g. `vrf`, `impl`, `tmr`, `dummy`). Steps are Python classes subclassing `Step` in `bake/step.py`. Built-in steps live in `bake/builtin/`.
-- **Recipe** — an ordered series of steps, written as a hyphen-joined string (`impl`, `dummy-impl`, `tmr-impl-vrf`). Elaborated by `Recipe.elaborate()` into a list of `Step` instances.
+- **Step** — one unit of the pipeline (e.g. `vrf`, `impl`, `tmr`). Steps are Python classes subclassing `Step` in `bake/step.py`. Built-in steps live in `bake/builtin/`.
+- **Recipe** — an ordered series of steps, written as a hyphen-joined string (`impl`, `tmr-impl`, `tmr-impl-vrf`). Elaborated by `Recipe.elaborate()` into a list of `Step` instances.
 - **`StepData`** — a dataclass threaded through the pipeline. Initialized from `BlockSpec`/`EnvSpec` by `StepData.create()`, then freely mutated by each step. It holds no manifest object: `block`, `block_dir` and `test` are plain names; all working state (`top`, `rtl_files`, `vrf_files`, etc.) is a copy. Steps **must not** access `context` registries at runtime — only `self.data` and `self.config`.
 - **Dependency** — a recipe-form include (`includes={"sub": "impl"}`). Declared in the manifest, checked statically by `context.validate()` once all manifests are loaded (existence, step names, cycles), resolved when a recipe is elaborated, and built on demand before the requesting block's steps (`cli.run`). A step refuses data it cannot consume in `check_pre()`.
 
@@ -67,7 +67,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 | `bake/exceptions.py` | Seven custom exception classes (`BakeRuntimeError`, `BakeManifestError`, `BakeConfigError`, etc.) |
 | `bake/file_utils.py` | Path resolution and file existence utilities |
 | `bake/completion_cache.py` | JSON-backed tab-completion cache in `~/.cache/bake/` |
-| `bake/builtin/` | Built-in steps (`vrf`, `impl`, `tmr`, `dummy`), each in its own subdirectory with a `manifest` |
+| `bake/builtin/` | Built-in steps (`vrf`, `impl`, `tmr`), each in its own subdirectory with a `manifest` |
 
 ### Data flow
 

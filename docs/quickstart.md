@@ -79,7 +79,6 @@ files exist. It also lists the available steps:
 
 ```
 [bake] INFO     Available steps:
-[bake] INFO     - dummy
 [bake] INFO     - vrf
 [bake] INFO     - tmr
 [bake] INFO     - impl
@@ -95,7 +94,7 @@ known steps is a valid recipe:
   * `tmr-impl` — triplicate, then implement
   * `tmr-impl-vrf` — triplicate, implement, then gate-level simulation
 
-(`dummy` does nothing; it is the template for writing [your own steps](custom_steps.md).)
+Projects can add [steps of their own](custom_steps.md) to this list.
 
 ## Running a Simulation
 ```
@@ -134,7 +133,8 @@ test(
 
 Two directories appeared next to the manifest. `flow/` holds the *skeleton*: the scripts for
 each block/recipe/test combination, copied from the built-in flow on first use. They are yours
-to edit and commit. `work/` holds everything generated when the scripts run, with the results
+to edit and commit: *bake* never overwrites them, not even when it is upgraded (delete a
+directory under `flow/` to get a fresh copy). `work/` holds everything generated when the scripts run, with the results
 of each step in its `output/` subdirectory:
 
 ```

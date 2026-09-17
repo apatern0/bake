@@ -94,28 +94,27 @@ class ImplStep(Step):
     def build_tpl_dict(self) -> dict:
         tpl_dict = super().build_tpl_dict()
 
-        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(self.data.rtl_incdirs)
-        tpl_dict["BAKE_INCLUDE_FLAGS"]        = " ".join(f"-I{d}" for d in self.data.rtl_incdirs)
-        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(self.data.rtl_files)
-        tpl_dict["BAKE_SDC_FILES"]            = " ".join(self.data.sdc_files)
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = list(self.data.rtl_incdirs)
+        tpl_dict["BAKE_INCLUDE_FLAGS"]        = [f"-I{d}" for d in self.data.rtl_incdirs]
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = list(self.data.rtl_files)
+        tpl_dict["BAKE_SDC_FILES"]            = list(self.data.sdc_files)
 
-        tpl_dict["BAKE_LIB_PHYSICAL"] = ""
+        tpl_dict["BAKE_LIB_PHYSICAL"] = []
         for corner, _ in self.flow.corners:
-            tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = ""
-            tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = ""
+            tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = []
+            tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = []
 
         # Hard macros: abstracts of implemented sub-blocks (or declared on the
         # block). Kept apart from the cell libraries so the flow can place them.
         flow_corners = {corner for corner, _ in self.flow.corners}
         tpl_dict["BAKE_MACRO_PHYSICAL"] = self.data.layout_info
         for corner in flow_corners:
-            tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = " ".join(
-                self.data.liberty_files.get(corner, [])
-            )
-        tpl_dict["BAKE_MACRO_NETLIST_FILES"] = " ".join(self.data.netlist_files)
+            tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = list(self.data.liberty_files.get(corner, []))
+        tpl_dict["BAKE_MACRO_NETLIST_FILES"] = list(self.data.netlist_files)
 
         for lib in self.data.libs:
-            tpl_dict["BAKE_LIB_PHYSICAL"] += lib.layout_info + " "
+            # layout_info may name several files, space-separated
+            tpl_dict["BAKE_LIB_PHYSICAL"].extend(lib.layout_info.split())
             if not lib.liberty_files:
                 continue
 
@@ -124,18 +123,16 @@ class ImplStep(Step):
                     logging.warning("Library '%s' has liberty files for corner '%s' which is not in the flow corners %s — skipping",
                                     lib.name, corner, sorted(flow_corners))
                 else:
-                    for lib_file in lib.liberty_files[corner]:
-                        tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] += lib_file + " "
+                    tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"].extend(lib.liberty_files[corner])
 
             for corner in lib.si_files:
                 if corner not in flow_corners:
                     logging.warning("Library '%s' has SI files for corner '%s' which is not in the flow corners %s — skipping",
                                     lib.name, corner, sorted(flow_corners))
                 else:
-                    for si_file in lib.si_files[corner]:
-                        tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] += si_file + " "
+                    tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"].extend(lib.si_files[corner])
 
-        tpl_dict["BAKE_RUN_OPTIONS"] = " ".join(self.config.options)
+        tpl_dict["BAKE_RUN_OPTIONS"] = list(self.config.options)
         tpl_dict["BAKE_LDB_DIR"] = self.config.ldb_dir or os.path.join(self.workdir, "ldbs")
 
         return tpl_dict

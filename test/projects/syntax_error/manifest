@@ -13,19 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Two blocks sharing a test environment; the stand-in impl and vrf flows.
+# A syntax error in the manifest: reported with its line, no traceback.
 
-from bake import load, block, test, env
+from bake import block
 
-load("../flows")
-load("../steps/dummy")
-config.impl.flow = "dummy_impl"
-config.vrf.flow = "dummy_vrf"
-
-block(name="sample_target", top="sample", rtl_files=["../rtl/sample.v"])
-block(name="sample_target_2", top="sample", rtl_files=["../rtl/sample.v"])
-
-env(name="sample_test_env", vrf_files=["../rtl/sample_tb.v"], default_sim="stub")
-
-test(name="sample_test", target="sample_target", includes=["sample_test_env"])
-test(name="sample_test", target="sample_target_2", includes=["sample_test_env"])
+block(name="m", top="sample", rtl_files=["../rtl/sample.v"]

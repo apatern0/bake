@@ -19,6 +19,12 @@ command line with the `-o` flag:
 bake counter vrf -o vrf.simulator=xcelium
 ```
 
+`-o` is applied after every manifest has loaded, so the command line wins over the manifest. The
+manifest code itself runs before that and sees the manifest's own values: do not branch on
+`config` inside a manifest expecting to see an override. Put anything that depends on a setting
+in the flow (through the template variables) or in a step's `build_tpl_dict()`, which both see
+the final value.
+
 ## Configuration Sections
 
 ### `config.bake`
@@ -115,8 +121,12 @@ config.user.pdk_root = "/opt/pdk/sky130A"
 ## Template Variables
 
 When *bake* processes `.tpl` files in a flow directory, it substitutes tokens of the form
-`$BAKE_XYZ` using Python `string.Template`. All template variable names must be uppercase and
-start with the `BAKE_` prefix.
+`$BAKE_XYZ` and `${BAKE_XYZ}`. All template variable names must be uppercase and start with the
+`BAKE_` prefix; any other `$` is left alone (see [Template Expansion](custom_flows.md#template-expansion)).
+The same variables are written to `bake_vars.json` in the work directory, with list values kept
+as lists, for scripts that prefer to read them (see
+[`bake_vars.json`](custom_flows.md#reading-the-variables-from-a-script-bake_varsjson)). In the
+tables below, "list" values are space-joined in `.tpl` files.
 
 ### Built-in variables (all steps)
 
@@ -189,6 +199,7 @@ Add extra variables via `config.bake.tpl_dict` (available in all steps) or the s
 ```python
 config.bake.tpl_dict["BAKE_PDK_VERSION"] = "1.2.3"
 config.vrf.tpl_dict["BAKE_REGRESSION_TAG"] = "nightly"
+config.vrf.tpl_dict["BAKE_EXTRA_FILES"] = ["a.v", "b.v"]   # "a.v b.v" in .tpl, a list in bake_vars.json
 ```
 
 Custom steps can expose additional variables by overriding `build_tpl_dict()`. See

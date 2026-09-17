@@ -20,6 +20,7 @@ PDK-agnostic: the Liberty and LEF files come from the libraries the manifest
 registers; example/pdk/sky130/manifest shows how.
 """
 
+import json
 import logging
 import os
 import shlex
@@ -37,12 +38,23 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-TOP            = "$BAKE_TOP"
-LIB_LIBERTY_TT = shlex.split("$BAKE_LIB_LIBERTY_FILES_TT")
-LIB_PHYSICAL   = shlex.split("$BAKE_LIB_PHYSICAL")
-TIE_CELL_HI    = shlex.split("$BAKE_FLOW_OPT_TIE_CELLS_HI")   # [cell, pin] or []
-TIE_CELL_LO    = shlex.split("$BAKE_FLOW_OPT_TIE_CELLS_LO")
-MACRO_LIBERTY_TT = shlex.split("$BAKE_MACRO_LIBERTY_FILES_TT")
+# The template variables, as bake wrote them to bake_vars.json (lists stay
+# lists, so paths with spaces survive).
+with open(os.environ.get("BAKE_VARS", "bake_vars.json"), encoding="utf-8") as f:
+    V = json.load(f)
+
+
+def as_list(value):
+    """A flow option may be a list, a tuple or a plain string."""
+    return shlex.split(value) if isinstance(value, str) else list(value)
+
+
+TOP            = V["BAKE_TOP"]
+LIB_LIBERTY_TT = V["BAKE_LIB_LIBERTY_FILES_TT"]
+LIB_PHYSICAL   = V["BAKE_LIB_PHYSICAL"]
+TIE_CELL_HI    = as_list(V["BAKE_FLOW_OPT_TIE_CELLS_HI"])   # [cell, pin] or []
+TIE_CELL_LO    = as_list(V["BAKE_FLOW_OPT_TIE_CELLS_LO"])
+MACRO_LIBERTY_TT = V["BAKE_MACRO_LIBERTY_FILES_TT"]
 
 os.makedirs("output", exist_ok=True)
 

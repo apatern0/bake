@@ -62,12 +62,13 @@ echo "eval \"\$(register-python-argcomplete bake)\"" >> venv/bin/activate
 
 Behind the scenes, tab-completion relies on a cache of available targets, tests, and steps for
 each directory from which *bake* is invoked. This cache is updated automatically on every
-invocation. The cache is stored at `~/.cache/bake/`. If the full set of completions is not
-available immediately after adding new items to a manifest, run `bake` once without arguments
-to refresh the cache.
+invocation. The cache is stored at `$XDG_CACHE_HOME/bake/` (`~/.cache/bake/` by default),
+written atomically, and entries for directories that no longer exist are dropped. If the full
+set of completions is not available immediately after adding new items to a manifest, run
+`bake` once without arguments to refresh the cache.
 
-If the cache causes problems (for example, race conditions in regression setups), it can be
-disabled entirely by setting the environment variable `BAKE_NO_CACHE`:
+If the cache is unwanted (for example, in regression setups), it can be disabled entirely by
+setting the environment variable `BAKE_NO_CACHE`:
 
 ```
 export BAKE_NO_CACHE=1

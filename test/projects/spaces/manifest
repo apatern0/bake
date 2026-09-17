@@ -13,19 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Two blocks sharing a test environment; the stand-in impl and vrf flows.
+# A source path with a space in it. The flow reads the variables from
+# bake_vars.json ($BAKE_VARS), where lists stay lists, and records how many
+# design files it saw.
 
-from bake import load, block, test, env
+from bake import block, flow
 
-load("../flows")
-load("../steps/dummy")
-config.impl.flow = "dummy_impl"
-config.vrf.flow = "dummy_vrf"
+flow(name="vars_impl", corners=[("TC", "Typical Case")], run_cmd="run.sh", dir="vars_impl")
+config.impl.flow = "vars_impl"
 
-block(name="sample_target", top="sample", rtl_files=["../rtl/sample.v"])
-block(name="sample_target_2", top="sample", rtl_files=["../rtl/sample.v"])
-
-env(name="sample_test_env", vrf_files=["../rtl/sample_tb.v"], default_sim="stub")
-
-test(name="sample_test", target="sample_target", includes=["sample_test_env"])
-test(name="sample_test", target="sample_target_2", includes=["sample_test_env"])
+block(name="sample_target", top="sample", rtl_files=["my rtl/sample.v", "../rtl/base.v"])

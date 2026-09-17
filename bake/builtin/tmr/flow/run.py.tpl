@@ -22,9 +22,9 @@
 """tmrg run script template"""
 # pylint: disable=invalid-name,broad-except
 
+import json
 import logging
 import os
-import shlex
 import subprocess
 import signal
 import sys
@@ -137,17 +137,21 @@ def run_command(cmd):
 
 def main():
     """tmrg flow implementation for bake"""
-    BAKE_VERBOSITY = $BAKE_VERBOSITY
-    BAKE_INCLUDE_DIRS = shlex.split("$BAKE_INCLUDE_DIRS")
-    BAKE_LIB_VERILOG_FILES = shlex.split("$BAKE_LIB_VERILOG_FILES")
-    BAKE_TOP = "$BAKE_TOP"
-    BAKE_TMR_OUTPUT_DIR = "$BAKE_TMR_OUTPUT_DIR"
-    BAKE_RUN_OPTIONS = "$BAKE_RUN_OPTIONS"
-    BAKE_TMR_CELL_LIB_DIRS      = shlex.split("$BAKE_TMR_CELL_LIB_DIRS")
-    BAKE_TMR_FF_CELL_PATTERNS   = shlex.split("$BAKE_TMR_FF_CELL_PATTERNS")
-    BAKE_TMR_SKIP_CELL_PATTERNS = shlex.split("$BAKE_TMR_SKIP_CELL_PATTERNS")
-    BAKE_TMR_SEU_RESET_PIN      = "$BAKE_TMR_SEU_RESET_PIN"
-    BAKE_TMR_SEU_SET_PIN        = "$BAKE_TMR_SEU_SET_PIN"
+    # The template variables, as bake wrote them to bake_vars.json (lists
+    # stay lists, so paths with spaces survive).
+    with open(os.environ.get("BAKE_VARS", "bake_vars.json"), encoding="utf-8") as f:
+        V = json.load(f)
+    BAKE_VERBOSITY = int(V["BAKE_VERBOSITY"])
+    BAKE_INCLUDE_DIRS = V["BAKE_INCLUDE_DIRS"]
+    BAKE_LIB_VERILOG_FILES = V["BAKE_LIB_VERILOG_FILES"]
+    BAKE_TOP = V["BAKE_TOP"]
+    BAKE_TMR_OUTPUT_DIR = V["BAKE_TMR_OUTPUT_DIR"]
+    BAKE_RUN_OPTIONS = " ".join(V["BAKE_RUN_OPTIONS"])
+    BAKE_TMR_CELL_LIB_DIRS      = V["BAKE_TMR_CELL_LIB_DIRS"]
+    BAKE_TMR_FF_CELL_PATTERNS   = V["BAKE_TMR_FF_CELL_PATTERNS"]
+    BAKE_TMR_SKIP_CELL_PATTERNS = V["BAKE_TMR_SKIP_CELL_PATTERNS"]
+    BAKE_TMR_SEU_RESET_PIN      = V["BAKE_TMR_SEU_RESET_PIN"]
+    BAKE_TMR_SEU_SET_PIN        = V["BAKE_TMR_SEU_SET_PIN"]
 
     tmrg_options = "--include "
     tmrg_options += "--common-cells-postfix=_%s " % BAKE_TOP

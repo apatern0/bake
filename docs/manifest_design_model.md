@@ -36,7 +36,12 @@ resolved relative to the manifest file they appear in, and are converted to abso
 invocation time. This means downstream tools invoked by *bake* always see absolute paths.
 
 All file and directory names are validated to exist at invocation time. This catches typos and
-missing files early, before any tool is invoked.
+missing files early, before any tool is invoked. `layout_info` is the exception: it may name
+several LEF files or directories separated by spaces, and one that does not exist is a warning.
+
+Wherever a list of files is expected, a single file may be given as a string, and `pathlib.Path`
+objects are accepted in place of strings. In the corner dictionaries (`liberty_files`,
+`si_files`, `vcd_files`, `saif_files`) a corner may map to a single file instead of a list.
 
 ### Inheritance
 Blocks (and environments, introduced later) can inherit content from other items of the same

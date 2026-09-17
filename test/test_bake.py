@@ -149,14 +149,45 @@ def test_unknown_manifest_field_rejected(bake, capfd, project):
     """A misspelled block() argument is an error rather than being dropped."""
     project("unknown_field")
     assert bake.run([])
-    assert_in_stderr(capfd, "rtl_file")
+    assert_stderr(capfd,
+                  expect=["manifest:22: block(): unknown argument", "rtl_file", "did you mean", "rtl_files"],
+                  expect_not=["Traceback"])
+    assert bake.run(["-v"])
+    assert_in_stderr(capfd, "Traceback")
+
+
+def test_manifest_python_errors_reported_with_line(bake, capfd, project):
+    """A NameError or SyntaxError in the manifest's own code is one line with
+    the location; the traceback only with -v."""
+    project("name_error")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["manifest:20: NameError: name", "blok"], expect_not=["Traceback"])
+    project("syntax_error")
+    assert bake.run([])
+    assert_stderr(capfd, expect=["manifest:20: SyntaxError"], expect_not=["Traceback"])
+
+
+def test_spec_argument_coercions(bake, capfd, project):
+    """A single string or a Path where a list is expected, and a single file
+    per corner, are accepted; a missing layout_info entry is a warning."""
+    project("coercions")
+    assert not bake.run([])
+    assert_in_stderr(capfd, "layout_info 'missing.lef' does not exist")
+    from bake.context import context
+    x, lib, e, t = context.blocks["x"], context.libs["l"], context.envs["e"], context.tests[0]
+    assert [Path(f).name for f in x.rtl_files] == ["sample.v"]
+    assert x.libs == ["l"] and [Path(f).name for f in x.sdc_files] == ["base.v"]
+    assert [Path(f).name for f in lib.liberty_files["TT"]] == ["base.v"]
+    assert lib.layout_info.endswith("rtl/leaf.v missing.lef") and lib.layout_info.startswith("/")
+    assert [Path(f).name for f in e.vrf_files] == ["sample_tb.v"] and e.vrf_defines == ["X"]
+    assert t.includes == ["e"]
 
 
 def test_duplicate_block_raises(bake, capfd, project):
     """Registering two blocks with the same name raises a manifest error."""
     project("duplicate_block")
     assert bake.run([])
-    assert_in_stderr(capfd, "Redefinition")
+    assert_stderr(capfd, expect=["manifest:23: Redefinition of block dup"], expect_not=["Traceback"])
 
 
 def test_broken_builtin_is_fatal(bake, capfd, project, monkeypatch):
@@ -212,11 +243,11 @@ def test_config_missing_section_is_attribute_error():
 # Tests — step and block listing
 # ===========================================================================
 
-def test_steps_all_four_always_listed(bake, capfd, project):
-    """All four builtin steps always appear in the step listing."""
+def test_builtin_steps_always_listed(bake, capfd, project):
+    """The builtin steps always appear in the step listing; only they do."""
     project("flows_only")
     assert not bake.run()
-    assert_stderr(capfd, expect=["vrf", "impl", "tmr", "dummy"])
+    assert_stderr(capfd, expect=["- vrf", "- impl", "- tmr"], expect_not=["dummy"])
 
 
 def test_blocks_listed(bake, capfd, project):
@@ -266,6 +297,69 @@ def test_vcd_and_saif_files_accepted(bake, capfd, project):
     assert context.blocks["corners"].saif_files["default"][0].endswith("rtl/base.v")
     # they reach the step data (dict(block.vcd_files) used to raise on a list)
     assert not bake.run(["corners", "impl"])
+
+
+# ===========================================================================
+# Tests — tab-completion cache
+# ===========================================================================
+
+def _cache_enabled(monkeypatch, tmp_run_dir):
+    monkeypatch.delenv("BAKE_NO_CACHE")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_run_dir / "xdg"))
+    return tmp_run_dir / "xdg" / "bake" / "completion_cache.json"
+
+
+def test_completion_cache_written_and_read(bake, project, monkeypatch, tmp_run_dir):
+    """A successful load stores the project's blocks, tests, steps and config
+    keys under $XDG_CACHE_HOME; the completers read them back."""
+    from bake import completion_cache
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    project("sample")
+    assert not bake.run([])
+    assert cache_file.is_file()
+    assert not (cache_file.parent / "completion_cache.json.tmp").exists()
+
+    completion_cache.load_from_file()
+    assert "sample_target" in completion_cache.get_targets()
+    assert completion_cache.get_tests("sample_target") == ["sample_test"]
+    assert "vrf" in completion_cache.get_steps()
+    assert "vrf.simulator" in completion_cache.get_config_keys()
+
+
+def test_completion_cache_prunes_missing_directories(bake, project, monkeypatch, tmp_run_dir):
+    """Entries whose directory is gone are dropped on the next store."""
+    import json
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    project("sample")
+    assert not bake.run([])
+    gone = str(tmp_run_dir / "gone")
+    data = json.loads(cache_file.read_text())
+    data[gone] = {"targets_tests": {}, "config_keys": [], "steps": []}
+    cache_file.write_text(json.dumps(data))
+    assert not bake.run([])
+    assert gone not in json.loads(cache_file.read_text())
+
+
+def test_completion_cache_corrupt_file_ignored(bake, project, monkeypatch, tmp_run_dir):
+    """A corrupt cache file is ignored and rewritten, never fatal."""
+    from bake import completion_cache
+    cache_file = _cache_enabled(monkeypatch, tmp_run_dir)
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text("{not json")
+    project("sample")
+    completion_cache.load_from_file()
+    assert completion_cache.get_targets() == []
+    assert not bake.run([])
+    completion_cache.load_from_file()
+    assert "sample_target" in completion_cache.get_targets()
+
+
+def test_completion_cache_disabled_by_env(bake, project, monkeypatch, tmp_run_dir):
+    """BAKE_NO_CACHE suppresses all cache I/O (the fixture sets it)."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_run_dir / "xdg"))
+    project("sample")
+    assert not bake.run([])
+    assert not (tmp_run_dir / "xdg").exists()
 
 
 # ===========================================================================
@@ -858,6 +952,22 @@ def test_tpl_custom_variable_expanded(bake, project):
     assert "hello_bake" in run_sh and "${BAKE_CUSTOM_VAR}" not in run_sh
 
 
+def test_bake_vars_json_keeps_lists(bake, project):
+    """Every run writes the template variables to bake_vars.json, lists kept
+    as lists, and hands the flow its path in $BAKE_VARS; a path with a space
+    is one entry there, while the template variable is space-joined."""
+    import json
+    project("spaces")
+    assert not bake.run(["sample_target", "impl"])
+    work = Path("work/sample_target/impl")
+    v = json.loads((work / "bake_vars.json").read_text())
+    assert v["BAKE_TOP"] == "sample"
+    assert [Path(f).name for f in v["BAKE_DESIGN_VERILOG_FILES"]] == ["sample.v", "base.v"]
+    assert " " in v["BAKE_DESIGN_VERILOG_FILES"][0]
+    files = (work / "output/files.txt").read_text().splitlines()
+    assert files == v["BAKE_DESIGN_VERILOG_FILES"]
+
+
 def test_tpl_undefined_variable_in_flow_errors(bake, capfd, project):
     """A .tpl file referencing an undefined $BAKE_ variable surfaces as an error."""
     project("tpl_undefined")
@@ -968,6 +1078,16 @@ def test_recipe_objects_are_not_shared():
 # ===========================================================================
 # Tests — TemplateDictionary validation (unit)
 # ===========================================================================
+
+def test_bake_template_leaves_other_dollars_alone():
+    """Only $BAKE_* is a placeholder: shell/Tcl variables need no escaping,
+    $$ still collapses, and an unknown $BAKE_ name is an error."""
+    from bake.step import BakeTemplate
+    tpl = BakeTemplate("read_lef $lef ${x} $$y $1 $BAKE_TOP ${BAKE_TOP}_x $bake_top ${BAKE_TOP")
+    assert tpl.substitute({"BAKE_TOP": "cnt"}) == "read_lef $lef ${x} $y $1 cnt cnt_x $bake_top ${BAKE_TOP"
+    with pytest.raises(KeyError):
+        BakeTemplate("$BAKE_NOPE").substitute({"BAKE_TOP": "cnt"})
+
 
 def test_template_dict_prefix_enforced():
     from bake.context import TemplateDictionary

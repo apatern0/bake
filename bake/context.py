@@ -328,7 +328,7 @@ class Context:
                 logging.info("- %s", t.name)
         else:
             logging.info("Available tests:")
-            for t in context.tests:
+            for t in self.tests:
                 logging.info("- %s", t.name)
 
 

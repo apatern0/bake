@@ -68,20 +68,17 @@ class VrfStep(Step):
         tpl_dict = super().build_tpl_dict()
 
         tpl_dict["BAKE_SIM_TOP"]           = self.data.vrf_top
-        tpl_dict["BAKE_SIM_FILES"]         = " ".join(self.data.vrf_files)
+        tpl_dict["BAKE_SIM_FILES"]         = list(self.data.vrf_files)
         tpl_dict["BAKE_SIM_FRAMEWORK"]     = self.data.vrf_framework
         tpl_dict["BAKE_SIM_FRAMEWORK_TOP"] = self.data.vrf_framework_top
 
-        tpl_dict["BAKE_SIM_DEFINES"]      = "SIM " + " ".join(self.config.defines)
-        tpl_dict["BAKE_SIM_DEFINES"]     += " " + " ".join(self.data.vrf_defines)
+        tpl_dict["BAKE_SIM_DEFINES"]      = ["SIM"] + list(self.config.defines) + list(self.data.vrf_defines)
         tpl_dict["BAKE_SIM_DELAY_CORNER"] = self.config.delays or "typ"
-        tpl_dict["BAKE_RUN_OPTIONS"]      = " ".join(self.config.options)
+        tpl_dict["BAKE_RUN_OPTIONS"]      = list(self.config.options)
 
         simulator = self.config.simulator or self.data.default_sim
         tpl_dict["BAKE_SIM_SIMULATOR"] = simulator
-        tpl_dict["BAKE_SIM_OPTIONS"]   = (
-            " ".join(self.data.vrf_options[simulator]) if simulator in self.data.vrf_options else ""
-        )
+        tpl_dict["BAKE_SIM_OPTIONS"]   = list(self.data.vrf_options.get(simulator, []))
 
         all_incdirs = list(self.data.vrf_incdirs) + list(self.data.rtl_incdirs) + list(self.data.netlist_incdirs)
         all_lib_verilog = list(self.data.netlist_files) + list(self.data.rtl_files)
@@ -94,16 +91,16 @@ class VrfStep(Step):
             lib_verilog_files.extend(lib.netlist_files)
             all_incdirs.extend(lib.netlist_incdirs)
 
-        tpl_dict["BAKE_INCLUDE_DIRS"]         = " ".join(all_incdirs)
-        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = " ".join(all_lib_verilog)
-        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = " ".join(lib_verilog_files)
+        tpl_dict["BAKE_INCLUDE_DIRS"]         = all_incdirs
+        tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = all_lib_verilog
+        tpl_dict["BAKE_LIB_VERILOG_FILES"]    = lib_verilog_files
 
         # SDF files produced by an impl step earlier in the recipe (or declared
         # on an included, implemented block); the flow back-annotates them.
         sdf_files = []
         for files in self.data.sdf_files.values():
             sdf_files.extend(files if isinstance(files, list) else [files])
-        tpl_dict["BAKE_SIM_SDF_FILES"] = " ".join(sdf_files)
+        tpl_dict["BAKE_SIM_SDF_FILES"] = sdf_files
 
         return tpl_dict
 

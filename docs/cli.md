@@ -55,6 +55,15 @@ cause a re-run. `-n` reports the reason for each step that would run, in bracket
 `0` on success. `1` when a manifest cannot be loaded, a block/test/step is unknown, or a step's
 script exits non-zero or fails to produce its declared outputs. `2` for a command-line error.
 
+A manifest error is reported as one line per problem with where it happened:
+
+```
+[bake] ERROR    manifest:22: block(): unknown argument 'rtl_file' (did you mean 'rtl_files'?)
+```
+
+Python errors in the manifest's own code (a misspelt function name, a syntax error) are reported
+the same way. The traceback is shown with `-v`, or always when the error comes from inside bake.
+
 ## Tab completion
 
 `bake` completes block names, recipes and test names (via

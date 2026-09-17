@@ -13,19 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Two blocks sharing a test environment; the stand-in impl and vrf flows.
+# Argument forms the specs accept besides a list of strings: a single
+# string, Path objects, a single file per corner; and a layout_info entry
+# that does not exist, which is a warning.
 
-from bake import load, block, test, env
+from pathlib import Path
+from bake import block, lib, env, test
 
-load("../flows")
-load("../steps/dummy")
-config.impl.flow = "dummy_impl"
-config.vrf.flow = "dummy_vrf"
+rtl = Path(__file__).parent / ".." / "rtl"
 
-block(name="sample_target", top="sample", rtl_files=["../rtl/sample.v"])
-block(name="sample_target_2", top="sample", rtl_files=["../rtl/sample.v"])
-
-env(name="sample_test_env", vrf_files=["../rtl/sample_tb.v"], default_sim="stub")
-
-test(name="sample_test", target="sample_target", includes=["sample_test_env"])
-test(name="sample_test", target="sample_target_2", includes=["sample_test_env"])
+lib(name="l", liberty_files={"TT": "../rtl/base.v"}, layout_info="../rtl/leaf.v missing.lef")
+block(name="x", top="sample", rtl_files=rtl / "sample.v", libs="l", sdc_files="../rtl/base.v")
+env(name="e", vrf_files="../rtl/sample_tb.v", vrf_defines="X")
+test(name="t", target="x", includes="e")

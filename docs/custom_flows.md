@@ -13,8 +13,13 @@ A flow directory typically contains:
 - Any additional helper scripts, config files, or data needed by the flow.
 
 On first invocation of a block/step combination, *bake* copies the entire flow directory into
-a per-block `flow/` directory in the project. The user may then edit those files freely.
-Subsequent invocations re-expand any `.tpl` files but do not overwrite non-template files.
+a per-block `flow/` directory in the project (`flow/<block>/<recipe>/`, plus the test name for
+`vrf`). That copy is yours: it is meant to be customised for the block, committed with the
+project, and *bake* never writes to it again — a later change to the flow it was copied from,
+or a bake upgrade, does not reach it. Subsequent invocations expand the copy's `.tpl` files
+into the work directory on every run, so edits take effect immediately (and re-run the step).
+To start over from the original flow, delete `flow/<block>/<recipe>/` and run again; `-c` and
+`-r` only touch the work directory.
 
 ## Registering a Flow
 
@@ -75,11 +80,14 @@ config.mystep.flow = "another_flow"
 ## Template Expansion
 
 Any file in the flow directory with a `.tpl` extension is treated as a template. *bake* reads the
-`.tpl` source, substitutes all `$BAKE_XYZ` tokens using Python `string.Template`, and writes the
-result to a file of the same name without the `.tpl` extension in the step work directory.
+`.tpl` source, substitutes all `$BAKE_XYZ` and `${BAKE_XYZ}` tokens, and writes the result to a
+file of the same name without the `.tpl` extension in the step work directory.
 
-All token names must be uppercase and start with `BAKE_`. Any `$` not followed by a valid
-`BAKE_` prefix is left unchanged. To include a literal `$` in the output, write `$$`.
+Only `$BAKE_...` tokens (upper case, digits and underscores) are placeholders. Every other `$` —
+a Tcl or shell variable, `${x}`, `$1` — is copied as it is, so scripts need no escaping. `$$`
+still yields a single `$`, for templates written against earlier versions. Use the braced form
+when a placeholder is followed by a letter, digit or underscore: `${BAKE_TOP}_tb`. A `$BAKE_`
+token nobody defines is an error naming the file and the variable.
 
 See [Configuration](configuration.md) for the full list of built-in template variables.
 
@@ -165,8 +173,9 @@ $ bake my_block vrf
 ...
 ```
 
-The custom `run.sh` is copied to the block's `flow/` directory on first run and executed from the
-step work directory on subsequent invocations.
+The custom `run.sh` is copied to the block's `flow/` directory on first run — from then on that
+copy is the one *bake* uses, and the place to customise the flow for this block — and executed
+from the step work directory on every invocation.
 
 ## Flow-Specific Options
 
@@ -220,25 +229,28 @@ Setting `config.bake.file_copy_method = "symlink"` makes *bake* symlink the flow
 instead of copying it, which is useful for read-only shared flow installations where the user
 should always run the latest version without a local copy.
 
-## Writing a Python Flow Script
+## Reading the Variables from a Script: `bake_vars.json`
 
-For complex flows, a Python entry point has full access to the *bake* environment variables
-injected via the template. A minimal `run.py.tpl` pattern:
+Pasting `$BAKE_XYZ` into a script works for Tcl and shell, but a value containing a quote or a
+path with a space breaks a script that puts it in a string literal and splits it. So on every
+run *bake* also writes all template variables to `bake_vars.json` in the step's work directory
+— the same values, with lists kept as lists — and hands the flow its absolute path in the
+`BAKE_VARS` environment variable. A Python entry point reads them from there; the built-in
+`run.py` scripts do:
 
 ```python
 #!/usr/bin/env python3
+import json
+import os
 import subprocess
 import sys
-import os
 
-RTL_FILES = "$BAKE_SIM_FILES".split()
-SIMULATOR  = "$BAKE_SIM_SIMULATOR"
-DEFINES    = "$BAKE_SIM_DEFINES".split()
+with open(os.environ.get("BAKE_VARS", "bake_vars.json")) as f:
+    V = json.load(f)
 
-cmd = [SIMULATOR] + [f"+define+{d}" for d in DEFINES] + RTL_FILES
-result = subprocess.run(cmd)
-sys.exit(result.returncode)
+cmd = [V["BAKE_SIM_SIMULATOR"]] + [f"+define+{d}" for d in V["BAKE_SIM_DEFINES"]] + V["BAKE_SIM_FILES"]
+sys.exit(subprocess.run(cmd).returncode)
 ```
 
-All `$BAKE_XYZ` tokens are literal Python string values after template expansion — no subprocess
-environment variable lookup is needed.
+The file is a plain `{"BAKE_XYZ": value}` object. A variable that is a list in *bake* (file
+lists, options, defines) is a JSON list there and space-joined in `.tpl` files.
