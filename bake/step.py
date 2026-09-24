@@ -50,7 +50,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, ClassVar, Optional, TypeVar, TYPE_CHECKING
 
 from . import exceptions
 from .context import context
@@ -90,20 +90,85 @@ class RecipePath(list):
         return "-".join(self)
 
 
+_D = TypeVar("_D", bound="StepData")
+
+
 # ---------------------------------------------------------------------------
 # Step data
 # ---------------------------------------------------------------------------
+
+def _list_inherit(child, parent):
+    """Merge child list into parent list, preserving order and suppressing duplicates.
+
+    Parent elements appear first; child elements are appended only if not
+    already present in the merged list.  This ordering means that files
+    declared in an included env/block take lower precedence than those
+    declared directly on the inheriting block.
+    """
+    merged_list = parent.copy()
+    for child_elem in child:
+        if child_elem not in merged_list:
+            merged_list.append(child_elem)
+    return merged_list
+
+
+def _dict_inherit(child, parent):
+    """Merge dicts key by key: list values merge like lists, any other
+    value keeps the child's when set and takes the parent's otherwise."""
+    child = child.copy()
+    for opt_k, opt_v in parent.items():
+        if opt_k not in child:
+            child[opt_k] = list(opt_v) if isinstance(opt_v, list) else opt_v
+        elif isinstance(opt_v, list) and isinstance(child[opt_k], list):
+            child[opt_k] = _list_inherit(child[opt_k], opt_v)
+        elif not child[opt_k]:
+            child[opt_k] = opt_v
+    return child
+
+
+def _merge_fields(dst: "StepData", src: "StepData", names) -> None:
+    """Merge the named fields of `src` (an include) into `dst`: lists and
+    dicts as above, any other value keeps dst's when set."""
+    for name in names:
+        mine, theirs = getattr(dst, name), getattr(src, name)
+        if isinstance(mine, list):
+            setattr(dst, name, _list_inherit(mine, theirs))
+        elif isinstance(mine, dict):
+            setattr(dst, name, _dict_inherit(mine, theirs))
+        else:
+            setattr(dst, name, mine or theirs)
+
+
+def kind_names(kinds) -> str:
+    """How a message names a tuple of StepData kinds: "rtl or lib"."""
+    names = [k.kind for k in kinds]
+    return " or ".join(names) if all(names) else "any"
+
+
+def converting_steps(src: type, targets: tuple) -> list:
+    """Registered steps that take `src` data and produce one of `targets`."""
+    return [name for name, cls in context.steps.items()
+            if issubclass(src, cls.consumes) and cls.produces is not None
+            and issubclass(cls.produces, targets)]
+
 
 @dataclass
 class StepData:
     """Pipeline state threaded through every step in a recipe.
 
-    Three identity fields say which block, manifest directory and test the
-    recipe runs for; they never change along the chain.  All other fields are
-    the *current* working state: initialised from the manifest objects by
-    create() and freely modifiable by steps.  No manifest object is kept
-    here — a step cannot reach back into the BlockSpec/EnvSpec, so nothing a
-    step does can corrupt the registered manifest.
+    StepData is the base of the data *kinds*.  Each kind is one form a design
+    takes along a recipe: RtlData (RTL), LibData (an implemented block: a
+    netlist and its abstracts), and any kind a loaded manifest defines, such
+    as rdl2verilog's RdlData.  A step declares the kinds it takes and the
+    kind it gives (Step.consumes, Step.produces), and the recipe checks them.
+
+    The base holds what every kind carries.  The identity fields say which
+    block, manifest directory and test the recipe runs for; they never change
+    along the chain.  All other fields are the *current* working state:
+    initialised from the manifest objects by create() and freely modifiable
+    by steps.  No manifest object is kept here — a step cannot reach back
+    into the BlockSpec/EnvSpec, so nothing a step does can corrupt the
+    registered manifest.
 
     Attributes
     ----------
@@ -111,35 +176,36 @@ class StepData:
         Block name, directory of the manifest that defined it, and the name of
         the test the recipe runs with ("" when none is needed).
 
-    top, rtl_files, rtl_incdirs, libs
-        Block-derived working state.  TmrStep renames `top` and replaces
-        `rtl_files`; ImplStep replaces the RTL with its netlist.
+    top
+        The design's top unit: a module for RTL and netlists.
 
     vrf_top … default_sim
         Test-derived working state.  VrfStep consumes these; a user step
-        may transform them before vrf runs.
+        may transform them before vrf runs.  Every kind carries them, since
+        a test runs on the block whatever form it has reached.
 
     recipe_prefix, is_last
         Bookkeeping set by the Recipe orchestrator: the steps executed before
         this one, and whether this step is the last in the recipe.
     """
 
+    # How messages and listings name the kind ("rtl", "lib", ...); "" for the
+    # base, which carries only an environment's test state.
+    kind: ClassVar[str] = ""
+    # The kinds an include into a design of this kind may resolve to.
+    accepts: ClassVar[tuple] = ()
+
     # ── Identity ─────────────────────────────────────────────────────────────
     block:     str = ""
     block_dir: str = ""
     test:      str = ""
-
-    # ── Mutable block-derived working state ──────────────────────────────────
-    top:         str  = ""
-    rtl_files:   list = field(default_factory=list)  # list[str] absolute paths
-    rtl_incdirs: list = field(default_factory=list)
-    libs:        list = field(default_factory=list)  # list[LibSpec], resolved
+    top:       str = ""
 
     # ── Mutable test-derived working state ───────────────────────────────────
     vrf_top:           str  = ""
     vrf_files:         list = field(default_factory=list)  # list[str]
     vrf_incdirs:       list = field(default_factory=list)
-    vrf_libs:          list = field(default_factory=list)  # list[LibSpec], resolved
+    vrf_libs:          list = field(default_factory=list)  # list[LibSpec | BlockSpec], resolved
     vrf_defines:       list = field(default_factory=list)
     vrf_options:       dict = field(default_factory=dict)
     vrf_framework:     str  = ""
@@ -148,99 +214,87 @@ class StepData:
     vrf_pass_regex:    str  = ""
     vrf_fail_regex:    str  = ""
 
-    # ── Gate-level / lib fields (from BlockSpec or an impl step) ─────────────
-    netlist_files:   list = field(default_factory=list)   # gate-level Verilog
-    netlist_incdirs: list = field(default_factory=list)   # gate-level include dirs
-    liberty_files:   dict = field(default_factory=dict)   # {corner: [files]}
-    si_files:        dict = field(default_factory=dict)   # {corner: [files]}
-    layout_info:     str  = ""
-
-    # ── Constraint and activity files ────────────────────────────────────────
-    sdf_files:    dict = field(default_factory=dict)   # annotated delays {corner: file}
-    sdc_files:    list = field(default_factory=list)   # design constraints
-    vcd_files:    dict = field(default_factory=dict)   # value change dump {corner: [files]}
-    saif_files:   dict = field(default_factory=dict)   # switching activity {corner: [files]}
-
     # ── Bookkeeping ──────────────────────────────────────────────────────────
     recipe_prefix: RecipePath = field(default_factory=RecipePath)
     is_last:       bool       = False
 
-    def copy(self) -> "StepData":
+    _TEST_FIELDS: ClassVar[tuple] = (
+        "vrf_top", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
+        "vrf_options", "vrf_framework", "vrf_framework_top", "default_sim",
+        "vrf_pass_regex", "vrf_fail_regex",
+    )
+
+    def copy(self: _D) -> _D:
         """Return a copy whose lists and dicts are independent of this one.
 
         Containers are copied one level deep (lists inside the corner dicts
-        included) so that a step appending to its output data cannot alter
-        the data of the steps before it."""
+        included), and data nested in a list (RtlData.macros) is copied in
+        turn, so that a step appending to its output data cannot alter the
+        data of the steps before it."""
         changes: dict[str, Any] = {}
         for f in dataclasses.fields(self):
             value = getattr(self, f.name)
             if isinstance(value, RecipePath):
                 changes[f.name] = RecipePath(value)
             elif isinstance(value, list):
-                changes[f.name] = list(value)
+                changes[f.name] = [v.copy() if isinstance(v, StepData) else v for v in value]
             elif isinstance(value, dict):
                 changes[f.name] = {
                     k: list(v) if isinstance(v, list) else v for k, v in value.items()
                 }
         return dataclasses.replace(self, **changes)
 
+    def convert(self, cls: type[_D], **fields) -> _D:
+        """This data as another kind: a `cls` carrying a copy of the base
+        fields (identity, test state, bookkeeping) and the given ones.  A
+        step whose output is of a different kind builds it this way."""
+        copied = self.copy()
+        base = {f.name: getattr(copied, f.name) for f in dataclasses.fields(StepData)}
+        return cls(**{**base, **fields})
+
     def extend(self, data: StepData):
-        """Merge `data` (an included env or block) into this working state."""
+        """Merge `data` (an included env or block) into this working state.
 
-        def list_inherit(child, parent):
-            """Merge child list into parent list, preserving order and suppressing duplicates.
+        The test state merges from either.  A block's design fields merge
+        according to the two kinds (absorb()); an env carries none."""
+        _merge_fields(self, data, self._TEST_FIELDS)
+        if type(data) is not StepData:
+            self.absorb(data)
 
-            Parent elements appear first; child elements are appended only if not
-            already present in the merged list.  This ordering means that files
-            declared in an included env/block take lower precedence than those
-            declared directly on the inheriting block.
-            """
-            merged_list = parent.copy()
-            for child_elem in child:
-                if child_elem not in merged_list:
-                    merged_list.append(child_elem)
-            return merged_list
+    def absorb(self, data: StepData) -> None:
+        """Merge the design fields of an included block of kind `data.kind`.
+        A kind that accepts includes overrides this."""
+        raise exceptions.BakeManifestError(
+            f"Block '{self.block}' is {self.kind or 'a design'} and cannot include "
+            f"block '{data.block}', which is {data.kind}."
+        )
 
-        def dict_inherit(child, parent):
-            """Merge dicts key by key: list values merge like lists, any other
-            value keeps the child's when set and takes the parent's otherwise."""
-            child = child.copy()
-            for opt_k, opt_v in parent.items():
-                if opt_k not in child:
-                    child[opt_k] = list(opt_v) if isinstance(opt_v, list) else opt_v
-                elif isinstance(opt_v, list) and isinstance(child[opt_k], list):
-                    child[opt_k] = list_inherit(child[opt_k], opt_v)
-                elif not child[opt_k]:
-                    child[opt_k] = opt_v
-            return child
+    def _include_refusal(self, dep_name: str, recipe: str, data: StepData):
+        what = f"'{dep_name}'" if recipe == "rtl" else f"'{dep_name}' after {recipe}"
+        msg = f"Block '{self.block}' is {self.kind} and cannot include {what}, which is {data.kind}"
+        if not self.accepts:
+            return exceptions.BakeManifestError(f"{msg}: a {self.kind} block includes nothing.")
+        steps = converting_steps(type(data), self.accepts)
+        if steps:
+            suggested = steps[0] if recipe == "rtl" else f"{recipe}-{steps[0]}"
+            msg += (f". Include it with a recipe that turns it into {kind_names(self.accepts)}, "
+                    f"e.g. {{\"{dep_name}\": \"{suggested}\"}}")
+        return exceptions.BakeManifestError(msg + ".")
 
-        str_extend = [
-            "vrf_top", "vrf_framework", "vrf_framework_top",
-            "default_sim", "vrf_pass_regex", "vrf_fail_regex",
-        ]
-
-        list_extend = [
-            "rtl_files", "rtl_incdirs", "libs", "vrf_files", "vrf_incdirs",
-            "vrf_libs", "vrf_defines", "netlist_files", "netlist_incdirs",
-            "sdc_files"]
-
-        dict_extend = [
-            "vrf_options", "liberty_files", "si_files",
-            "sdf_files", "vcd_files", "saif_files"
-        ]
-
-        for attr in str_extend:
-            setattr(self, attr, getattr(self, attr) or getattr(data, attr))
-
-        for attr in list_extend:
-            setattr(self, attr, list_inherit(getattr(self, attr), getattr(data, attr)))
-
-        for attr in dict_extend:
-            setattr(self, attr, dict_inherit(getattr(self, attr), getattr(data, attr)))
-
-        # layout_info is a space-separated file list (LEF files); an included
-        # block's abstracts add to the block's own.
-        self.layout_info = " ".join(list_inherit(self.layout_info.split(), data.layout_info.split()))
+    def _set_test(self, env: "EnvSpec"):
+        self.test              = env.name
+        self.vrf_top           = env.vrf_top
+        self.vrf_files         = list(env.vrf_files)
+        self.vrf_incdirs       = list(env.vrf_incdirs)
+        self.vrf_libs          = list(env.resolved_libs)
+        self.vrf_defines       = list(env.vrf_defines)
+        self.vrf_options       = {k: list(v) if isinstance(v, list) else v
+                                  for k, v in env.vrf_options.items()}
+        self.vrf_framework     = env.vrf_framework
+        self.vrf_framework_top = env.vrf_framework_top
+        self.default_sim       = env.default_sim
+        self.vrf_pass_regex    = env.vrf_pass_regex
+        self.vrf_fail_regex    = env.vrf_fail_regex
 
     def _process_env_includes(self, env):
         for dep_name in env.includes:
@@ -271,7 +325,7 @@ class StepData:
                 raise exceptions.BakeManifestError(f"Include cycle detected: {cycle}")
 
             if dep_recipe_str == "rtl":
-                # RTL include: pull in source files directly, no step outputs needed.
+                # Include as declared: the block's own data, whatever its kind.
                 data = StepData.create(
                     block=context.blocks[dep_name],
                     dependencies=dependencies,
@@ -291,54 +345,26 @@ class StepData:
                     dep_name, dep_recipe_str, dep_recipe.last_step.outputdir,
                 )
 
+            if not isinstance(data, self.accepts):
+                raise self._include_refusal(dep_name, dep_recipe_str, data)
             self.extend(data)
 
     @staticmethod
     def create(block: Optional["BlockSpec"] = None, env: Optional["EnvSpec"] = None,
-               dependencies: Optional[list] = None, _visiting: tuple = ()):
+               dependencies: Optional[list] = None, _visiting: tuple = ()) -> "StepData":
         """Build the initial working state from a block and/or test.
 
+        The block builds its own data, of its kind (BlockSpec.to_data());
+        without one the result is a plain StepData holding the test state.
         Recipe-form includes are elaborated and appended to `dependencies`
         (a list of Recipe objects) so that the caller can build them first.
         """
         if dependencies is None:
             dependencies = []
 
-        obj = StepData(
-            block     = block.name if block else "",
-            block_dir = block.dir if block else "",
-            test      = env.name if env else "",
-
-            # block-derived working state
-            top         = block.top if block else "",
-            rtl_files   = list(block.rtl_files) if block else [],
-            rtl_incdirs = list(block.rtl_incdirs) if block else [],
-            libs        = StepData._block_libs(block) if block else [],
-            netlist_files   = list(block.netlist_files) if block else [],
-            netlist_incdirs = list(block.netlist_incdirs) if block else [],
-            liberty_files   = {k: list(v) for k, v in block.liberty_files.items()} if block else {},
-            si_files    = {k: list(v) for k, v in block.si_files.items()} if block else {},
-            layout_info = block.layout_info if block else "",
-            sdc_files   = list(block.sdc_files) if block else [],
-            vcd_files   = dict(block.vcd_files) if block else {},
-            saif_files  = {k: list(v) for k, v in block.saif_files.items()} if block else {},
-
-            # env-derived working state
-            vrf_top           = env.vrf_top if env else "",
-            vrf_files         = list(env.vrf_files) if env else [],
-            vrf_incdirs       = list(env.vrf_incdirs) if env else [],
-            vrf_libs          = list(env.resolved_libs) if env else [],
-            vrf_defines       = list(env.vrf_defines) if env else [],
-            vrf_options       = {k: list(v) if isinstance(v, list) else v
-                                 for k, v in env.vrf_options.items()} if env else {},
-            vrf_framework     = env.vrf_framework if env else "",
-            vrf_framework_top = env.vrf_framework_top if env else "",
-            default_sim       = env.default_sim if env else "",
-            vrf_pass_regex    = env.vrf_pass_regex if env else "",
-            vrf_fail_regex    = env.vrf_fail_regex if env else "",
-        )
-
+        obj = block.to_data() if block else StepData()
         if env:
+            obj._set_test(env)
             obj._process_env_includes(env)
         if block:
             obj._process_block_includes(block, dependencies, _visiting + (block.name,))
@@ -375,6 +401,61 @@ class StepData:
         return StepData.create(block=block)
 
 
+@dataclass
+class LibData(StepData):
+    """An implemented block: its netlist and the abstracts (LEF, Liberty per
+    corner) a parent needs to integrate it as a hard macro.  What impl
+    produces, and what a hard block — a block() declaring a netlist instead
+    of RTL — starts as."""
+
+    kind: ClassVar[str] = "lib"
+
+    netlist_files:   list = field(default_factory=list)   # gate-level Verilog, the macros' included
+    netlist_incdirs: list = field(default_factory=list)
+    liberty_files:   dict = field(default_factory=dict)   # {corner: [files]}
+    si_files:        dict = field(default_factory=dict)   # {corner: [files]}
+    layout_info:     str  = ""                            # LEF files, space-separated
+    sdf_files:       dict = field(default_factory=dict)   # annotated delays {corner: file}
+    libs:            list = field(default_factory=list)   # list[LibSpec]: the cells it is mapped to
+
+
+@dataclass
+class RtlData(StepData):
+    """A design in RTL: what tmr and impl take, and what vrf simulates.
+
+    Implemented sub-blocks it includes are kept whole in `macros`, one LibData
+    each: impl integrates them as hard macros from their abstracts, vrf
+    simulates their netlists."""
+
+    kind: ClassVar[str] = "rtl"
+
+    rtl_files:   list = field(default_factory=list)   # list[str] absolute paths
+    rtl_incdirs: list = field(default_factory=list)
+    libs:        list = field(default_factory=list)   # list[LibSpec], resolved
+    sdc_files:   list = field(default_factory=list)   # design constraints
+    vcd_files:   dict = field(default_factory=dict)   # value change dump {corner: [files]}
+    saif_files:  dict = field(default_factory=dict)   # switching activity {corner: [files]}
+    macros:      list = field(default_factory=list)   # list[LibData]
+
+    _DESIGN_FIELDS: ClassVar[tuple] = (
+        "rtl_files", "rtl_incdirs", "libs", "sdc_files", "vcd_files", "saif_files", "macros",
+    )
+
+    def absorb(self, data: StepData) -> None:
+        if isinstance(data, LibData):
+            # An implemented sub-block: a macro, whose cell libraries the
+            # design needs as well.
+            self.macros = _list_inherit(self.macros, [data])
+            self.libs   = _list_inherit(self.libs, data.libs)
+        elif isinstance(data, RtlData):
+            _merge_fields(self, data, self._DESIGN_FIELDS)
+        else:
+            super().absorb(data)
+
+
+RtlData.accepts = (RtlData, LibData)
+
+
 # ---------------------------------------------------------------------------
 # Abstract base class
 # ---------------------------------------------------------------------------
@@ -385,6 +466,10 @@ class Step(ABC):
     Subclasses must declare:
         name  -- short identifier used in recipe names, e.g. "vrf"
 
+    and may declare the kinds of StepData they take and give:
+        consumes  -- the kinds self.data may be (default: any)
+        produces  -- the kind output_data is (default: the kind consumed)
+
     All block and test data is available via self.data (StepData).
     Step methods must not access context registries (context.libs,
     context.blocks, context.tests) — only self.data and self.config.
@@ -393,6 +478,8 @@ class Step(ABC):
     name: str
     default_flow = None
     require_test = False
+    consumes: ClassVar[tuple] = (StepData,)
+    produces: ClassVar[Optional[type]] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -435,10 +522,28 @@ class Step(ABC):
     def recipe_path(self):
         return str(self.data.recipe_prefix) + ("-" if self.data.recipe_prefix else "") + self.name
 
+    def check_kind(self) -> None:
+        """Refuse data of a kind this step does not consume.
+
+        Called by the recipe right before check_pre(), so an override of
+        check_pre() cannot skip it."""
+        if isinstance(self.data, self.consumes):
+            return
+        prefix = str(self.data.recipe_prefix)
+        after = f" after {prefix}" if prefix else ""
+        msg = (f"Step {self.name} cannot run on block '{self.data.block}'{after}: {self.name} takes "
+               f"{kind_names(self.consumes)}, and the block{after} is {self.data.kind}.")
+        steps = converting_steps(type(self.data), self.consumes)
+        if steps:
+            msg += (f" A step that turns {self.data.kind} into {kind_names(self.consumes)}: "
+                    f"{', '.join(steps)} (e.g. recipe {prefix + '-' if prefix else ''}{steps[0]}-{self.name}).")
+        raise exceptions.BakeManifestError(msg)
+
     def check_pre(self) -> None:
         """Verify that this step can consume self.data.
 
-        Called during recipe elaboration, before anything runs.  Raise a
+        Called during recipe elaboration, before anything runs, once the
+        kind of self.data is known to be one the step consumes.  Raise a
         BakeRuntimeError (or subclass) describing what is missing or
         unsupported; the message is shown to the user as the reason the
         block/recipe combination cannot run.
@@ -987,8 +1092,15 @@ class Recipe:
                     f"set config.{step_name}.flow = \"<flow_name>\" in the manifest."
                 )
 
+            step.check_kind()
             step.check_pre()
 
             running_data = step.output_data
+            expected = step.produces or type(step.data)
+            if not isinstance(running_data, expected):
+                raise exceptions.BakeInternalError(
+                    f"Step '{step_name}' produces {expected.kind or 'StepData'} data, but its "
+                    f"output_data is {type(running_data).__name__}."
+                )
             self.steps.append(step)
             self.data.append(running_data)

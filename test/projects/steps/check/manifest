@@ -18,7 +18,7 @@
 # $BAKE_TOP) and the is_last flag, which the tests read back.
 
 import os
-from bake.step import Step
+from bake.step import RtlData, Step
 from bake.manifest import FlowSpec
 
 
@@ -34,6 +34,7 @@ config.register('check', CheckConfig())
 class CheckStep(Step):
     name = "check"
     default_flow = "check_flow"
+    consumes = (RtlData,)
 
     @property
     def source_files(self):

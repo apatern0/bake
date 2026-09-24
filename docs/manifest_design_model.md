@@ -22,14 +22,23 @@ Arguments:
   * `libs` — Python list of *bake* library names (PDK cell libraries) — optional; a block that
     declares none uses `config.bake.default_libs`, so shared RTL can be implemented in whatever
     libraries the project that includes it sets
-  * `netlist_files` — gate-level Verilog files for this block (used when the block has already been implemented externally) — optional
-  * `netlist_incdirs` — include directories for netlist files — optional
-  * `liberty_files` — timing libraries, same format as `lib()` — optional
-  * `si_files` — signal-integrity libraries, same format as `lib()` — optional
   * `sdc_files` — design constraint files — optional
   * `vcd_files`, `saif_files` — switching-activity files for power analysis, per corner
     (`{"tt": ["run.vcd"]}`); a plain list or a single file is the `"default"` corner — optional
-  * `layout_info` — LEF file or OpenAccess library folder for physical implementation — optional
+
+A block implemented elsewhere is declared as a *hard block*, by its netlist and abstracts
+instead of RTL:
+
+  * `netlist_files` — gate-level Verilog files for this block
+  * `netlist_incdirs` — include directories for netlist files — optional
+  * `liberty_files` — timing libraries, same format as `lib()`
+  * `si_files` — signal-integrity libraries, same format as `lib()` — optional
+  * `layout_info` — LEF file or OpenAccess library folder for physical implementation
+
+A block is either RTL or a hard block: declaring RTL fields (`rtl_files`, `rtl_incdirs`,
+`sdc_files`, `vcd_files`, `saif_files`) together with hard-block fields is an error. A hard
+block is what `impl` makes of an RTL block, so the two are used the same way: simulated as a
+netlist, and integrated as a hard macro by a block that includes it.
 
 ## Manifest Conventions
 ### File References
@@ -122,7 +131,10 @@ $ bake concentrator impl       # hierarchical: sub_block placed as a macro
 $ bake concentrator impl-vrf   # gate-level simulation of both netlists
 ```
 
-A step refuses an include only when it lacks what the step needs: the built-in `impl` requires
+Each step takes certain kinds of data — RTL, or an implemented block — and refuses a recipe
+that hands it another: `tmr` and `impl` take RTL, so `impl-tmr` is refused before anything
+runs (see [Data Kinds](custom_steps.md#data-kinds)). A step also refuses an include that lacks
+what the step needs: the built-in `impl` requires
 the sub-block's abstracts, which the built-in flow writes whenever the libraries provide LEF
 (synthesis-only runs produce a netlist but no macro). A block that instantiates a hard macro
 cannot override its parameters — the macro's ports are fixed — so instantiate it with its

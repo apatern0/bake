@@ -32,7 +32,7 @@ import functools
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -40,6 +40,7 @@ from . import loader
 from . import file_utils
 from .context import context
 from .exceptions import BakeManifestError
+from .step import LibData, RtlData, StepData
 
 
 def load(path):
@@ -158,7 +159,8 @@ class BlockSpec(BaseModel):
     rtl_files: list[str] = Field(default_factory=list)
     rtl_incdirs: list[str] = Field(default_factory=list)
 
-    # Gate-level / implementation step (user-declared post-impl info)
+    # A hard block: an implemented design declared by its netlist and
+    # abstracts instead of RTL (see is_hard)
     netlist_files: list[str] = Field(default_factory=list)
     netlist_incdirs: list[str] = Field(default_factory=list)
     liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
@@ -212,6 +214,10 @@ class BlockSpec(BaseModel):
                 )
         return v
 
+    # A block is either RTL or a hard block; these fields say which.
+    _RTL_FIELDS: ClassVar[tuple] = ("rtl_files", "rtl_incdirs", "sdc_files", "vcd_files", "saif_files")
+    _HARD_FIELDS: ClassVar[tuple] = ("netlist_files", "netlist_incdirs", "liberty_files", "si_files", "layout_info")
+
     @functools.cached_property
     def available_tests(self):
         return [t.name for t in context.find_test_by_target(self.name)]
@@ -225,9 +231,50 @@ class BlockSpec(BaseModel):
             libs.append(context.libs[n])
         return libs
 
+    @property
+    def is_hard(self) -> bool:
+        """A hard block: declared by its netlist and abstracts, not RTL."""
+        return any(getattr(self, f) for f in self._HARD_FIELDS)
+
+    @property
+    def data_type(self) -> type:
+        """The kind of StepData a recipe on this block starts from."""
+        return LibData if self.is_hard else RtlData
+
+    def to_data(self):
+        """This block's own working state (includes and test excluded; see
+        StepData.create()), as copies: a step cannot alter the block."""
+        if self.is_hard:
+            return LibData(
+                block=self.name, block_dir=self.dir, top=self.top,
+                netlist_files=list(self.netlist_files),
+                netlist_incdirs=list(self.netlist_incdirs),
+                liberty_files={k: list(v) for k, v in self.liberty_files.items()},
+                si_files={k: list(v) for k, v in self.si_files.items()},
+                layout_info=self.layout_info,
+                libs=StepData._block_libs(self),
+            )
+        return RtlData(
+            block=self.name, block_dir=self.dir, top=self.top,
+            rtl_files=list(self.rtl_files),
+            rtl_incdirs=list(self.rtl_incdirs),
+            libs=StepData._block_libs(self),
+            sdc_files=list(self.sdc_files),
+            vcd_files={k: list(v) for k, v in self.vcd_files.items()},
+            saif_files={k: list(v) for k, v in self.saif_files.items()},
+        )
+
     def model_post_init(self, __context: Any) -> None:
         if self.name in context.blocks:
             raise BakeManifestError(f"Redefinition of block {self.name} detected")
+        rtl = [f for f in self._RTL_FIELDS if getattr(self, f)]
+        hard = [f for f in self._HARD_FIELDS if getattr(self, f)]
+        if rtl and hard:
+            raise BakeManifestError(
+                f"Block '{self.name}' declares both RTL ({', '.join(rtl)}) and an implemented "
+                f"block's files ({', '.join(hard)}). A block is either RTL or a hard block: "
+                f"declare the hard block as a block of its own and include it."
+            )
         self.dir = str(Path.cwd())
         file_utils.resolve_file_list(self.rtl_files)
         file_utils.resolve_dir_list(self.rtl_incdirs)
@@ -284,6 +331,11 @@ class EnvSpec(BaseModel):
                 spec = context.libs[n]
             elif n in context.blocks:
                 spec = context.blocks[n]
+                if not getattr(spec, "is_hard", False):
+                    raise BakeManifestError(
+                        f"vrf_libs: '{n}' is a block of kind {spec.data_type.kind}, not a library. "
+                        f"Name a lib() or a hard block (a block() declaring netlist_files)."
+                    )
             else:
                 raise BakeManifestError(f"Library {n} not defined")
             libs.append(spec)
