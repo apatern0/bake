@@ -113,6 +113,13 @@ block(
 )
 ```
 
+What an include resolves to has a *kind* — RTL, an implemented block, or a kind a loaded tool
+defines, such as an `rdl()` register map — and a block takes only some: an RTL block takes RTL
+(merged into its own) and implemented blocks (integrated as hard macros), and a hard block
+includes nothing. An include of another kind names a recipe that converts it
+(`includes={"regs": "rdl2verilog"}`); a wrong one is reported, with the recipe that would
+convert it, once all manifests are loaded.
+
 Such an include is a *dependency*. The manifest only declares it; whether `sub_block impl` has
 been run is decided when a recipe is elaborated, and the dependency is built (or rebuilt when
 its sources changed) before the parent's own steps run:

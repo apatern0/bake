@@ -264,6 +264,78 @@ When a recipe is elaborated, each step's data is checked against its `consumes` 
 itself (a missing file, an unsupported option). The default `consumes = (StepData,)` accepts
 every kind, which suits a step that reads only the fields every kind has.
 
+## Defining a Kind of Design
+
+A tool that works on another description of a design — a register map, a netlist format, a
+table of settings — can add a kind of its own, and a manifest function to declare designs of
+that kind. `rdl2verilog` does this for SystemRDL register maps: `rdl()` declares one, and its
+`rdl2verilog` step turns it into RTL that any block can include. A kind has three parts:
+
+- **The data**, a `StepData` subclass with a `kind` name, its own fields, and — if designs of
+  this kind can include one another — `accepts` and `absorb()` saying how an include merges.
+- **The spec**, a `DesignSpec` subclass (in `bake.manifest`): the manifest function that
+  declares such a design. It adds its own fields, makes their paths absolute in `_resolve()`
+  (called while the manifest loads, from the manifest's directory), and names its data in
+  `data_type` and `to_data()`. `name`, `desc` and `includes`, the registration in
+  `context.blocks` and the tests are inherited: every kind of design is a block to the command
+  line and to includes.
+- **A step** that turns the kind into one the others take (`consumes = (MyData,)`,
+  `produces = RtlData`), with its config section and flow.
+
+```python
+@dataclass
+class TableData(StepData):
+    kind: ClassVar[str] = "table"
+    table_files: list = field(default_factory=list)
+
+class TableSpec(DesignSpec):
+    manifest_function: ClassVar[str] = "table"     # used in error messages
+    table_files: list[str] = Field(default_factory=list)
+
+    @property
+    def data_type(self):
+        return TableData
+
+    def to_data(self):
+        return TableData(block=self.name, block_dir=self.dir, top=self.name,
+                         table_files=list(self.table_files))
+
+    def _resolve(self):
+        file_utils.resolve_file_list(self.table_files)
+
+table = TableSpec
+
+class GenStep(Step):
+    name     = "gen"
+    consumes = (TableData,)
+    produces = RtlData
+    ...
+    @property
+    def output_data(self):
+        return super().output_data.convert(RtlData, rtl_files=self.output_files)
+```
+
+Put the data and the spec in an ordinary Python module, which manifests import to declare
+designs (`from mytool.bake import table`), and the step, its config section and its flow in a
+manifest that projects `load()`, like any custom step: steps and config sections are registered
+again each time the manifests load, so they belong in a manifest. Then:
+
+```python
+from bake import block, load
+from mytool.bake import table
+
+load("../tools/mytool")                      # the gen step and its flow
+
+table(name="settings", table_files=["settings.txt"])
+block(name="top", top="top", rtl_files=["top.v"], includes={"settings": "gen"})
+```
+
+An include resolves to a kind its block must accept: `includes=["settings"]` on an RTL block is
+refused once the manifests have loaded, with the recipe that would convert it —
+*Block 'top' is rtl and cannot include 'settings', which is table. Include it with a recipe
+that turns it into rtl or lib, e.g. {"settings": "gen"}.* `test/projects/custom_kind` is a
+complete example in one manifest.
+
 ## Propagating Results to Downstream Steps
 
 When a step transforms files (e.g. rewrites the RTL, renames the top module, or adds defines),

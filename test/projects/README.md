@@ -8,5 +8,6 @@ project, so tests never touch the checkout.
 They are ordinary projects: `cd` into one and run `bake` to see what a test sees. `flows/`
 holds the stand-in flows every project loads, `rtl/` the shared Verilog, `steps/` custom
 steps laid out like built-in ones (`check` records what reaches a step, `dummy` does nothing
-and is combined with the real steps in the recipe tests). Projects whose name says so (`hier_cycle`,
+and is combined with the real steps in the recipe tests). `custom_kind` defines a kind of design
+of its own, with the step that turns it into RTL. Projects whose name says so (`hier_cycle`,
 `unknown_field`, ...) are meant to be rejected.

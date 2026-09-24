@@ -56,7 +56,7 @@ from . import exceptions
 from .context import context
 
 if TYPE_CHECKING:
-    from .manifest import BlockSpec, EnvSpec
+    from .manifest import DesignSpec, EnvSpec
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -350,11 +350,11 @@ class StepData:
             self.extend(data)
 
     @staticmethod
-    def create(block: Optional["BlockSpec"] = None, env: Optional["EnvSpec"] = None,
+    def create(block: Optional["DesignSpec"] = None, env: Optional["EnvSpec"] = None,
                dependencies: Optional[list] = None, _visiting: tuple = ()) -> "StepData":
         """Build the initial working state from a block and/or test.
 
-        The block builds its own data, of its kind (BlockSpec.to_data());
+        The block builds its own data, of its kind (DesignSpec.to_data());
         without one the result is a plain StepData holding the test state.
         Recipe-form includes are elaborated and appended to `dependencies`
         (a list of Recipe objects) so that the caller can build them first.
@@ -397,7 +397,7 @@ class StepData:
         return StepData.create(env=env)
 
     @staticmethod
-    def create_from_block(block: "BlockSpec"):
+    def create_from_block(block: "DesignSpec"):
         return StepData.create(block=block)
 
 
@@ -456,6 +456,32 @@ class RtlData(StepData):
 RtlData.accepts = (RtlData, LibData)
 
 
+def include_kind(owner: "DesignSpec", dep: "DesignSpec", recipe: str) -> type[StepData]:
+    """The kind `dep` has once `recipe` ran on it, checked step by step and
+    against what `owner` can include; raises BakeManifestError otherwise.
+
+    Uses only the steps' declared signatures, so context.validate() can check
+    every include before anything is elaborated."""
+    kind = dep.data_type
+    if recipe != "rtl":
+        done: list = []
+        for name in recipe.split("-"):
+            step_cls = context.steps[name]
+            if not issubclass(kind, step_cls.consumes):
+                where = f"after {'-'.join(done)} " if done else ""
+                raise exceptions.BakeManifestError(
+                    f"Block '{owner.name}' includes '{dep.name}' with recipe '{recipe}': step "
+                    f"{name} takes {kind_names(step_cls.consumes)}, and '{dep.name}' {where}is {kind.kind}."
+                )
+            kind = step_cls.produces or kind
+            done.append(name)
+    owner_kind = owner.data_type
+    if not issubclass(kind, owner_kind.accepts):
+        stand_in = owner_kind(block=owner.name)
+        raise stand_in._include_refusal(dep.name, recipe, kind(block=dep.name))
+    return kind
+
+
 # ---------------------------------------------------------------------------
 # Abstract base class
 # ---------------------------------------------------------------------------
@@ -478,8 +504,8 @@ class Step(ABC):
     name: str
     default_flow = None
     require_test = False
-    consumes: ClassVar[tuple] = (StepData,)
-    produces: ClassVar[Optional[type]] = None
+    consumes: ClassVar[tuple[type[StepData], ...]] = (StepData,)
+    produces: ClassVar[Optional[type[StepData]]] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -521,6 +547,15 @@ class Step(ABC):
     @property
     def recipe_path(self):
         return str(self.data.recipe_prefix) + ("-" if self.data.recipe_prefix else "") + self.name
+
+    @classmethod
+    def signature(cls) -> str:
+        """The kinds the step takes and gives, for listings: "rtl -> lib",
+        "rtl or lib"; "" for a step that takes any kind and keeps it."""
+        takes = kind_names(cls.consumes)
+        if cls.produces is None:
+            return "" if takes == "any" else takes
+        return f"{takes} -> {cls.produces.kind}"
 
     def check_kind(self) -> None:
         """Refuse data of a kind this step does not consume.

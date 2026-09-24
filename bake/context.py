@@ -217,8 +217,9 @@ class Context:
         """Check the declarations once every manifest has loaded.
 
         Includes may reference blocks and environments defined later, so
-        their existence, the step names in include recipes, and the absence
-        of include cycles are verified here rather than at registration.
+        their existence, the step names in include recipes, the absence of
+        include cycles and the kinds of data they resolve to are verified
+        here rather than at registration.
         Whether an included recipe has been *run* is not a manifest property;
         that is decided when a recipe is elaborated.
         """
@@ -247,6 +248,14 @@ class Context:
 
         self._check_cycles(self.blocks, lambda b: b.includes, "Block")
         self._check_cycles(self.envs, lambda e: e.includes, "Environment")
+
+        # Each include must reach a kind of data its block can take, through
+        # steps that each take the kind before them: decided by the steps'
+        # declared signatures, before anything is elaborated.
+        from .step import include_kind  # pylint: disable=import-outside-toplevel  # step imports context
+        for b in self.blocks.values():
+            for dep_name, recipe in b.includes.items():
+                include_kind(b, self.blocks[dep_name], recipe)
 
     @staticmethod
     def _check_cycles(registry, deps_of, kind):
@@ -320,8 +329,9 @@ class Context:
 
     def log_steps(self):
         logging.info("Available steps:")
-        for name in self.steps:
-            logging.info("- %s", name)
+        for name, cls in self.steps.items():
+            signature = cls.signature()
+            logging.info("- %s%s", name, f"  ({signature})" if signature else "")
 
     def log_tests(self, target_name=None):
         if target_name:
@@ -340,14 +350,14 @@ class Context:
             logging.info("- %s", name)
         logging.info("Available blocks with timing libs:")
         for name, b in self.blocks.items():
-            if b.liberty_files:
+            if getattr(b, "liberty_files", None):
                 logging.info("- %s", name)
 
 
     def log_targets(self):
-        logging.info("Available blocks (with RTL):")
+        logging.info("Available blocks:")
         for name, b in self.blocks.items():
-            if b.rtl_files:
+            if not b.is_empty:
                 logging.info("- %s", name)
 
 context = Context()

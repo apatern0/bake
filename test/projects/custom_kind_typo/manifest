@@ -1,0 +1,37 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Rejected: a misspelled argument to a spec a manifest defines is reported
+# like one to block(), under the spec's manifest function name.
+
+from typing import ClassVar
+
+from bake.manifest import DesignSpec
+from bake.step import StepData
+
+
+class NoteSpec(DesignSpec):
+    manifest_function: ClassVar[str] = "note"
+    text: str = ""
+
+    @property
+    def data_type(self):
+        return StepData
+
+    def to_data(self):
+        return StepData(block=self.name)
+
+
+NoteSpec(name="n", txt="hello")

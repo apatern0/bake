@@ -30,6 +30,7 @@ reported instead of being silently ignored.
 
 import functools
 import logging
+from abc import abstractmethod
 import os
 from pathlib import Path
 from typing import Any, ClassVar
@@ -81,6 +82,7 @@ def _resolve_layout_info(value: str, owner: str) -> str:
 
 class FlowSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
+    manifest_function: ClassVar[str] = "flow"
 
     name: str = ""
     desc: str = ""
@@ -110,6 +112,7 @@ class FlowSpec(BaseModel):
 
 class LibSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
+    manifest_function: ClassVar[str] = "lib"
 
     name: str = ""
     desc: str = ""
@@ -146,13 +149,86 @@ class LibSpec(BaseModel):
         )
 
 
-class BlockSpec(BaseModel):
+class DesignSpec(BaseModel):
+    """What a recipe runs on: a named design, registered in context.blocks.
+
+    block() declares one in RTL, or as a hard block; a manifest may define
+    other kinds of design by subclassing this (rdl2verilog's rdl() does).
+    A subclass adds its own fields and says which StepData kind a recipe on
+    it starts from (data_type) and how to build that data from its fields
+    (to_data()). Includes, tests and the registration are common: every
+    kind of design is a block to the command line and to includes.
+    """
     model_config = ConfigDict(validate_default=True, extra="forbid")
+
+    # The manifest function that declares this kind of design, for messages.
+    manifest_function: ClassVar[str] = ""
 
     name: str = ""
     desc: str = ""
     includes: dict = Field(default_factory=dict)   # {block_name: recipe_str}
     dir: str = ""
+
+    @field_validator("includes", mode="before")
+    @classmethod
+    def coerce_includes(cls, v):
+        # Convenience: a plain list of block names is treated as {name: "rtl"}:
+        # the included block's own data, whatever its kind. The dict form
+        # allows specifying a recipe (e.g. {name: "tmr-impl"}).
+        if isinstance(v, list):
+            return {item: "rtl" for item in v}
+        if not isinstance(v, dict):
+            raise BakeManifestError("Block includes must be a list or a dict.")
+        for dep_name, recipe in v.items():
+            if not isinstance(recipe, str) or not recipe:
+                raise BakeManifestError(
+                    f"Include '{dep_name}': the recipe must be a non-empty string, e.g. \"rtl\" or \"impl\"."
+                )
+        return v
+
+    @functools.cached_property
+    def available_tests(self):
+        return [t.name for t in context.find_test_by_target(self.name)]
+
+    @property
+    @abstractmethod
+    def data_type(self) -> type[StepData]:
+        """The kind of StepData a recipe on this design starts from."""
+
+    @abstractmethod
+    def to_data(self):
+        """This design's own working state, of kind data_type (includes and
+        test excluded; see StepData.create()), as copies: a step cannot
+        alter the design."""
+
+    @property
+    def is_empty(self) -> bool:
+        """Declares nothing to run a recipe on (such a block is not listed)."""
+        return False
+
+    def _resolve(self) -> None:
+        """Check the kind's own fields and make its paths absolute; the cwd
+        is the manifest's directory."""
+
+    def _summary(self) -> str:
+        """What the debug log says about the design once registered."""
+        return f"{len(self.includes)} includes"
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.name in context.blocks:
+            raise BakeManifestError(f"Redefinition of block {self.name} detected")
+        self.dir = str(Path.cwd())
+        self._resolve()
+        # Includes are checked once every manifest has loaded (context.validate())
+        # and resolved when a recipe is elaborated, so a block may include one
+        # that is defined later, and whether an included recipe has been run is
+        # decided at run time.
+        context.blocks[self.name] = self
+        logging.debug("Registered %s block '%s' (%s)", self.data_type.kind, self.name, self._summary())
+
+
+class BlockSpec(DesignSpec):
+    manifest_function: ClassVar[str] = "block"
 
     # RTL step
     top: str = ""
@@ -198,29 +274,9 @@ class BlockSpec(BaseModel):
             v = {"default": v}
         return _as_corner_dict(v)
 
-    @field_validator("includes", mode="before")
-    @classmethod
-    def coerce_includes(cls, v):
-        # Convenience: a plain list of block names is treated as {name: "rtl"}.
-        # The dict form allows specifying a recipe (e.g. {name: "tmr-impl"}).
-        if isinstance(v, list):
-            return {item: "rtl" for item in v}
-        if not isinstance(v, dict):
-            raise BakeManifestError("Block includes must be a list or a dict.")
-        for dep_name, recipe in v.items():
-            if not isinstance(recipe, str) or not recipe:
-                raise BakeManifestError(
-                    f"Include '{dep_name}': the recipe must be a non-empty string, e.g. \"rtl\" or \"impl\"."
-                )
-        return v
-
     # A block is either RTL or a hard block; these fields say which.
     _RTL_FIELDS: ClassVar[tuple] = ("rtl_files", "rtl_incdirs", "sdc_files", "vcd_files", "saif_files")
     _HARD_FIELDS: ClassVar[tuple] = ("netlist_files", "netlist_incdirs", "liberty_files", "si_files", "layout_info")
-
-    @functools.cached_property
-    def available_tests(self):
-        return [t.name for t in context.find_test_by_target(self.name)]
 
     @functools.cached_property
     def resolved_libs(self):
@@ -237,13 +293,14 @@ class BlockSpec(BaseModel):
         return any(getattr(self, f) for f in self._HARD_FIELDS)
 
     @property
-    def data_type(self) -> type:
-        """The kind of StepData a recipe on this block starts from."""
+    def is_empty(self) -> bool:
+        return not (self.rtl_files or self.includes or self.is_hard)
+
+    @property
+    def data_type(self) -> type[StepData]:
         return LibData if self.is_hard else RtlData
 
     def to_data(self):
-        """This block's own working state (includes and test excluded; see
-        StepData.create()), as copies: a step cannot alter the block."""
         if self.is_hard:
             return LibData(
                 block=self.name, block_dir=self.dir, top=self.top,
@@ -264,9 +321,7 @@ class BlockSpec(BaseModel):
             saif_files={k: list(v) for k, v in self.saif_files.items()},
         )
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.name in context.blocks:
-            raise BakeManifestError(f"Redefinition of block {self.name} detected")
+    def _resolve(self) -> None:
         rtl = [f for f in self._RTL_FIELDS if getattr(self, f)]
         hard = [f for f in self._HARD_FIELDS if getattr(self, f)]
         if rtl and hard:
@@ -275,7 +330,6 @@ class BlockSpec(BaseModel):
                 f"block's files ({', '.join(hard)}). A block is either RTL or a hard block: "
                 f"declare the hard block as a block of its own and include it."
             )
-        self.dir = str(Path.cwd())
         file_utils.resolve_file_list(self.rtl_files)
         file_utils.resolve_dir_list(self.rtl_incdirs)
         file_utils.resolve_file_list(self.netlist_files)
@@ -286,19 +340,14 @@ class BlockSpec(BaseModel):
                 file_utils.resolve_file_list(corner_files)
         if self.layout_info:
             self.layout_info = _resolve_layout_info(self.layout_info, f"Block '{self.name}'")
-        # Includes are checked once every manifest has loaded (context.validate())
-        # and resolved when a recipe is elaborated, so a block may include one
-        # that is defined later, and whether an included recipe has been run is
-        # decided at run time.
-        context.blocks[self.name] = self
-        logging.debug(
-            "Registered block '%s' (top=%s, %d RTL files, %d includes)",
-            self.name, self.top or "<none>", len(self.rtl_files), len(self.includes),
-        )
+
+    def _summary(self) -> str:
+        return f"top={self.top or '<none>'}, {len(self.rtl_files)} RTL files, {len(self.includes)} includes"
 
 
 class EnvSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
+    manifest_function: ClassVar[str] = "env"
 
     name: str = ""
     desc: str = ""
@@ -384,7 +433,20 @@ class EnvSpec(BaseModel):
 
 
 class TestSpec(EnvSpec):
+    manifest_function: ClassVar[str] = "test"
     is_test: bool = True
+
+
+def spec_class(name: str):
+    """The spec class called `name` (a pydantic error's title), specs that
+    manifests define (DesignSpec subclasses) included; None if there is none."""
+    todo: list = [FlowSpec, LibSpec, DesignSpec, EnvSpec]
+    while todo:
+        cls = todo.pop()
+        if cls.__name__ == name:
+            return cls
+        todo.extend(cls.__subclasses__())
+    return None
 
 
 flow  = FlowSpec

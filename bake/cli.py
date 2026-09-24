@@ -132,13 +132,6 @@ def apply_option_overrides(options):
 # Manifest errors
 # ---------------------------------------------------------------------------
 
-# The manifest function behind each spec, for messages: "block(): ...".
-_SPEC_FUNCTIONS = {
-    manifest.FlowSpec: "flow", manifest.LibSpec: "lib", manifest.BlockSpec: "block",
-    manifest.EnvSpec: "env", manifest.TestSpec: "test",
-}
-
-
 def _manifest_location(err: BaseException) -> tuple:
     """(`file:line`, raised_there) for the innermost manifest frame the error
     passed through, relative to the current directory. raised_there says
@@ -157,9 +150,9 @@ def _manifest_location(err: BaseException) -> tuple:
 def _validation_messages(err: pydantic.ValidationError) -> list:
     """One line per pydantic error, in manifest terms: the function, the
     argument, and a suggestion for an unknown one."""
-    spec = next((cls for cls in _SPEC_FUNCTIONS if cls.__name__ == err.title), None)
-    func = f"{_SPEC_FUNCTIONS[spec]}()" if spec else err.title
-    fields = list(spec.model_fields) if spec else []  # type: ignore[attr-defined]
+    spec = manifest.spec_class(err.title)
+    func = f"{spec.manifest_function}()" if spec and spec.manifest_function else err.title
+    fields = list(spec.model_fields) if spec else []
     lines = []
     for e in err.errors():
         arg = ".".join(str(x) for x in e["loc"]) or "<arguments>"
@@ -211,16 +204,18 @@ def _dependency_state(dep_recipe) -> str:
 
 
 def log_blocks_and_tests():
-    """List the blocks a recipe can be run on, their tests, and the state of
-    the dependencies their recipe-form includes require."""
-    blocks = {n: b for n, b in context.blocks.items() if b.rtl_files or b.includes}
+    """List the blocks a recipe can be run on, with their kind when it is not
+    RTL, their tests, and the state of the dependencies their recipe-form
+    includes require."""
+    blocks = {n: b for n, b in context.blocks.items() if not b.is_empty}
     if not blocks:
-        logging.info("No blocks with RTL files are registered.")
+        logging.info("No blocks are registered.")
         return
 
     logging.info("Available blocks and associated tests:")
     for name, b in blocks.items():
-        needs = []
+        kind = b.data_type.kind
+        needs = [] if kind == "rtl" else [kind]
         for dep_name, dep_recipe_str in b.includes.items():
             if dep_recipe_str == "rtl":
                 continue
