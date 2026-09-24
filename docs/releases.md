@@ -35,7 +35,31 @@ compatibility patches rebased for each new release.
 
 ## Changelog
 
-### Unreleased
+### v1.0.1
+
+**Data kinds.** What flows through a recipe now has a kind, and steps say which kinds they take.
+
+- `StepData` is the base of the kinds `RtlData` (a design in RTL) and `LibData` (an implemented
+  block: netlist and abstracts). An implemented sub-block included into RTL is kept whole in
+  `RtlData.macros` instead of being flattened into the parent's netlist fields.
+- Steps declare `consumes` (the kinds they take; any by default) and `produces` (the kind they
+  give; the one they took by default). The recipe checks them before `check_pre()`: `impl-tmr`
+  and `impl-impl` are refused before anything runs. `tmr` takes RTL, `impl` turns RTL into an
+  implemented block, `vrf` takes either. A step that changes the kind builds its output with
+  `StepData.convert()`.
+- A `block()` declaring `netlist_files` and abstracts instead of RTL is a *hard block*: it is
+  simulated as a netlist and integrated as a hard macro by the blocks that include it.
+  Declaring RTL and hard-block fields on the same block is an error, and `impl` no longer takes
+  a sub-block's abstracts declared on the parent. `vrf_libs` names a `lib()` or a hard block.
+- `DesignSpec` is the base of everything a recipe runs on; `block()` is one. A tool can add a
+  kind of design — a spec and a `StepData` subclass, and a step that turns it into RTL in a
+  manifest projects `load()` — as rdl2verilog does for SystemRDL register maps (`rdl()`).
+- Every include is checked on load against the steps' signatures and what its block can
+  include, and a wrong one names the recipe that would convert it.
+- `bake` lists a block's kind when it is not RTL and each step's signature
+  (`impl  (rtl -> lib)`).
+- **Custom steps:** a step reading `rtl_files` or netlist fields should declare `consumes`;
+  code constructing `StepData(rtl_files=...)` constructs `RtlData` or `LibData` instead.
 
 **Up-to-date check** (`bake/step.py`)
 
@@ -63,6 +87,8 @@ compatibility patches rebased for each new release.
 - Manifest errors are reported as one line with their location
   (`manifest:22: block(): unknown argument 'rtl_file' (did you mean 'rtl_files'?)`); the
   traceback only with `-v`.
+- `config.bake.default_libs` is back: a block that declares no `libs=` uses it, so shared
+  RTL can be implemented in whatever libraries the including project sets.
 - The `dummy` step is no longer a builtin; `example/06_custom_step` is the template for a
   step of your own.
 
@@ -76,6 +102,8 @@ compatibility patches rebased for each new release.
 - `impl`: the `<top>_<corner>.lib` abstracts are expected outputs; a library lacking Liberty
   for a corner another library provides is refused in `check_pre()`.
 - `tmr`: two RTL files with the same basename are refused (their outputs would collide).
+- A flow file that is not a template keeps its mode in the work directory, so a plain
+  (non-`.tpl`) run script is executable.
 - `vrf`: `vrf_pass_regex` / `vrf_fail_regex` on tests and envs, checked against the captured
   simulator output (`bake_sim.log`); a UVM log without the report summary fails; every run
   has a seed, logged and settable with `config.vrf.seed` / `-o vrf.seed=N`; the cocotb
