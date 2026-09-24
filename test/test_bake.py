@@ -425,6 +425,14 @@ def test_check_post_failure_reported(bake, capfd, project):
     assert_in_stderr(capfd, "did not produce all required files")
 
 
+def test_flow_script_not_a_template_stays_executable(bake, project):
+    """A flow file that is not a template keeps its mode in the work
+    directory, so a plain run script can be executed."""
+    project("sample_check")
+    assert not bake.run(["sample_target", "check", "-o", "check.flow=plain_run"])
+    assert os.access("work/sample_target/check/run.sh", os.X_OK)
+
+
 # ===========================================================================
 # Tests — up-to-date check
 # ===========================================================================

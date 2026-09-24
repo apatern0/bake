@@ -874,7 +874,7 @@ class Step(ABC):
 
     def copy_and_template(self):
         """Copy the flow directory tree into workdir, expanding *.tpl files."""
-        copy_method_map = {"copy": shutil.copyfile, "symlink": os.symlink}
+        copy_method_map = {"copy": shutil.copy, "symlink": os.symlink}  # copy keeps the mode
         copy_method_key = context.config.bake.file_copy_method
         if copy_method_key not in copy_method_map:
             raise exceptions.BakeConfigError(
