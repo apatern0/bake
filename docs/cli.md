@@ -22,7 +22,7 @@ when its outputs are missing or older than its sources.
 | `-c`, `--clean` | Remove the work directory of the block/recipe combination (`work/<block>/<recipe>`) and stop. The directories of the recipe's earlier steps belong to their own, shorter recipes (`tmr` for `tmr-impl`) and are left alone, as are dependencies. |
 | `-r`, `--restart` | Remove that work directory, then run the recipe. |
 | `-p`, `--populate-flow` | Copy the flow skeletons into `flow/` for the recipe and its dependencies without running any step. Useful to inspect or edit the scripts first, or when the tool a step needs is not installed. |
-| `-l`, `--list-libs` | List the libraries (`lib()`) registered by the manifests, then exit. |
+| `-l`, `--list-libs` | List the libraries (`lib()`) and macros (`macro()`) registered by the manifests, then exit. |
 | `-i`, `--interactive` | Ask flows to run interactively where they can (e.g. open the simulator GUI). |
 | `-v`, `--verbose` | Debug logging. Repeat for more. |
 | `--version` | Print the bake version and exit. |

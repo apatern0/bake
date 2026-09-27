@@ -7,7 +7,9 @@ each step runs a **flow**.
 
 **block**: A unit of RTL files that can be used for implementation flows or as a DUT in a verification context. Assumed to be a self-contained set of files. Optionally linked to a set of **libraries** used during simulation or implementation, and optionally *including* other blocks (as RTL, or as their implemented output). Registered in a manifest using `block()`. The name `target` is a backward-compatible alias for `block`; the `target=` argument of `env()`/`test()` names the block a test runs on.
 
-**library**: A bundle of files representing a non-RTL design component such as a standard cell library or implemented macro block. Bundles both a simulation model (e.g. a gate-level Verilog or behavioral model) and timing and physical design information. Registered in a manifest using `lib()`.
+**library**: A cell library — standard cells, IO cells, a PDK's technology files — that blocks are mapped onto. Bundles a simulation model (e.g. a gate-level Verilog or behavioral model) with timing and physical design information. Registered in a manifest using `lib()` and named by blocks in `libs=`; not a design, so not a target and not included.
+
+**macro**: An implemented block (a hard macro) declared by its netlist and abstracts — the same files as a library — rather than RTL: an analog block, or a digital one implemented elsewhere. A design, unlike a library: a target, and included by RTL blocks, whose `impl` places it. Registered in a manifest using `macro()`; `impl` makes the same kind of data out of an RTL block.
 
 **step**: One unit of work in the design pipeline: something that takes a block's current state, runs a tool, and hands the result on. Built-in steps are `vrf` (simulation), `impl` (synthesis and place-and-route) and `tmr` (triplication). Each step is a Python class that subclasses `Step`, sets a `name` attribute, and is registered automatically when *bake* loads the file containing it. A project defines its own in a manifest it `load()`s. Step names cannot contain hyphens, because the hyphen separates steps in a recipe.
 

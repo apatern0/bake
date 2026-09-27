@@ -226,6 +226,12 @@ class Context:
         for name, b in self.blocks.items():
             for dep_name, recipe in b.includes.items():
                 if dep_name not in self.blocks:
+                    if dep_name in self.libs:
+                        raise BakeManifestError(
+                            f"Block '{name}' includes '{dep_name}', which is a lib(): a cell "
+                            f"library is named in libs=, not included. Declare an implemented "
+                            f"block to include with macro()."
+                        )
                     raise BakeManifestError(
                         f"Block '{name}' includes unknown block '{dep_name}'"
                     )
@@ -348,9 +354,9 @@ class Context:
         logging.info("Available libraries (PDK):")
         for name in self.libs:
             logging.info("- %s", name)
-        logging.info("Available blocks with timing libs:")
+        logging.info("Available macros:")
         for name, b in self.blocks.items():
-            if getattr(b, "liberty_files", None):
+            if b.manifest_function == "macro":
                 logging.info("- %s", name)
 
 

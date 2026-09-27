@@ -50,21 +50,21 @@ class ImplStep(Step):
 
     def check_pre(self):
         # An implemented sub-block (an include after its impl recipe, or a
-        # hard block) is integrated as a hard macro from its abstracts: a LEF
+        # macro()) is integrated as a hard macro from its abstracts: a LEF
         # and Liberty for the flow's corners. Its netlist is not implemented
         # again, only passed on for simulation.
         missing = [m for m in self.data.macros if not (m.layout_info and m.liberty_files)]
         if missing:
             listed = "\n".join(
-                f"   - {m.block}" + (f" after {m.recipe_prefix}" if m.recipe_prefix else " (hard block)")
+                f"   - {m.block}" + (f" after {m.recipe_prefix}" if m.recipe_prefix else " (macro)")
                 for m in missing
             )
             raise BakeManifestError(
                 f"Step impl for block '{self.data.block}' needs abstracts (LEF and Liberty) for "
                 f"the implemented sub-block(s) it contains, and these have none:\n"
                 f"{listed}\nImplement the sub-block with a flow that writes them (the built-in "
-                f"flow does when the libraries provide LEF), or declare it as a hard block with "
-                f"netlist_files=, layout_info= and liberty_files=."
+                f"flow does when the libraries provide LEF), or declare it with macro(), with "
+                f"layout_info= and liberty_files=."
             )
         self._check_corners()
 
@@ -111,7 +111,7 @@ class ImplStep(Step):
             tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = []
             tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = []
 
-        # Hard macros: abstracts of implemented sub-blocks and hard blocks.
+        # Hard macros: abstracts of implemented sub-blocks and macro()s.
         # Kept apart from the cell libraries so the flow can place them.
         macros = self.data.macros
         flow_corners = {corner for corner, _ in self.flow.corners}

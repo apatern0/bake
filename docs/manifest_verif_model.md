@@ -45,11 +45,13 @@ bake mybock vrf            # executes the one test defined for myblock
 bake myblock vrf -t mytest # executes the test named mytest for myblock
 ```
 
-## Libraries
-Libraries (defined via `lib()`) model non-RTL design components such as macro blocks or standard
-cell libraries. The `netlist_files` field provides a behavioral or gate-level Verilog model used
-during simulation. When a library is included in a block, this model is passed to the simulator
-for pre-implementation simulations.
+## Libraries and Macros
+Cell libraries (defined via `lib()`) and implemented blocks (defined via `macro()`) are
+simulated through their `netlist_files`: a behavioral or gate-level Verilog model. A block's
+libraries (`libs=`) and the macros it includes are passed to the simulator with its RTL, so
+pre-implementation simulations use their models. A testbench adds libraries or macros of its
+own with `vrf_libs=`. A macro is also a target: `bake <macro> vrf` simulates its netlist with the
+tests that target it.
 
 ## Simulator Support
 *bake* ships with built-in support for the following simulators via the `builtin_vrf_flow`:

@@ -856,10 +856,12 @@ def test_step_refuses_kind(bake, capfd, project, recipe, message):
     assert_stderr(capfd, expect=[message], expect_not=["Traceback"])
 
 
-def test_hard_block_is_a_macro(bake, capfd, project):
-    """A hard block included into RTL is a macro: impl gets its abstracts, vrf
+def test_macro_is_included_as_a_macro(bake, capfd, project):
+    """A macro() included into RTL is a macro: impl gets its abstracts, vrf
     its netlist; on its own it is simulated as a netlist and refused by tmr."""
-    project("hard_block")
+    project("macro")
+    assert not bake.run(["-l"])
+    assert_stderr(capfd, expect=["Available macros:\\n[bake] INFO\\t - macro"])
     assert not bake.run([])
     assert_stderr(capfd, expect=["- macro  (lib)", "- impl  (rtl -> lib)", "- tmr  (rtl)", "- vrf  (rtl or lib)"])
     assert not bake.run(["top", "impl"])
@@ -875,10 +877,27 @@ def test_hard_block_is_a_macro(bake, capfd, project):
     assert_in_stderr(capfd, "tmr takes rtl, and the block is lib.")
 
 
-def test_block_rtl_and_netlist_rejected(bake, capfd, project):
-    project("rtl_and_netlist")
-    assert bake.run([])
-    assert_in_stderr(capfd, "A block is either RTL or a hard block")
+@pytest.mark.parametrize("manifest, message", [
+    ('block(name="both", top="top", rtl_files=["../rtl/top.v"], netlist_files=["../rtl/block.v"])',
+     "Block 'both': netlist_files is not a block() argument: block() declares RTL. "
+     "Declare an implemented block with macro() and include it."),
+    ('lib(name="cells", netlist_files=["../rtl/block.v"])\n'
+     'block(name="top", top="top", includes=["cells"], rtl_files=["../rtl/top.v"])',
+     "Block 'top' includes 'cells', which is a lib(): a cell library is named in libs=, "
+     "not included."),
+    ('macro(name="m", top="block", netlist_files=["../rtl/block.v"])\n'
+     'block(name="top", top="top", libs=["m"], rtl_files=["../rtl/top.v"])',
+     "Block 'top': libs= names 'm', which is a macro(), not a cell library. "
+     "Include it instead: includes=[\"m\"]."),
+])
+def test_lib_and_macro_roles_enforced(bake, capfd, project, manifest, message):
+    """A netlist is declared with lib() (a cell library, named in libs=) or
+    macro() (an implemented block, included); each is refused in the
+    other's place, and block() takes RTL only."""
+    project("macro")
+    Path("manifest").write_text("from bake import block, lib, macro\n" + manifest + "\n")
+    assert bake.run(["top", "tmr", "-n"])
+    assert message in capfd.readouterr().err
 
 
 def test_include_kind_checked_on_load(bake, capfd, project):

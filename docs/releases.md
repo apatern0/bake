@@ -47,11 +47,16 @@ compatibility patches rebased for each new release.
   and `impl-impl` are refused before anything runs. `tmr` takes RTL, `impl` turns RTL into an
   implemented block, `vrf` takes either. A step that changes the kind builds its output with
   `StepData.convert()`.
-- A `block()` declaring `netlist_files` and abstracts instead of RTL is a *hard block*: it is
-  simulated as a netlist and integrated as a hard macro by the blocks that include it.
-  Declaring RTL and hard-block fields on the same block is an error, and `impl` no longer takes
-  a sub-block's abstracts declared on the parent. `vrf_libs` names a `lib()` or a hard block.
-- `DesignSpec` is the base of everything a recipe runs on; `block()` is one. A tool can add a
+- `macro()` declares an implemented block (a hard macro) by its netlist and abstracts — the
+  arguments of `lib()`, plus `top` and `libs`. It is lib data from the start: a target that
+  `vrf` simulates as a netlist, and integrated as a hard macro by the RTL blocks that include
+  it. `lib()` is for cell libraries only: named in `libs=`, never included; each is refused
+  in the other's place, with a message naming the right one. `vrf_libs` names either.
+- `block()` declares RTL only: `netlist_files`, `netlist_incdirs`, `liberty_files`,
+  `si_files` and `layout_info` are no longer `block()` arguments. **Manifests:** move a block
+  declaring them to `macro()` and include it where it is instantiated; `impl` no longer takes
+  a sub-block's abstracts declared on the parent.
+- `DesignSpec` is the base of everything a recipe runs on; `block()` and `macro()` are two. A tool can add a
   kind of design — a spec and a `StepData` subclass, and a step that turns it into RTL in a
   manifest projects `load()` — as rdl2verilog does for SystemRDL register maps (`rdl()`).
 - Every include is checked on load against the steps' signatures and what its block can

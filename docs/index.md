@@ -13,7 +13,7 @@ the same, reproducible description of the design.
 - [Installation](installation.md) — detailed installation and tab-completion setup
 - [Command Line](cli.md) — every `bake` option
 - [Configuration](configuration.md) — all `config` sections and template variables
-- [Design Modeling](manifest_design_model.md) — `block()`, `lib()`, inheritance, hierarchical designs
+- [Design Modeling](manifest_design_model.md) — `block()`, `macro()`, `lib()`, inheritance, hierarchical designs
 - [Verification Modeling](manifest_verif_model.md) — `env()`, `test()`, simulator and framework support
 - [Custom Steps](custom_steps.md) — writing and registering your own pipeline steps
 - [Custom Flows](custom_flows.md) — defining custom flow directories and connecting them to steps

@@ -56,7 +56,7 @@ from . import exceptions
 from .context import context
 
 if TYPE_CHECKING:
-    from .manifest import BlockSpec, DesignSpec, EnvSpec
+    from .manifest import BlockSpec, DesignSpec, EnvSpec, MacroSpec
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -205,7 +205,7 @@ class StepData:
     vrf_top:           str  = ""
     vrf_files:         list = field(default_factory=list)  # list[str]
     vrf_incdirs:       list = field(default_factory=list)
-    vrf_libs:          list = field(default_factory=list)  # list[LibSpec | BlockSpec], resolved
+    vrf_libs:          list = field(default_factory=list)  # list[LibSpec | MacroSpec], resolved
     vrf_defines:       list = field(default_factory=list)
     vrf_options:       dict = field(default_factory=dict)
     vrf_framework:     str  = ""
@@ -372,7 +372,7 @@ class StepData:
         return obj
 
     @staticmethod
-    def _block_libs(block: "BlockSpec") -> list:
+    def _block_libs(block: "BlockSpec | MacroSpec") -> list:
         """The block's libraries: its own libs=[...], or config.bake.default_libs
         when it declares none, so that a project sets its libraries once and a
         block (shared IP, say) is implementable wherever it is used. Resolved
@@ -405,8 +405,7 @@ class StepData:
 class LibData(StepData):
     """An implemented block: its netlist and the abstracts (LEF, Liberty per
     corner) a parent needs to integrate it as a hard macro.  What impl
-    produces, and what a hard block — a block() declaring a netlist instead
-    of RTL — starts as."""
+    produces, and what a macro() starts as."""
 
     kind: ClassVar[str] = "lib"
 

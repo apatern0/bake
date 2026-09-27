@@ -245,8 +245,8 @@ What flows through a recipe is a `StepData` of one *kind*, the form the design h
 
 | Kind | Class | What it is | Starts from |
 |------|-------|------------|-------------|
-| `rtl` | `RtlData` | A design in RTL, with the implemented sub-blocks it contains as `macros` | a `block()` with `rtl_files` |
-| `lib` | `LibData` | An implemented block: its netlist and the abstracts (LEF, Liberty) a parent integrates it with | a hard block (a `block()` with `netlist_files`), or `impl` |
+| `rtl` | `RtlData` | A design in RTL, with the implemented sub-blocks it contains as `macros` | a `block()` |
+| `lib` | `LibData` | An implemented block: its netlist and the abstracts (LEF, Liberty) a parent integrates it with | a `macro()`, or `impl` |
 
 A step declares the kinds it takes in `consumes` and the kind it gives in `produces`
 (`None`: the kind it took). The built-in steps:
@@ -386,7 +386,7 @@ Every kind has:
 | `vrf_top` | `str` | Manifest `test()` / `env()` |
 | `vrf_files` | `list[str]` | Manifest `test()` / `env()` |
 | `vrf_incdirs` | `list[str]` | Manifest `test()` / `env()` |
-| `vrf_libs` | `list[LibSpec]` | Manifest `test()` / `env()` |
+| `vrf_libs` | `list[LibSpec \| MacroSpec]` | Manifest `test()` / `env()` |
 | `vrf_defines` | `list[str]` | Manifest, modified by `tmr` and `impl` |
 | `vrf_options` | `dict[str, list[str]]` | Manifest `test()` / `env()` |
 | `vrf_framework` | `str` | Manifest `test()` / `env()` |
@@ -404,16 +404,16 @@ Every kind has:
 | `libs` | `list[LibSpec]` | Manifest `block()` |
 | `sdc_files` | `list[str]` | Manifest `block()` |
 | `vcd_files`, `saif_files` | `dict[str, list[str]]` | Manifest `block()` |
-| `macros` | `list[LibData]` | Included implemented blocks: after `impl`, or hard blocks |
+| `macros` | `list[LibData]` | Included implemented blocks: after `impl`, or `macro()`s |
 
 `LibData` adds:
 
 | Field | Type | Populated by |
 |-------|------|-------------|
-| `netlist_files` | `list[str]` | Hard block, or `impl` output (with its macros' netlists) |
-| `netlist_incdirs` | `list[str]` | Hard block, or the macros' |
-| `liberty_files` | `dict[str, list[str]]` | Hard block, or `impl` output |
-| `si_files` | `dict[str, list[str]]` | Hard block |
-| `layout_info` | `str` | Hard block, or `impl` output |
+| `netlist_files` | `list[str]` | `macro()`, or `impl` output (with its macros' netlists) |
+| `netlist_incdirs` | `list[str]` | `macro()`, or the macros' |
+| `liberty_files` | `dict[str, list[str]]` | `macro()`, or `impl` output |
+| `si_files` | `dict[str, list[str]]` | `macro()` |
+| `layout_info` | `str` | `macro()`, or `impl` output |
 | `sdf_files` | `dict[str, str]` | `impl` output |
 | `libs` | `list[LibSpec]` | The cell libraries the netlist is mapped to |

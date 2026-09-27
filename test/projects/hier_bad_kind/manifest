@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Rejected: the include's recipe hands tmr a hard block, and tmr takes RTL.
+# Rejected: the include's recipe hands tmr a macro, and tmr takes RTL.
 
-from bake import block
+from bake import block, macro
 
-block(name="macro", top="block", netlist_files=["../rtl/block.v"])
+macro(name="macro", top="block", netlist_files=["../rtl/block.v"])
 block(name="top", top="top", includes={"macro": "tmr"}, rtl_files=["../rtl/top.v"])

@@ -85,7 +85,7 @@ class VrfStep(Step):
         tpl_dict["BAKE_SIM_SIMULATOR"] = simulator
         tpl_dict["BAKE_SIM_OPTIONS"]   = list(self.data.vrf_options.get(simulator, []))
 
-        # The design: a netlist (after impl, or a hard block), or RTL with the
+        # The design: a netlist (after impl, or a macro()), or RTL with the
         # netlists of the implemented sub-blocks it contains, which also bring
         # their SDF.
         if isinstance(self.data, LibData):

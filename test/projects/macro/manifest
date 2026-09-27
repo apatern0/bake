@@ -13,17 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A hard block: declared by its netlist and abstracts instead of RTL. It is
-# lib data from the start, so an RTL block including it gets it as a macro,
-# vrf simulates its netlist, and tmr (which takes RTL) refuses it.
+# A macro(): an implemented block, declared by its netlist and abstracts. It
+# is lib data from the start, so an RTL block including it gets it as a
+# macro, vrf simulates its netlist, and tmr (which takes RTL) refuses it.
 
-from bake import load, block, test
+from bake import load, block, macro, test
 
 load("../flows")
 config.impl.flow = "dummy_impl"
 config.vrf.flow = "dummy_vrf"
 
-block(
+macro(
     name="macro",
     top="block",
     netlist_files=["../rtl/block.v"],

@@ -110,34 +110,48 @@ class FlowSpec(BaseModel):
         )
 
 
-class LibSpec(BaseModel):
+class AbstractsSpec(BaseModel):
+    """The files an implemented design is used through: a netlist to simulate
+    it, and the abstracts (Liberty and SI per corner, LEF) to implement a
+    design around it. Declared the same way for a cell library, lib(), and
+    for an implemented block, macro(); only the role differs."""
     model_config = ConfigDict(validate_default=True, extra="forbid")
+
+    netlist_files: list[str] = Field(default_factory=list)
+    netlist_incdirs: list[str] = Field(default_factory=list)
+    liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
+    si_files: dict[str, list[str]] = Field(default_factory=dict)        # {corner: [files]}
+    layout_info: str = ""
+
+    _abstract_lists = field_validator("netlist_files", "netlist_incdirs", mode="before")(_as_list)
+    _corner_dicts = field_validator("liberty_files", "si_files", mode="before")(_as_corner_dict)
+
+    def _resolve_abstracts(self, owner: str) -> None:
+        """Make the paths absolute; the cwd is the manifest's directory."""
+        file_utils.resolve_file_list(self.netlist_files)
+        file_utils.resolve_dir_list(self.netlist_incdirs)
+        if self.layout_info:
+            self.layout_info = _resolve_layout_info(self.layout_info, owner)
+        for corner_dict in (self.liberty_files, self.si_files):
+            for corner_files in corner_dict.values():
+                file_utils.resolve_file_list(corner_files)
+
+
+class LibSpec(AbstractsSpec):
+    """A cell library (standard cells, IO cells, a PDK's technology files):
+    what blocks are mapped onto, named by libs=, vrf_libs= and
+    config.bake.default_libs. Not a design: it has no top and is not a
+    target; an implemented block of the project is a macro()."""
     manifest_function: ClassVar[str] = "lib"
 
     name: str = ""
     desc: str = ""
-    netlist_files: list[str] = Field(default_factory=list)
-    netlist_incdirs: list[str] = Field(default_factory=list)
-    liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
-    layout_info: str = ""
-    si_files: dict[str, list[str]] = Field(default_factory=dict)        # {corner: [files]}
-
-    _lists = field_validator("netlist_files", "netlist_incdirs", mode="before")(_as_list)
-    _corner_dicts = field_validator("liberty_files", "si_files", mode="before")(_as_corner_dict)
 
     def model_post_init(self, __context: Any) -> None:
         if self.name in context.libs:
             raise BakeManifestError(f"Redefinition of library {self.name} detected")
 
-        file_utils.resolve_file_list(self.netlist_files)
-        file_utils.resolve_dir_list(self.netlist_incdirs)
-
-        if self.layout_info:
-            self.layout_info = _resolve_layout_info(self.layout_info, f"Library '{self.name}'")
-
-        for corner_dict in (self.liberty_files, self.si_files):
-            for corner_files in corner_dict.values():
-                file_utils.resolve_file_list(corner_files)
+        self._resolve_abstracts(f"Library '{self.name}'")
 
         context.libs[self.name] = self
         logging.debug(
@@ -149,11 +163,28 @@ class LibSpec(BaseModel):
         )
 
 
+def _named_libs(names: list[str], owner: str) -> list:
+    """The cell libraries called `names`, for `owner`'s libs=."""
+    libs = []
+    for n in names:
+        if n in context.libs:
+            libs.append(context.libs[n])
+        elif isinstance(context.blocks.get(n), MacroSpec):
+            raise BakeManifestError(
+                f"{owner}: libs= names '{n}', which is a macro(), not a cell library. "
+                f"Include it instead: includes=[\"{n}\"]."
+            )
+        else:
+            raise BakeManifestError(f"Library {n} not defined")
+    return libs
+
+
 class DesignSpec(BaseModel):
     """What a recipe runs on: a named design, registered in context.blocks.
 
-    block() declares one in RTL, or as a hard block; a manifest may define
-    other kinds of design by subclassing this (rdl2verilog's rdl() does).
+    block() declares one in RTL and macro() an implemented block; a manifest
+    may define other kinds of design by subclassing this (rdl2verilog's
+    rdl() does).
     A subclass adds its own fields and says which StepData kind a recipe on
     it starts from (data_type) and how to build that data from its fields
     (to_data()). Includes, tests and the registration are common: every
@@ -228,20 +259,13 @@ class DesignSpec(BaseModel):
 
 
 class BlockSpec(DesignSpec):
+    """A design in RTL."""
     manifest_function: ClassVar[str] = "block"
 
     # RTL step
     top: str = ""
     rtl_files: list[str] = Field(default_factory=list)
     rtl_incdirs: list[str] = Field(default_factory=list)
-
-    # A hard block: an implemented design declared by its netlist and
-    # abstracts instead of RTL (see is_hard)
-    netlist_files: list[str] = Field(default_factory=list)
-    netlist_incdirs: list[str] = Field(default_factory=list)
-    liberty_files: dict[str, list[str]] = Field(default_factory=dict)   # {corner: [files]}
-    si_files: dict[str, list[str]] = Field(default_factory=dict)        # {corner: [files]}
-    layout_info: str = ""
 
     # Pipeline step files
     sdc_files: list[str] = Field(default_factory=list)                  # design constraints
@@ -251,17 +275,27 @@ class BlockSpec(DesignSpec):
     # PDK cell library dependencies (LibSpec names)
     libs: list[str] = Field(default_factory=list)
 
-    _lists = field_validator("rtl_files", "rtl_incdirs", "netlist_files", "netlist_incdirs",
-                             "sdc_files", "libs", mode="before")(_as_list)
-    _corner_dicts = field_validator("liberty_files", "si_files", mode="before")(_as_corner_dict)
+    _lists = field_validator("rtl_files", "rtl_incdirs", "sdc_files", "libs", mode="before")(_as_list)
+
+    # What an implemented block declares; block() takes RTL only.
+    _MACRO_FIELDS: ClassVar[tuple] = tuple(AbstractsSpec.model_fields)
 
     @model_validator(mode="before")
     @classmethod
     def reject_removed_fields(cls, values):
-        if isinstance(values, dict) and "skip_on_include_errors" in values:
+        if not isinstance(values, dict):
+            return values
+        if "skip_on_include_errors" in values:
             raise BakeManifestError(
                 "skip_on_include_errors has been removed: includes are resolved when a "
                 "recipe runs and dependencies are built on demand. Remove the argument."
+            )
+        macro_fields = [f for f in cls._MACRO_FIELDS if f in values]
+        if macro_fields:
+            raise BakeManifestError(
+                f"Block '{values.get('name', '')}': {', '.join(macro_fields)} "
+                f"{'is' if len(macro_fields) == 1 else 'are'} not a block() argument: block() "
+                f"declares RTL. Declare an implemented block with macro() and include it."
             )
         return values
 
@@ -274,43 +308,19 @@ class BlockSpec(DesignSpec):
             v = {"default": v}
         return _as_corner_dict(v)
 
-    # A block is either RTL or a hard block; these fields say which.
-    _RTL_FIELDS: ClassVar[tuple] = ("rtl_files", "rtl_incdirs", "sdc_files", "vcd_files", "saif_files")
-    _HARD_FIELDS: ClassVar[tuple] = ("netlist_files", "netlist_incdirs", "liberty_files", "si_files", "layout_info")
-
     @functools.cached_property
     def resolved_libs(self):
-        libs = []
-        for n in self.libs:
-            if n not in context.libs:
-                raise BakeManifestError(f"Library {n} not defined")
-            libs.append(context.libs[n])
-        return libs
-
-    @property
-    def is_hard(self) -> bool:
-        """A hard block: declared by its netlist and abstracts, not RTL."""
-        return any(getattr(self, f) for f in self._HARD_FIELDS)
+        return _named_libs(self.libs, f"Block '{self.name}'")
 
     @property
     def is_empty(self) -> bool:
-        return not (self.rtl_files or self.includes or self.is_hard)
+        return not (self.rtl_files or self.includes)
 
     @property
     def data_type(self) -> type[StepData]:
-        return LibData if self.is_hard else RtlData
+        return RtlData
 
     def to_data(self):
-        if self.is_hard:
-            return LibData(
-                block=self.name, block_dir=self.dir, top=self.top,
-                netlist_files=list(self.netlist_files),
-                netlist_incdirs=list(self.netlist_incdirs),
-                liberty_files={k: list(v) for k, v in self.liberty_files.items()},
-                si_files={k: list(v) for k, v in self.si_files.items()},
-                layout_info=self.layout_info,
-                libs=StepData._block_libs(self),
-            )
         return RtlData(
             block=self.name, block_dir=self.dir, top=self.top,
             rtl_files=list(self.rtl_files),
@@ -322,27 +332,59 @@ class BlockSpec(DesignSpec):
         )
 
     def _resolve(self) -> None:
-        rtl = [f for f in self._RTL_FIELDS if getattr(self, f)]
-        hard = [f for f in self._HARD_FIELDS if getattr(self, f)]
-        if rtl and hard:
-            raise BakeManifestError(
-                f"Block '{self.name}' declares both RTL ({', '.join(rtl)}) and an implemented "
-                f"block's files ({', '.join(hard)}). A block is either RTL or a hard block: "
-                f"declare the hard block as a block of its own and include it."
-            )
         file_utils.resolve_file_list(self.rtl_files)
         file_utils.resolve_dir_list(self.rtl_incdirs)
-        file_utils.resolve_file_list(self.netlist_files)
-        file_utils.resolve_dir_list(self.netlist_incdirs)
         file_utils.resolve_file_list(self.sdc_files)
-        for corner_dict in (self.liberty_files, self.si_files, self.vcd_files, self.saif_files):
+        for corner_dict in (self.vcd_files, self.saif_files):
             for corner_files in corner_dict.values():
                 file_utils.resolve_file_list(corner_files)
-        if self.layout_info:
-            self.layout_info = _resolve_layout_info(self.layout_info, f"Block '{self.name}'")
 
     def _summary(self) -> str:
         return f"top={self.top or '<none>'}, {len(self.rtl_files)} RTL files, {len(self.includes)} includes"
+
+
+class MacroSpec(DesignSpec, AbstractsSpec):
+    """An implemented block (a hard macro): declared by its netlist and
+    abstracts, like a lib(), but a design. A recipe on it starts from lib
+    data, so vrf simulates its netlist; an RTL block including it gets it as
+    a macro, which impl places from its abstracts."""
+    manifest_function: ClassVar[str] = "macro"
+
+    top: str = ""
+    # The cell libraries its netlist is mapped to (LibSpec names)
+    libs: list[str] = Field(default_factory=list)
+
+    _lists = field_validator("libs", mode="before")(_as_list)
+
+    @functools.cached_property
+    def resolved_libs(self):
+        return _named_libs(self.libs, f"Macro '{self.name}'")
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.netlist_files or self.layout_info or self.liberty_files or self.includes)
+
+    @property
+    def data_type(self) -> type[StepData]:
+        return LibData
+
+    def to_data(self):
+        return LibData(
+            block=self.name, block_dir=self.dir, top=self.top,
+            netlist_files=list(self.netlist_files),
+            netlist_incdirs=list(self.netlist_incdirs),
+            liberty_files={k: list(v) for k, v in self.liberty_files.items()},
+            si_files={k: list(v) for k, v in self.si_files.items()},
+            layout_info=self.layout_info,
+            libs=StepData._block_libs(self),
+        )
+
+    def _resolve(self) -> None:
+        self._resolve_abstracts(f"Macro '{self.name}'")
+
+    def _summary(self) -> str:
+        return (f"top={self.top or '<none>'}, {len(self.netlist_files)} netlist files, "
+                f"{len(self.liberty_files)} liberty corners")
 
 
 class EnvSpec(BaseModel):
@@ -380,10 +422,10 @@ class EnvSpec(BaseModel):
                 spec = context.libs[n]
             elif n in context.blocks:
                 spec = context.blocks[n]
-                if not getattr(spec, "is_hard", False):
+                if not isinstance(spec, MacroSpec):
                     raise BakeManifestError(
                         f"vrf_libs: '{n}' is a block of kind {spec.data_type.kind}, not a library. "
-                        f"Name a lib() or a hard block (a block() declaring netlist_files)."
+                        f"Name a lib() or a macro()."
                     )
             else:
                 raise BakeManifestError(f"Library {n} not defined")
@@ -451,7 +493,8 @@ def spec_class(name: str):
 
 flow  = FlowSpec
 lib   = LibSpec    # PDK cell libraries
-block = BlockSpec  # user design blocks
+block = BlockSpec  # user design blocks, in RTL
+macro = MacroSpec  # implemented blocks (hard macros)
 env   = EnvSpec
 test  = TestSpec
 
