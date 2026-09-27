@@ -99,7 +99,7 @@ class GenStep(Step):
         return super().output_data.convert(RtlData, rtl_files=self.output_files)
 
 
-FlowSpec(name="gen_flow", run_cmd="run.sh")
+FlowSpec(name="gen_flow", run_cmd="run.sh", dir="gen_flow")  # not flow/: test/projects/*/flow/ is ignored
 
 TableSpec(name="table", table_files=["table.txt"])
 TableSpec(name="tables", includes=["table"], table_files=["extra.txt"])
