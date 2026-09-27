@@ -1,0 +1,31 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# config.bake.default_libs: the libraries of every block that declares none.
+# `plain` gets them, `own` replaces them, `more` adds to them.
+
+from bake import load, block, lib
+
+load("../flows")
+config.impl.flow = "dummy_impl"
+
+lib(name="cells", netlist_files=["../rtl/base.v"])
+lib(name="other", netlist_files=["../rtl/leaf.v"])
+config.bake.default_libs = ["cells"]
+
+block(name="plain", top="sample", rtl_files=["../rtl/sample.v"])
+block(name="own", top="sample", rtl_files=["../rtl/sample.v"], libs=["other"])
+block(name="more", top="sample", rtl_files=["../rtl/sample.v"],
+      libs=[*config.bake.default_libs, "other"])

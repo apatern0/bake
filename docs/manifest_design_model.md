@@ -19,7 +19,9 @@ Arguments:
   * `top` — name of the top-level Verilog module for this block
   * `rtl_files` — Python list of RTL files (typically Verilog or SystemVerilog)
   * `rtl_incdirs` — Python list of include directory paths (relative or absolute) — optional
-  * `libs` — Python list of *bake* library names (PDK cell libraries) — optional
+  * `libs` — Python list of *bake* library names (PDK cell libraries) — optional; a block that
+    declares none uses `config.bake.default_libs`, so shared RTL can be implemented in whatever
+    libraries the project that includes it sets
   * `netlist_files` — gate-level Verilog files for this block (used when the block has already been implemented externally) — optional
   * `netlist_incdirs` — include directories for netlist files — optional
   * `liberty_files` — timing libraries, same format as `lib()` — optional
