@@ -115,7 +115,8 @@ class ImplStep(Step):
         # Kept apart from the cell libraries so the flow can place them.
         macros = self.data.macros
         flow_corners = {corner for corner, _ in self.flow.corners}
-        tpl_dict["BAKE_MACRO_PHYSICAL"] = " ".join(m.layout_info for m in macros if m.layout_info)
+        # layout_info may name several files, space-separated
+        tpl_dict["BAKE_MACRO_PHYSICAL"] = [f for m in macros for f in m.layout_info.split()]
         for corner in flow_corners:
             tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = [
                 f for m in macros for f in m.liberty_files.get(corner, [])

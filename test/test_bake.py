@@ -866,7 +866,7 @@ def test_macro_is_included_as_a_macro(bake, capfd, project):
     assert_stderr(capfd, expect=["- macro  (lib)", "- impl  (rtl -> lib)", "- tmr  (rtl)", "- vrf  (rtl or lib)"])
     assert not bake.run(["top", "impl"])
     tpl = json.loads(Path("work/top/impl/bake_vars.json").read_text())
-    assert tpl["BAKE_MACRO_PHYSICAL"].endswith("rtl/block.v")
+    assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("rtl/block.v")
     assert tpl["BAKE_MACRO_LIBERTY_FILES_TC"][0].endswith("rtl/block.v")
     assert tpl["BAKE_DESIGN_VERILOG_FILES"][0].endswith("rtl/top.v")
     assert not bake.run(["top", "vrf"])
