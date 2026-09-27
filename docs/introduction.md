@@ -20,8 +20,8 @@ into the right sequence of tool invocations with the right inputs, re-running on
   hand their results on, so a simulation can run on RTL, on a synthesised netlist or on a
   placed-and-routed one with its SDF, by choosing the recipe.
 - **Hierarchy and dependencies.** A block can include others as RTL or as their implemented
-  results; *bake* builds what is missing or stale first, like a build system, and implements
-  sub-blocks as hard macros.
+  results, and hard macros implemented elsewhere; *bake* builds what is missing or stale first,
+  like a build system, and implements sub-blocks as hard macros.
 - **Flows you own.** Every step runs a *flow*: a directory of scripts that *bake* copies into
   the project on first use and fills from the manifest. The scripts are yours to edit and
   version; a project can add steps and flows of its own alongside the built-in ones.
@@ -45,7 +45,7 @@ first designs while scaling smoothly to larger projects.
 *bake* follows instructions provided in `manifest` files. These are plain Python files that
 communicate both design intent (files, hierarchies, interactions between components, test cases)
 and flow configuration (simulator selection, synthesis scripts, custom template variables). A
-manifest calls functions such as `block()`, `test()`, `env()`, `lib()`, and `flow()` to register
+manifest calls functions such as `block()`, `macro()`, `test()`, `env()`, `lib()`, and `flow()` to register
 design objects into the *bake* registry, and sets configuration via the `config` object that is
 always available in manifest scope.
 

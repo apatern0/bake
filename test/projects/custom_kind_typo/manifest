@@ -13,9 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# target() is the deprecated alias of block().
+# Rejected: a misspelled argument to a spec a manifest defines is reported
+# like one to block(), under the spec's manifest function name.
 
-from bake import load, target
+from typing import ClassVar
 
-load("../flows")
-target(name="my_block", top="sample", rtl_files=["../rtl/sample.v"])
+from bake.manifest import DesignSpec
+from bake.step import StepData
+
+
+class NoteSpec(DesignSpec):
+    manifest_function: ClassVar[str] = "note"
+    text: str = ""
+
+    @property
+    def data_type(self):
+        return StepData
+
+    def to_data(self):
+        return StepData(block=self.name)
+
+
+NoteSpec(name="n", txt="hello")

@@ -46,23 +46,25 @@ bake -o step.attr=value     # override a config attribute from the CLI
 
 ### Core concepts
 
-- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `block()`, `test()`, `env()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`; a `Step` subclass defined in it registers itself.
+- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `block()`, `macro()`, `test()`, `env()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`; a `Step` subclass defined in it registers itself.
 - **Block** (`BlockSpec`) — a design unit with RTL files, a top module, and optional timing/netlist libraries.
 - **Test** (`TestSpec`) / **Env** (`EnvSpec`) — a simulation environment associated with a block. Tests carry verification files; envs are reusable base environments that tests include via `includes=`.
 - **Flow** (`FlowSpec`) — a directory of scripts (`.tpl` templated) that one step executes. Steps use flows; a flow is not a recipe.
 - **Step** — one unit of the pipeline (e.g. `vrf`, `impl`, `tmr`). Steps are Python classes subclassing `Step` in `bake/step.py`. Built-in steps live in `bake/builtin/`.
 - **Recipe** — an ordered series of steps, written as a hyphen-joined string (`impl`, `tmr-impl`, `tmr-impl-vrf`). Elaborated by `Recipe.elaborate()` into a list of `Step` instances.
 - **`StepData`** — a dataclass threaded through the pipeline. Initialized from `BlockSpec`/`EnvSpec` by `StepData.create()`, then freely mutated by each step. It holds no manifest object: `block`, `block_dir` and `test` are plain names; all working state (`top`, `rtl_files`, `vrf_files`, etc.) is a copy. Steps **must not** access `context` registries at runtime — only `self.data` and `self.config`.
+- **Data kinds** — `StepData` is the base (identity, `top`, test state, bookkeeping); each subclass is one form of the design: `RtlData` (RTL, with included implemented sub-blocks kept whole in `macros`) and `LibData` (an implemented block: netlist + abstracts). A `block()` (RTL only) starts as `RtlData`, a `macro()` (an implemented block: netlist + abstracts, the same fields as a cell-library `lib()`, shared through `AbstractsSpec`) as `LibData`; a `lib()` is not a design and is named in `libs=`, never included. A step declares `consumes` (kinds it takes; default any) and `produces` (default: the kind taken); `Recipe.elaborate()` calls `check_kind()` before `check_pre()`, and a step changing the kind builds its output with `data.convert(Kind, ...)`. Includes merge by kind (`StepData.accepts`, `absorb()`): rtl ← rtl merges the fields, rtl ← lib appends to `macros`.
+- **Design specs** — `DesignSpec` (in `manifest.py`) is the base of everything registered in `context.blocks`: name, desc, includes, tests, registration, plus `data_type`, `to_data()` and the `_resolve()` hook. `BlockSpec` (`block()`) is one; a tool adds its own kind (spec + StepData subclass in an importable module, step/config/flow in a manifest projects `load()`), e.g. rdl2verilog's `rdl()`. `context.validate()` checks each include's kind statically with `step.include_kind()` from the steps' declared signatures. Error messages name a spec's manifest function via its `manifest_function` class attribute (`manifest.spec_class()`).
 - **Dependency** — a recipe-form include (`includes={"sub": "impl"}`). Declared in the manifest, checked statically by `context.validate()` once all manifests are loaded (existence, step names, cycles), resolved when a recipe is elaborated, and built on demand before the requesting block's steps (`cli.run`). A step refuses data it cannot consume in `check_pre()`.
 
 ### Module layout
 
 | Module | Role |
 |--------|------|
-| `bake/manifest.py` | Pydantic specs (`FlowSpec`, `LibSpec`, `BlockSpec`, `EnvSpec`, `TestSpec`) registered into `context` at parse time |
+| `bake/manifest.py` | Pydantic specs (`FlowSpec`, `LibSpec`, `DesignSpec`/`BlockSpec`/`MacroSpec`, `EnvSpec`, `TestSpec`) registered into `context` at parse time |
 | `bake/context.py` | Singleton `Context` (registries: `flows`, `libs`, `blocks`, `envs`, `tests`, `steps`) and `Config` (per-step config sections, `BakeConfig`) |
 | `bake/loader.py` | `exec`s manifest files; changes `cwd` to the manifest directory during loading so relative paths resolve correctly; deduplicates via a global `loaded` list |
-| `bake/step.py` | `StepData`, `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), `copy_flow_tree` |
+| `bake/step.py` | `StepData` and its kinds (`RtlData`, `LibData`), `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), `copy_flow_tree` |
 | `bake/cli.py` | Argument parsing, builtin manifest loading, dispatch to `run()` in cli itself |
 | `bake/exceptions.py` | Seven custom exception classes (`BakeRuntimeError`, `BakeManifestError`, `BakeConfigError`, etc.) |
 | `bake/file_utils.py` | Path resolution and file existence utilities |

@@ -88,7 +88,7 @@ def store_to_file():
     cache[cwd] = {}
     cache[cwd]["targets_tests"] = {}
     for name, b in context.blocks.items():
-        if b.rtl_files:
+        if not b.is_empty:
             cache[cwd]["targets_tests"][name] = b.available_tests
 
     cache[cwd]["config_keys"] = context.config.get_options_str_list()

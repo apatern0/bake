@@ -1,0 +1,111 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A kind of design defined by a manifest: a "table" (lines of text) that the
+# gen step turns into RTL. The spec, the data kind, the step and its flow
+# all live here; a tool providing a kind splits them into an importable
+# module (the spec and the data, which manifests use) and a manifest that
+# projects load() (the step, its config section and its flow).
+# BAKE_TEST_BAD_INCLUDE adds a block including a table as it is, which is
+# refused.
+
+import os
+from dataclasses import dataclass, field
+from typing import ClassVar
+
+from pydantic import Field
+
+from bake import block, file_utils, load, test
+from bake.manifest import DesignSpec, FlowSpec
+from bake.step import RtlData, Step, StepData
+
+load("../flows")
+config.vrf.flow = "dummy_vrf"
+
+
+@dataclass
+class TableData(StepData):
+    kind: ClassVar[str] = "table"
+    table_files: list = field(default_factory=list)
+
+    def absorb(self, data):
+        if isinstance(data, TableData):
+            self.table_files = data.table_files + [f for f in self.table_files if f not in data.table_files]
+        else:
+            super().absorb(data)
+
+
+TableData.accepts = (TableData,)
+
+
+class TableSpec(DesignSpec):
+    manifest_function: ClassVar[str] = "table"
+    table_files: list[str] = Field(default_factory=list)
+
+    @property
+    def data_type(self):
+        return TableData
+
+    def to_data(self):
+        return TableData(block=self.name, block_dir=self.dir, top=self.name,
+                         table_files=list(self.table_files))
+
+    def _resolve(self):
+        file_utils.resolve_file_list(self.table_files)
+
+
+class GenConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.flow = ""
+        self.flow_options = {}
+
+
+config.register("gen", GenConfig())
+
+
+class GenStep(Step):
+    name = "gen"
+    default_flow = "gen_flow"
+    consumes = (TableData,)
+    produces = RtlData
+
+    @property
+    def source_files(self):
+        return list(self.data.table_files)
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / f"{self.data.top}.v")]
+
+    def build_tpl_dict(self):
+        tpl = super().build_tpl_dict()
+        tpl["BAKE_GEN_TABLES"] = list(self.data.table_files)
+        return tpl
+
+    @property
+    def output_data(self):
+        return super().output_data.convert(RtlData, rtl_files=self.output_files)
+
+
+FlowSpec(name="gen_flow", run_cmd="run.sh", dir="gen_flow")  # not flow/: test/projects/*/flow/ is ignored
+
+TableSpec(name="table", table_files=["table.txt"])
+TableSpec(name="tables", includes=["table"], table_files=["extra.txt"])
+
+block(name="top", top="top", includes={"tables": "gen"}, rtl_files=["../rtl/top.v"])
+test(name="top_test", target="top", vrf_files=["../rtl/top_tb.v"], default_sim="stub")
+
+if os.environ.get("BAKE_TEST_BAD_INCLUDE"):
+    block(name="bad", top="top", includes=["table"], rtl_files=["../rtl/top.v"])

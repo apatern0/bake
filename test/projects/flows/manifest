@@ -66,3 +66,9 @@ flow(
     run_cmd="run.sh",
     dir="nothing",
 )
+
+flow(
+    name="plain_run",
+    run_cmd="run.sh",
+    dir="plain_run",
+)

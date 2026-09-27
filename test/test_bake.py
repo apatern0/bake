@@ -26,6 +26,7 @@ be run by hand. Tests that need an EDA tool skip themselves when it is
 missing.
 """
 
+import json
 import os
 import shutil
 import time
@@ -34,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from conftest import stderr
-from bake.exceptions import BakeConfigError
+from bake.exceptions import BakeConfigError, BakeManifestError
 
 # ---------------------------------------------------------------------------
 # Skip markers
@@ -258,10 +259,13 @@ def test_blocks_listed(bake, capfd, project):
 
 
 def test_target_alias_works(bake, capfd, project):
-    """The target() function (backward-compat alias for block()) still works."""
+    """The target() function, the deprecated alias of block(), still works
+    and warns where it is called."""
     project("target_alias")
     assert not bake.run()
-    assert_in_stderr(capfd, "my_block")
+    err = capfd.readouterr().err
+    assert "my_block" in err
+    assert err.count("manifest:21: target() is deprecated and will be removed in bake 2.0.0; use block()") == 1
 
 
 def test_block_without_rtl_files_not_listed(bake, capfd, project):
@@ -422,6 +426,14 @@ def test_check_post_failure_reported(bake, capfd, project):
     project("sample_check")
     assert bake.run(["sample_target", "check", "-o", "check.flow=nothing"])
     assert_in_stderr(capfd, "did not produce all required files")
+
+
+def test_flow_script_not_a_template_stays_executable(bake, project):
+    """A flow file that is not a template keeps its mode in the work
+    directory, so a plain run script can be executed."""
+    project("sample_check")
+    assert not bake.run(["sample_target", "check", "-o", "check.flow=plain_run"])
+    assert os.access("work/sample_target/check/run.sh", os.X_OK)
 
 
 # ===========================================================================
@@ -835,6 +847,109 @@ def test_populate_includes_dependency(bake, project):
     assert not Path("work").exists()
 
 
+@pytest.mark.parametrize("recipe, message", [
+    ("impl-tmr", "Step tmr cannot run on block 'sample_target' after impl: tmr takes rtl, "
+                 "and the block after impl is lib."),
+    ("impl-impl", "Step impl cannot run on block 'sample_target' after impl"),
+])
+def test_step_refuses_kind(bake, capfd, project, recipe, message):
+    """A step refuses data of a kind it does not take, before anything runs."""
+    project("sample")
+    assert bake.run(["sample_target", recipe, "-n"])
+    assert_stderr(capfd, expect=[message], expect_not=["Traceback"])
+
+
+def test_macro_is_included_as_a_macro(bake, capfd, project):
+    """A macro() included into RTL is a macro: impl gets its abstracts, vrf
+    its netlist; on its own it is simulated as a netlist and refused by tmr."""
+    project("macro")
+    assert not bake.run(["-l"])
+    assert_stderr(capfd, expect=["Available macros:\\n[bake] INFO\\t - macro"])
+    assert not bake.run([])
+    assert_stderr(capfd, expect=["- macro  (lib)", "- impl  (rtl -> lib)", "- tmr  (rtl)", "- vrf  (rtl or lib)"])
+    assert not bake.run(["top", "impl"])
+    tpl = json.loads(Path("work/top/impl/bake_vars.json").read_text())
+    assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("rtl/block.v")
+    assert tpl["BAKE_MACRO_LIBERTY_FILES_TC"][0].endswith("rtl/block.v")
+    assert tpl["BAKE_DESIGN_VERILOG_FILES"][0].endswith("rtl/top.v")
+    assert not bake.run(["top", "vrf"])
+    design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))
+    assert "rtl/block.v" in design and "rtl/top.v" in design
+    assert not bake.run(["macro", "vrf"])
+    assert bake.run(["macro", "tmr", "-n"])
+    assert_in_stderr(capfd, "tmr takes rtl, and the block is lib.")
+
+
+@pytest.mark.parametrize("manifest, message", [
+    ('block(name="both", top="top", rtl_files=["../rtl/top.v"], netlist_files=["../rtl/block.v"])',
+     "Block 'both': netlist_files is not a block() argument: block() declares RTL. "
+     "Declare an implemented block with macro() and include it."),
+    ('lib(name="cells", netlist_files=["../rtl/block.v"])\n'
+     'block(name="top", top="top", includes=["cells"], rtl_files=["../rtl/top.v"])',
+     "Block 'top' includes 'cells', which is a lib(): a cell library is named in libs=, "
+     "not included."),
+    ('macro(name="m", top="block", netlist_files=["../rtl/block.v"])\n'
+     'block(name="top", top="top", libs=["m"], rtl_files=["../rtl/top.v"])',
+     "Block 'top': libs= names 'm', which is a macro(), not a cell library. "
+     "Include it instead: includes=[\"m\"]."),
+])
+def test_lib_and_macro_roles_enforced(bake, capfd, project, manifest, message):
+    """A netlist is declared with lib() (a cell library, named in libs=) or
+    macro() (an implemented block, included); each is refused in the
+    other's place, and block() takes RTL only."""
+    project("macro")
+    Path("manifest").write_text("from bake import block, lib, macro\n" + manifest + "\n")
+    assert bake.run(["top", "tmr", "-n"])
+    assert message in capfd.readouterr().err
+
+
+def test_include_kind_checked_on_load(bake, capfd, project):
+    """An include whose recipe hands a step a kind it does not take is
+    refused once all manifests are loaded, before anything is elaborated."""
+    project("hier_bad_kind")
+    assert bake.run([])
+    assert_in_stderr(capfd, "Block 'top' includes 'macro' with recipe 'tmr': step tmr takes rtl, "
+                            "and 'macro' is lib.")
+
+
+def test_custom_kind(bake, capfd, project):
+    """A kind of design defined by a manifest is listed with its kind and its
+    step's signature, merges with its own kind through an include, is turned
+    into RTL by its step as a dependency, and is refused by a step that does
+    not take it, with the step that would convert it."""
+    project("custom_kind")
+    assert not bake.run([])
+    assert_stderr(capfd, expect=["- tables  (table)", "- top  (needs tables gen: not built)",
+                                 "- gen  (table -> rtl)"])
+    assert not bake.run(["top", "vrf"])
+    assert "Running gen on block tables (dependency of top)" in stderr(capfd)
+    generated = Path("work/tables/gen/output/tables.v").read_text()
+    assert generated.index("table.txt") < generated.index("extra.txt")   # the include's first
+    design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))
+    assert "work/tables/gen/output/tables.v" in design and "rtl/top.v" in design
+    assert bake.run(["tables", "impl", "-n"])
+    assert_in_stderr(capfd, "Step impl cannot run on block 'tables': impl takes rtl, and the block is table. "
+                            "A step that turns table into rtl: gen (e.g. recipe gen-impl).")
+
+
+def test_custom_kind_include_refused(bake, capfd, project, monkeypatch):
+    """Including a design as it is into a block that cannot take its kind is
+    refused on load, suggesting the step that converts it."""
+    monkeypatch.setenv("BAKE_TEST_BAD_INCLUDE", "1")
+    project("custom_kind")
+    assert bake.run([])
+    # The captured log is compared as a repr, which escapes ' once " occurs.
+    assert_stderr(capfd, expect=["is rtl and cannot include", "which is table. Include it with a recipe "
+                                 'that turns it into rtl or lib, e.g. {"table": "gen"}.'])
+
+
+def test_custom_spec_argument_typo(bake, capfd, project):
+    """A spec a manifest defines reports a misspelled argument like block() does."""
+    project("custom_kind_typo")
+    assert bake.run([])
+    assert_in_stderr(capfd, "note(): unknown argument 'txt' (did you mean 'text'?)")
+
+
 def test_impl_refuses_include_without_abstracts(bake, capfd, project):
     """impl on a block whose implemented sub-block has no LEF/Liberty (the
     stand-in flow writes none) is refused with the reason."""
@@ -1063,10 +1178,11 @@ def test_output_dir_override(bake, project):
 # ===========================================================================
 
 def test_step_data_copy_is_independent():
-    """copy() gives lists and dicts (and lists inside dicts) of their own."""
-    from bake.step import StepData, RecipePath
-    data = StepData(vrf_defines=["A"], liberty_files={"TT": ["a.lib"]}, sdf_files={"default": "x.sdf"},
-                    recipe_prefix=RecipePath(["tmr"]))
+    """copy() gives lists and dicts (and lists inside dicts) of their own,
+    and copies the data nested in a list (macros)."""
+    from bake.step import LibData, RecipePath, RtlData
+    data = LibData(vrf_defines=["A"], liberty_files={"TT": ["a.lib"]}, sdf_files={"default": "x.sdf"},
+                   recipe_prefix=RecipePath(["tmr"]))
     other = data.copy()
     other.vrf_defines.append("B")
     other.liberty_files["TT"].append("b.lib")
@@ -1075,6 +1191,23 @@ def test_step_data_copy_is_independent():
     assert data.liberty_files == {"TT": ["a.lib"]}
     assert str(data.recipe_prefix) == "tmr"
     assert other.sdf_files == {"default": "x.sdf"}
+    assert type(other) is LibData
+
+    rtl = RtlData(macros=[LibData(netlist_files=["m.v"])])
+    rtl.copy().macros[0].netlist_files.append("n.v")
+    assert rtl.macros[0].netlist_files == ["m.v"]
+
+
+def test_step_data_convert_keeps_base_fields():
+    """convert() carries identity, test state and bookkeeping to the new kind,
+    as copies, and sets the fields it is given."""
+    from bake.step import LibData, RecipePath, RtlData
+    rtl = RtlData(block="b", top="t", rtl_files=["a.v"], vrf_defines=["SIM"], recipe_prefix=RecipePath(["tmr"]))
+    lib = rtl.convert(LibData, netlist_files=["t.v"])
+    assert type(lib) is LibData
+    assert (lib.block, lib.top, lib.netlist_files, str(lib.recipe_prefix)) == ("b", "t", ["t.v"], "tmr")
+    lib.vrf_defines.append("NETLIST")
+    assert rtl.vrf_defines == ["SIM"]
 
 
 def test_step_output_data_does_not_alter_input():
@@ -1116,9 +1249,9 @@ def test_step_data_isolated_from_manifest(bake, project):
 
 def test_step_data_extend_list_deduplication():
     """extend() merges rtl_files with parent-first ordering and no duplicates."""
-    from bake.step import StepData
-    parent = StepData(rtl_files=["a.v", "b.v"])
-    child  = StepData(rtl_files=["b.v", "c.v"])
+    from bake.step import RtlData
+    parent = RtlData(rtl_files=["a.v", "b.v"])
+    child  = RtlData(rtl_files=["b.v", "c.v"])
     child.extend(parent)
     assert child.rtl_files == ["a.v", "b.v", "c.v"]
 
@@ -1134,12 +1267,26 @@ def test_step_data_extend_dict_inheritance():
 
 
 def test_step_data_extend_scalar_dict_values():
-    """dict fields may hold scalars (sdf_files); the child's value wins when set."""
+    """dict fields may hold scalars (vrf_options); the child's value wins when set."""
     from bake.step import StepData
-    parent = StepData(sdf_files={"default": "parent.sdf", "fast": "p_fast.sdf"})
-    child  = StepData(sdf_files={"default": "child.sdf"})
+    parent = StepData(vrf_options={"icarus": "-g2012", "vcs": "-full64"})
+    child  = StepData(vrf_options={"icarus": "-g2005"})
     child.extend(parent)
-    assert child.sdf_files == {"default": "child.sdf", "fast": "p_fast.sdf"}
+    assert child.vrf_options == {"icarus": "-g2005", "vcs": "-full64"}
+
+
+def test_step_data_extend_lib_into_rtl_is_a_macro():
+    """An implemented block included into RTL is kept whole as a macro, and
+    brings its cell libraries; RTL cannot be included into a hard block."""
+    from bake.step import LibData, RtlData
+    parent = RtlData(block="top", rtl_files=["top.v"], libs=["cells_a"])
+    sub = LibData(block="sub", netlist_files=["sub.v"], layout_info="sub.lef", libs=["cells_b"])
+    parent.extend(sub)
+    parent.extend(sub)
+    assert parent.macros == [sub] and parent.rtl_files == ["top.v"]
+    assert parent.libs == ["cells_b", "cells_a"]
+    with pytest.raises(BakeManifestError, match="cannot include"):
+        sub.extend(parent)
 
 
 def test_recipe_objects_are_not_shared():

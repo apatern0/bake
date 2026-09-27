@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# target() is the deprecated alias of block().
+# Rejected: the include's recipe hands tmr a macro, and tmr takes RTL.
 
-from bake import load, target
+from bake import block, macro
 
-load("../flows")
-target(name="my_block", top="sample", rtl_files=["../rtl/sample.v"])
+macro(name="macro", top="block", netlist_files=["../rtl/block.v"])
+block(name="top", top="top", includes={"macro": "tmr"}, rtl_files=["../rtl/top.v"])

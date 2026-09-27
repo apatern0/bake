@@ -33,7 +33,7 @@ Global *bake* settings.
 | Attribute | Default | Description |
 |-----------|---------|-------------|
 | `tpl_dict` | `{}` | Extra template variables injected into all `.tpl` files. Keys must start with `BAKE_` and contain only uppercase letters, digits, and underscores. Example: `config.bake.tpl_dict["BAKE_PDK_DIR"] = "/opt/pdk/sky130A"`. |
-| `default_libs` | `[]` | Library names (`lib()`) for every block that declares no `libs=`. A project usually implements everything in one set of libraries: set it once here and leave `libs=` off the blocks; a block with its own `libs=[...]` uses exactly those (to add to the defaults, write `libs=[*config.bake.default_libs, "sram_macro"]`). `-o bake.default_libs=name` appends for one run. |
+| `default_libs` | `[]` | Library names (`lib()`) for every block that declares no `libs=`. A project usually implements everything in one set of libraries: set it once here and leave `libs=` off the blocks; a block with its own `libs=[...]` uses exactly those (to add to the defaults, write `libs=[*config.bake.default_libs, "io_cells"]`). `-o bake.default_libs=name` appends for one run. |
 | `file_copy_method` | `"copy"` | How flow skeleton files are placed in the work directory. `"copy"` duplicates files; `"symlink"` creates symbolic links (useful for shared, read-only flow installations). |
 | `output_dir` | `None` | Override the root output directory for all steps. When unset, each step writes results relative to the manifest directory. |
 
@@ -85,7 +85,7 @@ Clock tree synthesis needs a clock: declare an SDC with `create_clock` in the bl
 
 When the libraries provide LEF, the flow also writes the block's abstracts — `<top>.lef` and
 `<top>_<corner>.lib` for every corner the libraries have Liberty for — and publishes them on
-`StepData` (`layout_info`, `liberty_files`), so a block that includes this one after `impl`
+the `LibData` it produces (`layout_info`, `liberty_files`), so a block that includes this one after `impl`
 integrates it as a hard macro. They are expected outputs: a run that does not produce them fails. Implemented sub-blocks
 reach the flow through the `$BAKE_MACRO_*` variables below.
 
@@ -175,7 +175,7 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_LIB_LIBERTY_FILES_<CORNER>` | Liberty files of the block's libraries for each corner the flow declares (`TT`, `FF`, `SS` in the built-in flow) |
 | `$BAKE_LIB_SI_FILES_<CORNER>` | Signal-integrity files per corner |
 | `$BAKE_LIB_PHYSICAL` | LEF files (`layout_info` of the libraries) |
-| `$BAKE_MACRO_PHYSICAL` | LEF files of hard macros: implemented sub-blocks included after `impl`, or `layout_info` declared on the block |
+| `$BAKE_MACRO_PHYSICAL` | LEF files of hard macros: implemented sub-blocks included after `impl`, and included `macro()`s |
 | `$BAKE_MACRO_LIBERTY_FILES_<CORNER>` | Liberty files of the hard macros per corner |
 | `$BAKE_MACRO_NETLIST_FILES` | Netlists of the hard macros (passed on to simulation, not implemented again) |
 | `$BAKE_SDC_FILES` | Constraint files declared on the block (`sdc_files`) |

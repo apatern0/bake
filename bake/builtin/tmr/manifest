@@ -24,7 +24,7 @@ import os
 import functools
 
 from bake import file_utils
-from bake.step import Step
+from bake.step import RtlData, Step
 from bake.manifest import FlowSpec
 from bake.exceptions import BakeManifestError
 
@@ -65,6 +65,7 @@ config.register('tmr', TmrConfig())
 class TmrStep(Step):
     name = "tmr"
     default_flow = "builtin_tmr_flow"
+    consumes = (RtlData,)
 
     def check_pre(self):
         # tmrg names each output after its input's basename, so two RTL

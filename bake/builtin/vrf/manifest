@@ -23,7 +23,7 @@
 from pathlib import Path
 
 from bake.exceptions import BakeManifestError
-from bake.step import Step
+from bake.step import LibData, RtlData, Step
 from bake.manifest import FlowSpec
 
 FlowSpec(
@@ -64,6 +64,7 @@ class VrfStep(Step):
     name = "vrf"
     default_flow = "builtin_vrf_flow"
     require_test = True
+    consumes = (RtlData, LibData)
 
     def build_tpl_dict(self):
         tpl_dict = super().build_tpl_dict()
@@ -84,8 +85,19 @@ class VrfStep(Step):
         tpl_dict["BAKE_SIM_SIMULATOR"] = simulator
         tpl_dict["BAKE_SIM_OPTIONS"]   = list(self.data.vrf_options.get(simulator, []))
 
-        all_incdirs = list(self.data.vrf_incdirs) + list(self.data.rtl_incdirs) + list(self.data.netlist_incdirs)
-        all_lib_verilog = list(self.data.netlist_files) + list(self.data.rtl_files)
+        # The design: a netlist (after impl, or a macro()), or RTL with the
+        # netlists of the implemented sub-blocks it contains, which also bring
+        # their SDF.
+        if isinstance(self.data, LibData):
+            all_incdirs     = list(self.data.vrf_incdirs) + list(self.data.netlist_incdirs)
+            all_lib_verilog = list(self.data.netlist_files)
+            sdf_dicts       = [self.data.sdf_files]
+        else:
+            macros          = self.data.macros
+            all_incdirs     = list(self.data.vrf_incdirs) + list(self.data.rtl_incdirs) + \
+                [d for m in macros for d in m.netlist_incdirs]
+            all_lib_verilog = [f for m in macros for f in m.netlist_files] + list(self.data.rtl_files)
+            sdf_dicts       = [m.sdf_files for m in macros]
         lib_verilog_files = []
 
         for lib in self.data.libs:
@@ -99,11 +111,12 @@ class VrfStep(Step):
         tpl_dict["BAKE_DESIGN_VERILOG_FILES"] = all_lib_verilog
         tpl_dict["BAKE_LIB_VERILOG_FILES"]    = lib_verilog_files
 
-        # SDF files produced by an impl step earlier in the recipe (or declared
-        # on an included, implemented block); the flow back-annotates them.
+        # SDF files produced by an impl step earlier in the recipe, or by
+        # that of an included, implemented block; the flow back-annotates them.
         sdf_files = []
-        for files in self.data.sdf_files.values():
-            sdf_files.extend(files if isinstance(files, list) else [files])
+        for sdf in sdf_dicts:
+            for files in sdf.values():
+                sdf_files.extend(files if isinstance(files, list) else [files])
         tpl_dict["BAKE_SIM_SDF_FILES"] = sdf_files
 
         return tpl_dict

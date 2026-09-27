@@ -63,9 +63,23 @@ def load(path):
     logging.debug("Manifest loaded successfully: %s", manifest_path)
 
 
+# The cwd bake was run from, while manifests execute in their own directory.
+_run_dir = None
+
+
+def display_path(path) -> str:
+    """`path` as a message shows it: relative to the directory bake was run
+    from, also while a manifest is executing."""
+    return os.path.relpath(path, _run_dir or Path.cwd())
+
+
 def _exec_in_dir(script_path):
     """``exec`` a manifest-style script with its own directory as cwd."""
+    global _run_dir
     oldpath = Path.cwd()
+    outermost = _run_dir is None
+    if outermost:
+        _run_dir = oldpath
     os.chdir(Path(script_path).parent)
     try:
         with open(script_path, encoding="utf-8") as f:
@@ -78,3 +92,5 @@ def _exec_in_dir(script_path):
         exec(compile(source, script_path, "exec"), symbols)
     finally:
         os.chdir(oldpath)
+        if outermost:
+            _run_dir = None

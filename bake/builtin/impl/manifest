@@ -27,7 +27,7 @@ from pathlib import Path
 
 from bake import file_utils
 from bake.exceptions import BakeManifestError
-from bake.step import Step
+from bake.step import LibData, RtlData, Step
 from bake.manifest import FlowSpec
 
 
@@ -45,19 +45,25 @@ config.register('impl', ImplConfig())
 
 class ImplStep(Step):
     name = "impl"
+    consumes = (RtlData,)
+    produces = LibData
 
     def check_pre(self):
-        # An implemented sub-block (an include after its impl recipe, or
-        # netlist_files declared on the block) is integrated as a hard macro
-        # from its abstracts: a LEF and Liberty for the flow's corners. Its
-        # netlist is not implemented again, only passed on for simulation.
-        if self.data.netlist_files and not (self.data.layout_info and self.data.liberty_files):
-            listed = "\n".join(f"   - {f}" for f in self.data.netlist_files)
+        # An implemented sub-block (an include after its impl recipe, or a
+        # macro()) is integrated as a hard macro from its abstracts: a LEF
+        # and Liberty for the flow's corners. Its netlist is not implemented
+        # again, only passed on for simulation.
+        missing = [m for m in self.data.macros if not (m.layout_info and m.liberty_files)]
+        if missing:
+            listed = "\n".join(
+                f"   - {m.block}" + (f" after {m.recipe_prefix}" if m.recipe_prefix else " (macro)")
+                for m in missing
+            )
             raise BakeManifestError(
                 f"Step impl for block '{self.data.block}' needs abstracts (LEF and Liberty) for "
-                f"the implemented sub-block(s) it contains, and this block's data has none:\n"
+                f"the implemented sub-block(s) it contains, and these have none:\n"
                 f"{listed}\nImplement the sub-block with a flow that writes them (the built-in "
-                f"flow does when the libraries provide LEF), or declare them on the block with "
+                f"flow does when the libraries provide LEF), or declare it with macro(), with "
                 f"layout_info= and liberty_files=."
             )
         self._check_corners()
@@ -69,8 +75,9 @@ class ImplStep(Step):
         flow_corners = [c for c, _ in self.flow.corners]
         sources = {f"library '{lib.name}'": set(lib.liberty_files)
                    for lib in self.data.libs if lib.liberty_files}
-        if self.data.liberty_files:
-            sources[f"abstracts of block '{self.data.block}'"] = set(self.data.liberty_files)
+        for macro in self.data.macros:
+            if macro.liberty_files:
+                sources[f"abstracts of block '{macro.block}'"] = set(macro.liberty_files)
         used = [c for c in flow_corners if any(c in corners for corners in sources.values())]
         missing = {name: [c for c in used if c not in corners] for name, corners in sources.items()}
         missing = {name: corners for name, corners in missing.items() if corners}
@@ -104,13 +111,17 @@ class ImplStep(Step):
             tpl_dict[f"BAKE_LIB_LIBERTY_FILES_{corner}"] = []
             tpl_dict[f"BAKE_LIB_SI_FILES_{corner}"] = []
 
-        # Hard macros: abstracts of implemented sub-blocks (or declared on the
-        # block). Kept apart from the cell libraries so the flow can place them.
+        # Hard macros: abstracts of implemented sub-blocks and macro()s.
+        # Kept apart from the cell libraries so the flow can place them.
+        macros = self.data.macros
         flow_corners = {corner for corner, _ in self.flow.corners}
-        tpl_dict["BAKE_MACRO_PHYSICAL"] = self.data.layout_info
+        # layout_info may name several files, space-separated
+        tpl_dict["BAKE_MACRO_PHYSICAL"] = [f for m in macros for f in m.layout_info.split()]
         for corner in flow_corners:
-            tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = list(self.data.liberty_files.get(corner, []))
-        tpl_dict["BAKE_MACRO_NETLIST_FILES"] = list(self.data.netlist_files)
+            tpl_dict[f"BAKE_MACRO_LIBERTY_FILES_{corner}"] = [
+                f for m in macros for f in m.liberty_files.get(corner, [])
+            ]
+        tpl_dict["BAKE_MACRO_NETLIST_FILES"] = _macro_netlists(macros)
 
         for lib in self.data.libs:
             # layout_info may name several files, space-separated
@@ -159,14 +170,18 @@ class ImplStep(Step):
 
     @property
     def output_data(self):
-        # The netlist replaces the RTL for whatever follows: a simulation
-        # (together with the netlists of any macros inside), or a block that
-        # includes this one after impl, which gets the abstracts as well.
-        data = super().output_data
-        data.rtl_files     = []
-        data.rtl_incdirs   = []
-        data.netlist_files = list(self.data.netlist_files) + [self.output_files[0]]
-        data.sdf_files     = {"default": self.output_files[1]}
+        # The block is now implemented: its netlist replaces the RTL for
+        # whatever follows, a simulation (together with the netlists of any
+        # macros inside) or a block that includes this one after impl, which
+        # gets the abstracts as well.
+        rtl = super().output_data
+        data = rtl.convert(
+            LibData,
+            netlist_files=_macro_netlists(rtl.macros) + [self.output_files[0]],
+            netlist_incdirs=list(dict.fromkeys(d for m in rtl.macros for d in m.netlist_incdirs)),
+            sdf_files={"default": self.output_files[1]},
+            libs=list(rtl.libs),
+        )
         data.vrf_defines.append("NETLIST")
         if self._has_physical_libs:
             data.layout_info   = os.path.join(self.outputdir, f"{self.data.top}.lef")
@@ -174,10 +189,12 @@ class ImplStep(Step):
                 corner: [os.path.join(self.outputdir, f"{self.data.top}_{corner}.lib")]
                 for corner in self._macro_corners
             }
-        else:
-            data.layout_info   = ""
-            data.liberty_files = {}
         return data
+
+
+def _macro_netlists(macros) -> list:
+    """The netlists of the macros, each of which lists its own macros' too."""
+    return list(dict.fromkeys(f for m in macros for f in m.netlist_files))
 
 
 # ---------------------------------------------------------------------------

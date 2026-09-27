@@ -21,7 +21,7 @@ holding the scripts, so flow() needs no dir=. The project manifest brings it
 in with load("steps/lint"), like any other manifest.
 """
 
-from bake.step import Step
+from bake.step import RtlData, Step
 from bake.manifest import FlowSpec
 
 
@@ -38,6 +38,7 @@ config.register('lint', LintConfig())
 class LintStep(Step):
     name         = "lint"
     default_flow = "lint_flow"
+    consumes     = (RtlData,)    # it lints RTL: after impl there is none
 
     @property
     def source_files(self):

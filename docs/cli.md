@@ -5,8 +5,9 @@ bake [BLOCK RECIPE] [options]
 ```
 
 With no positional arguments, `bake` loads the manifest in the current directory and lists the
-blocks it found, the tests attached to each, the state of the dependencies their includes
-require, and the available steps. With a block and a recipe it runs the recipe's steps in order
+blocks it found (with their [kind](custom_steps.md#data-kinds) when it is not RTL), the tests
+attached to each, the state of the dependencies their includes require, and the available
+steps with the kinds they take and give (`impl  (rtl -> lib)`). With a block and a recipe it runs the recipe's steps in order
 on that block, skipping steps whose outputs are already up to date. A block that includes
 another block after a recipe (`includes={"sub": "impl"}`) depends on it: `sub impl` is run first
 when its outputs are missing or older than its sources.
@@ -21,7 +22,7 @@ when its outputs are missing or older than its sources.
 | `-c`, `--clean` | Remove the work directory of the block/recipe combination (`work/<block>/<recipe>`) and stop. The directories of the recipe's earlier steps belong to their own, shorter recipes (`tmr` for `tmr-impl`) and are left alone, as are dependencies. |
 | `-r`, `--restart` | Remove that work directory, then run the recipe. |
 | `-p`, `--populate-flow` | Copy the flow skeletons into `flow/` for the recipe and its dependencies without running any step. Useful to inspect or edit the scripts first, or when the tool a step needs is not installed. |
-| `-l`, `--list-libs` | List the libraries (`lib()`) registered by the manifests, then exit. |
+| `-l`, `--list-libs` | List the libraries (`lib()`) and macros (`macro()`) registered by the manifests, then exit. |
 | `-i`, `--interactive` | Ask flows to run interactively where they can (e.g. open the simulator GUI). |
 | `-v`, `--verbose` | Debug logging. Repeat for more. |
 | `--version` | Print the bake version and exit. |

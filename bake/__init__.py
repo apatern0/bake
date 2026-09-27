@@ -18,11 +18,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .manifest import flow, block, env, test, lib, load
+from .manifest import flow, block, macro, env, test, lib, load, target
 from .context import context
 from .exceptions import BakeFileError, BakeUserRuntimeError
 
-target = block  # backward-compatible alias
 
 is_block  = context.is_block
 is_target = context.is_target
@@ -31,7 +30,7 @@ is_test   = context.is_test
 is_flow   = context.is_flow
 
 __all__ = [
-    "flow", "block", "target", "env", "test", "lib", "load", "context",
+    "flow", "block", "macro", "target", "env", "test", "lib", "load", "context",
     "BakeFileError", "BakeUserRuntimeError",
     "is_block", "is_target", "is_env", "is_test", "is_flow",
 ]
