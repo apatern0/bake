@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# target() is the backward-compatible alias of block().
+# target() is the deprecated alias of block().
 
 from bake import load, target
 

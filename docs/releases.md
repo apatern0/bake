@@ -94,6 +94,9 @@ compatibility patches rebased for each new release.
   traceback only with `-v`.
 - `config.bake.default_libs` is back: a block that declares no `libs=` uses it, so shared
   RTL can be implemented in whatever libraries the including project sets.
+- `target()` is deprecated: it still declares a block, logs a warning naming the manifest
+  line, and will be removed in 2.0.0. Use `block()`. (The `target=` argument of `test()` and
+  `env()` is unaffected.)
 - The `dummy` step is no longer a builtin; `example/06_custom_step` is the template for a
   step of your own.
 

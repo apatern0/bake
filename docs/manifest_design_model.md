@@ -11,8 +11,9 @@ A manifest declares three kinds of design component:
 `macro()` and `lib()` take the same netlist and abstract arguments; they differ in role.
 
 ## Blocks
-A manifest defines design units using the `block()` function. The `target` name is a
-backward-compatible alias for `block` and can be used interchangeably. The full syntax is:
+A manifest defines design units using the `block()` function. `target()`, its old name, still
+works but is deprecated: it logs a warning and will be removed in *bake* 2.0.0. The full syntax
+is:
 
 ```python
 block(name, desc, includes, top, rtl_files, rtl_incdirs, libs,

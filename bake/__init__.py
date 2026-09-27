@@ -18,11 +18,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .manifest import flow, block, macro, env, test, lib, load
+from .manifest import flow, block, macro, env, test, lib, load, target
 from .context import context
 from .exceptions import BakeFileError, BakeUserRuntimeError
 
-target = block  # backward-compatible alias
 
 is_block  = context.is_block
 is_target = context.is_target

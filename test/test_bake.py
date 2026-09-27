@@ -259,10 +259,13 @@ def test_blocks_listed(bake, capfd, project):
 
 
 def test_target_alias_works(bake, capfd, project):
-    """The target() function (backward-compat alias for block()) still works."""
+    """The target() function, the deprecated alias of block(), still works
+    and warns where it is called."""
     project("target_alias")
     assert not bake.run()
-    assert_in_stderr(capfd, "my_block")
+    err = capfd.readouterr().err
+    assert "my_block" in err
+    assert err.count("manifest:21: target() is deprecated and will be removed in bake 2.0.0; use block()") == 1
 
 
 def test_block_without_rtl_files_not_listed(bake, capfd, project):

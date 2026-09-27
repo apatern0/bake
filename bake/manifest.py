@@ -29,6 +29,7 @@ reported instead of being silently ignored.
 """
 
 import functools
+import inspect
 import logging
 from abc import abstractmethod
 import os
@@ -495,6 +496,14 @@ flow  = FlowSpec
 lib   = LibSpec    # PDK cell libraries
 block = BlockSpec  # user design blocks, in RTL
 macro = MacroSpec  # implemented blocks (hard macros)
+
+
+def target(**kwargs):
+    """Deprecated alias of block(), from tmake; to be removed in 2.0.0."""
+    caller = inspect.stack()[1]
+    where = f"{loader.display_path(caller.filename)}:{caller.lineno}"
+    logging.warning("%s: target() is deprecated and will be removed in bake 2.0.0; use block()", where)
+    return BlockSpec(**kwargs)
 env   = EnvSpec
 test  = TestSpec
 
