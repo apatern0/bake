@@ -56,7 +56,7 @@ from . import exceptions
 from .context import context
 
 if TYPE_CHECKING:
-    from .manifest import DesignSpec, EnvSpec
+    from .manifest import BlockSpec, DesignSpec, EnvSpec
 
 
 def _fmt_elapsed(seconds: float) -> str:
