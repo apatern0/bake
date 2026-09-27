@@ -1,0 +1,26 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Pass/fail criteria of the builtin vrf flow, run against a fake iverilog
+# (fake_bin/, which the tests put on PATH): it writes an a.out that prints
+# $FAKE_SIM_OUTPUT and exits 0, as Icarus does after $error.
+
+from bake import block, env, test
+
+block(name="dut", top="sample", rtl_files=["../rtl/sample.v"])
+env(name="sim", vrf_files=["../rtl/sample_tb.v"], default_sim="icarus")
+test(name="exit_code_only", target="dut", includes=["sim"])
+test(name="fail_regex", target="dut", includes=["sim"], vrf_fail_regex=r"^ERROR\b")
+test(name="pass_regex", target="dut", includes=["sim"], vrf_pass_regex="TEST PASSED")

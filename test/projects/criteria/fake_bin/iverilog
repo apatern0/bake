@@ -1,0 +1,5 @@
+#!/bin/bash
+# Stand-in for Icarus Verilog: "compiles" to an a.out that prints what the
+# test asked for and exits 0.
+printf '#!/bin/bash\necho "sim start"\nprintf "%%b\\n" "$FAKE_SIM_OUTPUT"\necho "sim end"\nexit 0\n' > a.out
+chmod +x a.out

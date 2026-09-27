@@ -27,6 +27,8 @@ import os
 import signal
 import subprocess
 import glob
+import random
+import re
 import sys
 import shutil
 import xml.etree.ElementTree as ET
@@ -50,6 +52,7 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['', 'uvm', 'cocotb'],
         'uvm_opts': '-uvm',
         'uvm_testname': '+UVM_TESTNAME=%s',
+        'seed_opt': '-svseed %d',
         'delay_opts': {'typ': '-typdelays',
                        'min': '-mindelays',
                        'max': '-maxdelays'}
@@ -67,6 +70,7 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['', 'uvm', 'cocotb'],
         'uvm_opts': '-uvm',
         'uvm_testname': '+UVM_TESTNAME=%s',
+        'seed_opt': '-svseed %d',
         'delay_opts': {'typ': '-typdelays',
                        'min': '-mindelays',
                        'max': '-maxdelays'}
@@ -84,6 +88,7 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['', 'cocotb'],
         'uvm_opts': '',
         'uvm_testname': '',
+        'seed_opt': '',
         'delay_opts': {'typ': '-T typ',
                        'min': '-T min',
                        'max': '-T max'}
@@ -101,6 +106,7 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['cocotb'],
         'uvm_opts': '',
         'uvm_testname': '',
+        'seed_opt': '+verilator+seed+%d',
         'delay_opts': {'typ': '',
                        'min': '',
                        'max': ''}
@@ -118,6 +124,7 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['', 'uvm', 'cocotb'],
         'uvm_opts': '-ntb_opts uvm',
         'uvm_testname': '+UVM_TESTNAME=%s',
+        'seed_opt': '+ntb_random_seed=%d',
         'delay_opts': {'typ': '+typdelays',
                        'min': '+mindelays',
                        'max': '+maxdelays'}
@@ -135,13 +142,19 @@ SIMULATOR_OPTIONS = {
         'cap_frameworks': ['', 'uvm', 'cocotb'],
         'uvm_opts': '',
         'uvm_testname': '-R +UVM_TESTNAME=%s -',
+        'seed_opt': '-sv_seed %d',
         'delay_opts': {'typ': '+typdelays',
                        'min': '+mindelays',
                        'max': '+maxdelays'}
     }
 }
 
-def run_command(cmd):
+# Everything the simulator prints is appended here (and still shown), so the
+# pass/fail criteria can be checked against it after the run.
+SIM_LOG = "bake_sim.log"
+
+
+def run_command(cmd, capture=True):
     proc = None
 
     def handle_signal(signum, frame):
@@ -149,16 +162,48 @@ def run_command(cmd):
             logging.info("Received %s, sending to simulator." % signal.Signals(signum).name)
             proc.send_signal(signum)
 
-    proc = subprocess.Popen(cmd, shell=True)
+    if capture:
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    else:
+        proc = subprocess.Popen(cmd, shell=True)
     backup_handler_sigterm = signal.getsignal(signal.SIGTERM)
     backup_handler_sigint = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    if capture:
+        with open(SIM_LOG, "ab") as log:
+            for line in proc.stdout:
+                sys.stdout.buffer.write(line)
+                sys.stdout.buffer.flush()
+                log.write(line)
     proc.wait()  # wait for command to complete
     signal.signal(signal.SIGTERM, backup_handler_sigterm)
     signal.signal(signal.SIGINT, backup_handler_sigint)
 
     return proc.returncode
+
+
+def check_log_criteria(pass_regex, fail_regex):
+    """Return 0 when the captured simulator output meets the criteria, 2
+    otherwise: no line may match fail_regex, and one must match pass_regex
+    when it is set."""
+    if not (pass_regex or fail_regex):
+        return 0
+    if not os.path.isfile(SIM_LOG):
+        logging.error("Cannot check the pass/fail criteria: %s was not written.", SIM_LOG)
+        return 2
+    with open(SIM_LOG, encoding="utf-8", errors="replace") as log:
+        lines = log.read().splitlines()
+    if fail_regex:
+        failing = [line for line in lines if re.search(fail_regex, line)]
+        if failing:
+            logging.error("Test failed: %d line(s) match vrf_fail_regex %r, first: %s",
+                          len(failing), fail_regex, failing[0].strip())
+            return 2
+    if pass_regex and not any(re.search(pass_regex, line) for line in lines):
+        logging.error("Test failed: no line matches vrf_pass_regex %r", pass_regex)
+        return 2
+    return 0
 
 
 def main():
@@ -181,6 +226,9 @@ def main():
     BAKE_SIM_SDF_FILES = V["BAKE_SIM_SDF_FILES"]
     BAKE_SIM_FRAMEWORK = V["BAKE_SIM_FRAMEWORK"]
     BAKE_SIM_FRAMEWORK_TOP = V["BAKE_SIM_FRAMEWORK_TOP"]
+    BAKE_SIM_PASS_REGEX = V.get("BAKE_SIM_PASS_REGEX", "")
+    BAKE_SIM_FAIL_REGEX = V.get("BAKE_SIM_FAIL_REGEX", "")
+    BAKE_SIM_SEED = V.get("BAKE_SIM_SEED", "")
 
     # basic data validation
     if not BAKE_DESIGN_VERILOG_FILES:
@@ -224,8 +272,20 @@ def main():
             info += "  %s : %s\n" % (sim, shutil.which(SIMULATOR_OPTIONS[sim]["executable"]))
         raise ValueError("Executable for '%s' simulator (cmd: '%s') not found." % (BAKE_SIM_SIMULATOR, executable) + info)
 
+    # The seed: config.vrf.seed, or a fresh random one. Always reported so
+    # that a failing run can be repeated with -o vrf.seed=<n>.
+    seed = int(BAKE_SIM_SEED) if str(BAKE_SIM_SEED).strip() else random.randrange(1, 2**31)
+    logging.info("Simulation seed: %d", seed)
+    os.environ["RANDOM_SEED"] = str(seed)          # cocotb 1.x
+    os.environ["COCOTB_RANDOM_SEED"] = str(seed)   # cocotb 2.x
+
+    if os.path.isfile(SIM_LOG):
+        os.remove(SIM_LOG)
+
     simulator_options = [BAKE_SIM_OPTIONS]
     simulator_options.append(simulator['default_opts'])
+    if simulator['seed_opt']:
+        simulator_options.append(simulator['seed_opt'] % seed)
     if BAKE_SIM_FRAMEWORK != "cocotb":
         simulator_options.append(simulator['def_timescale'])
 
@@ -277,8 +337,14 @@ def main():
             makefile.write("PYTHONPATH:=$$(PYTHONPATH):%s\n" % ":".join(vrf_py_dirs))
             makefile.write("TOPLEVEL_LANG = verilog\n")
             makefile.write("SIM = %s\n" % BAKE_SIM_SIMULATOR)
+            # cocotb 2.x renamed TOPLEVEL and MODULE; both spellings are
+            # written so either version picks up its own.
             makefile.write("TOPLEVEL = %s\n" % BAKE_SIM_TOP)
+            makefile.write("COCOTB_TOPLEVEL = %s\n" % BAKE_SIM_TOP)
             makefile.write("MODULE = %s\n" % BAKE_SIM_FRAMEWORK_TOP)
+            makefile.write("COCOTB_TEST_MODULES = %s\n" % BAKE_SIM_FRAMEWORK_TOP)
+            makefile.write("RANDOM_SEED = %d\n" % seed)
+            makefile.write("COCOTB_RANDOM_SEED = %d\n" % seed)
             makefile.write("COMPILE_ARGS = %s\n" % " ".join(simulator_options))
             makefile.write("RTL_SOURCES = %s\n" % " ".join(BAKE_DESIGN_VERILOG_FILES))
             makefile.write("RTL_INCLUDE_DIRS = %s\n" % " ".join(BAKE_INCLUDE_DIRS))
@@ -295,7 +361,7 @@ def main():
         if os.path.isfile("results.xml"):
             os.remove("results.xml")
         logging.info(f"Running generated Makefile in {os.getcwd()}")
-        retval = run_command("make")
+        retval = run_command("make", capture=not gui)
         if os.path.isfile("results.xml"):
             results = ET.parse('results.xml')
             for testcase in results.getroot().iter('testcase'):
@@ -312,36 +378,47 @@ def main():
         simulator_options.append(simulator['uvm_opts'])
         simulator_options.append(simulator['uvm_testname'] % BAKE_SIM_FRAMEWORK_TOP)
         cmd = simulator['executable'] + " " + (" ".join(simulator_options))
-        retval = run_command(cmd)
+        retval = run_command(cmd, capture=not gui)
         if not retval:
             if not os.path.isfile("sim.log"):
                 logging.error("Test failed as the output log file (sim.log) does not exist!")
                 retval = 1
             else:
+                # The report summary counts messages per severity; a log
+                # without it means the test never got to the end.
                 ERROR_LEVELS = ('UVM_FATAL : ',
                                 'UVM_ERROR : ')
+                summary_found = False
                 with open("sim.log") as file:
                     for line in file.readlines():
+                        if "UVM Report Summary" in line:
+                            summary_found = True
                         if any(error_level in line for error_level in ERROR_LEVELS):
                             messages = int(line.split(":")[1])
                             if messages:
                                 retval = 2
                                 logging.error("Test failed because of '%s'!", line.strip())
+                if not summary_found and retval == 0:
+                    logging.error("Test failed: no 'UVM Report Summary' in sim.log — the test did not run to completion.")
+                    retval = 2
     else:
         simulator_options.extend(BAKE_DESIGN_VERILOG_FILES)
         simulator_options.extend(vrf_netlist_files)
         cmd = simulator['executable'] + " " + (" ".join(simulator_options))
-        retval = run_command(cmd)
+        retval = run_command(cmd, capture=not gui)
         if BAKE_SIM_SIMULATOR == "icarus" and retval == 0:
-            retval = run_command("./a.out")
+            retval = run_command("./a.out", capture=not gui)
+
+    if retval == 0:
+        retval = check_log_criteria(BAKE_SIM_PASS_REGEX, BAKE_SIM_FAIL_REGEX)
 
     if gui and BAKE_SIM_SIMULATOR == "icarus" and retval == 0:
         vcd_files = list(glob.glob("**.vcd"))
         if vcd_files:
-            run_command("gtkwave %s" % vcd_files[0])
+            run_command("gtkwave %s" % vcd_files[0], capture=False)
 
     if gui and BAKE_SIM_SIMULATOR == "vcs" and retval == 0:
-        run_command("./simv* -gui=sx")
+        run_command("./simv* -gui=sx", capture=False)
 
     sys.exit(retval)
 

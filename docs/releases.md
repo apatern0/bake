@@ -35,6 +35,59 @@ compatibility patches rebased for each new release.
 
 ## Changelog
 
+### Unreleased
+
+**Up-to-date check** (`bake/step.py`)
+
+- A step whose script failed after writing its outputs was reported up to date on the next
+  run. A success stamp (`work/<block>/<recipe>/.bake_stamp.json`) is removed before the flow
+  starts and written after it returns 0 and the outputs are verified. Work directories from
+  1.0.0 have no stamp, so every step re-runs once after upgrading.
+- Configuration changes re-run a step: the stamp records the bake version, the template
+  variables, the source file list and the contents of the block's flow directory; the reason
+  is logged, and `-n` shows it in brackets. `-v` and `-i` are not build inputs.
+- Symlinked sources are followed; the "all inputs are symlinks" error is gone. Timestamps use
+  mtime (ctime also changed on `chmod` and checkout).
+- `-n` cannot be combined with `-c`, `-r` or `-p`; `--version` added.
+
+**Manifest**
+
+- `block(vcd_files=...)` no longer crashes; `vcd_files` and `saif_files` are corner
+  dictionaries, and a plain list or a single file is the `"default"` corner.
+- A `test()` defined twice for the same block, and an attribute a builtin step's config does
+  not have (`config.vrf.simulater = ...`), are errors. Custom step configs get the same by
+  deriving from `config.FixedSchemaAttributes`.
+- Wherever a list of files is expected a single string or a `pathlib.Path` is accepted; a
+  corner may map to a single file. `layout_info` may name several files, space-separated; a
+  missing one is a warning.
+- Manifest errors are reported as one line with their location
+  (`manifest:22: block(): unknown argument 'rtl_file' (did you mean 'rtl_files'?)`); the
+  traceback only with `-v`.
+- The `dummy` step is no longer a builtin; `example/06_custom_step` is the template for a
+  step of your own.
+
+**Flows and templates**
+
+- Only `$BAKE_...` tokens are template placeholders; any other `$` (Tcl and shell variables)
+  is copied as it is. `$$` still yields `$`, so existing templates render as before.
+- Every run writes the template variables to `work/<block>/<recipe>/bake_vars.json`, lists
+  kept as lists, and passes its path to the flow as `$BAKE_VARS`. Template values may be lists
+  (space-joined in `.tpl` files). The builtin `run.py` scripts read the JSON.
+- `impl`: the `<top>_<corner>.lib` abstracts are expected outputs; a library lacking Liberty
+  for a corner another library provides is refused in `check_pre()`.
+- `tmr`: two RTL files with the same basename are refused (their outputs would collide).
+- `vrf`: `vrf_pass_regex` / `vrf_fail_regex` on tests and envs, checked against the captured
+  simulator output (`bake_sim.log`); a UVM log without the report summary fails; every run
+  has a seed, logged and settable with `config.vrf.seed` / `-o vrf.seed=N`; the cocotb
+  Makefile carries the cocotb 2.x variable names as well.
+
+**Other**
+
+- The tab-completion cache is written atomically, honours `XDG_CACHE_HOME` and drops entries
+  for directories that no longer exist.
+- Python 3.9 is no longer supported. CI runs ruff and mypy next to pylint and enforces a
+  coverage floor.
+
 ### v1.0.0
 
 First public release of **bake**. bake is a modified derivative of

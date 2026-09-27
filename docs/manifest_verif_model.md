@@ -6,7 +6,8 @@ Verification environments are defined using the `env()` function. The full synta
 
 ```python
 env(name, desc, includes, target, vrf_top, vrf_files, vrf_incdirs, vrf_libs,
-    vrf_options, vrf_defines, vrf_framework, vrf_framework_top, default_sim)
+    vrf_options, vrf_defines, vrf_framework, vrf_framework_top, default_sim,
+    vrf_pass_regex, vrf_fail_regex)
 ```
 
 Arguments:
@@ -24,6 +25,8 @@ Arguments:
   * `vrf_framework` — verification framework: one of `""` (plain V/SV), `"uvm"`, or `"cocotb"`
   * `vrf_framework_top` — top-level entity or module required by the verification framework (e.g. cocotb test module name) — optional
   * `default_sim` — default simulator to use when running tests
+  * `vrf_pass_regex`, `vrf_fail_regex` — pass/fail criteria on the simulator output, see
+    [Pass/fail criteria](#passfail-criteria) — optional
 
 The same file reference and inheritance rules from the design modeling section apply here.
 Environments can be derived from other environments via `includes`, enabling flexible composition
@@ -76,6 +79,35 @@ Support matrix for verification frameworks:
 | Synopsys VCS    | y          | y   | y      |
 | Siemens Questa  | y          | y   | y      |
 | Verilator       | n          | n   | y      |
+
+## Pass/fail criteria
+
+A test passes when the simulator exits 0 **and** its output meets the test's criteria. The exit
+code alone is a weak criterion for plain Verilog testbenches: Icarus, for one, exits 0 after
+`$error`. So a test (or an environment it includes) can declare regular expressions that the
+built-in flow checks line by line against everything the simulator printed (kept in
+`bake_sim.log` in the work directory):
+
+```python
+test(name="counter_test", target="counter", includes=["counter_env"],
+     vrf_fail_regex=r"^(ERROR|FATAL)\b",     # any matching line fails the test
+     vrf_pass_regex=r"TEST PASSED")          # and one must match this
+```
+
+For UVM the flow also requires the `UVM Report Summary` in the log — a test that never reaches
+the end is a failure, not a pass — and fails on a non-zero `UVM_ERROR`/`UVM_FATAL` count. For
+cocotb, `results.xml` decides. The regexes apply on top of both.
+
+## Seeds
+
+Every run has a seed, reported as `Simulation seed: N` in the output and passed to the simulator
+in its own way (`-svseed` for Xcelium/Incisive, `+ntb_random_seed=` for VCS, `-sv_seed` for
+Questa, `+verilator+seed+` for Verilator, `RANDOM_SEED`/`COCOTB_RANDOM_SEED` for cocotb). It is
+random unless `config.vrf.seed` is set; to repeat a failing run:
+
+```
+bake counter vrf -o vrf.seed=1234567
+```
 
 ## UVM Support
 Basic UVM tests use the following `env`/`test` options:

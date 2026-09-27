@@ -591,6 +591,52 @@ def test_recipes_with_dummy(bake, project, recipe, impl_dir):
 
 
 # ===========================================================================
+# Tests — builtin vrf flow: pass/fail criteria and seed (fake simulator)
+# ===========================================================================
+
+def _fake_icarus(monkeypatch, project_dir, output):
+    monkeypatch.setenv("PATH", f"{project_dir / 'fake_bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_SIM_OUTPUT", output)
+
+
+def test_vrf_exit_code_only_passes_on_error_line(bake, capfd, project, monkeypatch):
+    """Without criteria only the exit code counts: an ERROR line with exit 0
+    is a pass (Icarus returns 0 after $error). The seed is always logged."""
+    _fake_icarus(monkeypatch, project("criteria"), "ERROR: bad value")
+    assert not bake.run(["dut", "vrf", "-t", "exit_code_only"])
+    assert_stderr(capfd, expect=["Simulation seed: ", "Step vrf completed"])
+
+
+def test_vrf_fail_regex(bake, capfd, project, monkeypatch):
+    """A line matching vrf_fail_regex fails the test although the simulator
+    exited 0; without such a line it passes."""
+    _fake_icarus(monkeypatch, project("criteria"), "ERROR: bad value")
+    assert bake.run(["dut", "vrf", "-t", "fail_regex"])
+    assert_in_stderr(capfd, "match vrf_fail_regex")
+    monkeypatch.setenv("FAKE_SIM_OUTPUT", "no errors here")
+    assert not bake.run(["dut", "vrf", "-t", "fail_regex"])
+
+
+def test_vrf_pass_regex(bake, capfd, project, monkeypatch):
+    """With vrf_pass_regex, a log without a matching line fails the test."""
+    _fake_icarus(monkeypatch, project("criteria"), "sim ran")
+    assert bake.run(["dut", "vrf", "-t", "pass_regex"])
+    assert_in_stderr(capfd, "no line matches vrf_pass_regex")
+    monkeypatch.setenv("FAKE_SIM_OUTPUT", "TEST PASSED")
+    assert not bake.run(["dut", "vrf", "-t", "pass_regex"])
+    assert "TEST PASSED" in Path("work/dut/vrf/pass_regex/bake_sim.log").read_text()
+
+
+def test_vrf_seed_from_config(bake, capfd, project, monkeypatch):
+    """-o vrf.seed=N fixes the seed and it reaches the flow."""
+    import json
+    _fake_icarus(monkeypatch, project("criteria"), "ok")
+    assert not bake.run(["dut", "vrf", "-t", "exit_code_only", "-o", "vrf.seed=42"])
+    assert_in_stderr(capfd, "Simulation seed: 42")
+    assert json.loads(Path("work/dut/vrf/exit_code_only/bake_vars.json").read_text())["BAKE_SIM_SEED"] == "42"
+
+
+# ===========================================================================
 # Tests — TMR step (tmrg required)
 # ===========================================================================
 

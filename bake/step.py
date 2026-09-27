@@ -145,6 +145,8 @@ class StepData:
     vrf_framework:     str  = ""
     vrf_framework_top: str  = ""
     default_sim:       str  = ""
+    vrf_pass_regex:    str  = ""
+    vrf_fail_regex:    str  = ""
 
     # ── Gate-level / lib fields (from BlockSpec or an impl step) ─────────────
     netlist_files:   list = field(default_factory=list)   # gate-level Verilog
@@ -214,7 +216,7 @@ class StepData:
 
         str_extend = [
             "vrf_top", "vrf_framework", "vrf_framework_top",
-            "default_sim",
+            "default_sim", "vrf_pass_regex", "vrf_fail_regex",
         ]
 
         list_extend = [
@@ -331,7 +333,9 @@ class StepData:
                                  for k, v in env.vrf_options.items()} if env else {},
             vrf_framework     = env.vrf_framework if env else "",
             vrf_framework_top = env.vrf_framework_top if env else "",
-            default_sim       = env.default_sim if env else ""
+            default_sim       = env.default_sim if env else "",
+            vrf_pass_regex    = env.vrf_pass_regex if env else "",
+            vrf_fail_regex    = env.vrf_fail_regex if env else "",
         )
 
         if env:
