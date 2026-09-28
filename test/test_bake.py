@@ -672,6 +672,44 @@ def test_vrf_pass_regex(bake, capfd, project, monkeypatch):
     assert "TEST PASSED" in Path("work/dut/vrf/pass_regex/bake_sim.log").read_text()
 
 
+def _vrf_run_script():
+    """The built-in vrf flow's run script, loaded as a module."""
+    from importlib.machinery import SourceFileLoader
+    from importlib.util import module_from_spec, spec_from_loader
+    import bake as bake_pkg
+    path = Path(bake_pkg.__file__).parent / "builtin" / "vrf" / "flow" / "run.py.tpl"
+    spec = spec_from_loader("vrf_run", SourceFileLoader("vrf_run", str(path)))
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("counts, retval", [
+    ({"UVM_ERROR": 0, "UVM_FATAL": 0}, 0),
+    ({"UVM_ERROR": 3, "UVM_FATAL": 0}, 2),
+    ({"UVM_ERROR": 0, "UVM_FATAL": 1}, 2),
+    ({"UVM_ERROR": 21008, "UVM_FATAL": 0}, 2),     # "%s :%5d" leaves no space
+    ({"UVM_ERROR": 123456, "UVM_FATAL": 0}, 2),
+])
+def test_vrf_uvm_summary_counts(tmp_path, counts, retval):
+    """The UVM report summary fails the test on any UVM_ERROR or UVM_FATAL,
+    however many digits the count has; a message quoting a severity before
+    the summary does not count."""
+    log = tmp_path / "sim.log"
+    lines = ["UVM_ERROR : 7", "--- UVM Report Summary ---", "", "** Report counts by severity",
+             "UVM_INFO :%5d" % 42, "UVM_WARNING :%5d" % 0]
+    lines += ["%s :%5d" % (severity, count) for severity, count in counts.items()]
+    log.write_text("\n".join(lines) + "\n")
+    assert _vrf_run_script().check_uvm_summary(str(log)) == retval
+
+
+def test_vrf_uvm_summary_missing(tmp_path):
+    """A log without the UVM report summary fails: the test did not finish."""
+    log = tmp_path / "sim.log"
+    log.write_text("UVM_ERROR :    0\n")
+    assert _vrf_run_script().check_uvm_summary(str(log)) == 2
+
+
 def test_vrf_seed_from_config(bake, capfd, project, monkeypatch):
     """-o vrf.seed=N fixes the seed and it reaches the flow."""
     import json

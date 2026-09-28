@@ -294,6 +294,33 @@ def check_log_criteria(pass_regex, fail_regex):
     return 0
 
 
+# A severity count of the UVM report summary. UVM prints it as "%s :%5d",
+# so from 10000 up no space is left between the colon and the count.
+UVM_SEVERITY_COUNT = re.compile(r"^\s*(UVM_ERROR|UVM_FATAL)\s*:\s*(\d+)\s*$")
+
+
+def check_uvm_summary(log_file):
+    """Return 0 when the UVM report summary in log_file counts no UVM_ERROR
+    and no UVM_FATAL, 2 otherwise. A log without the summary means the test
+    never got to the end, which is a failure too."""
+    summary_found = False
+    retval = 0
+    with open(log_file, encoding="utf-8", errors="replace") as log:
+        for line in log:
+            if "UVM Report Summary" in line:
+                summary_found = True
+                continue
+            match = summary_found and UVM_SEVERITY_COUNT.match(line)
+            if match and int(match.group(2)):
+                logging.error("Test failed because of '%s'!", line.strip())
+                retval = 2
+    if not summary_found:
+        logging.error("Test failed: no 'UVM Report Summary' in %s — the test did not run to completion.",
+                      log_file)
+        retval = 2
+    return retval
+
+
 def main():
     # The template variables, as bake wrote them to bake_vars.json (lists
     # stay lists, so paths with spaces survive).
@@ -498,23 +525,7 @@ def main():
                 logging.error("Test failed as the output log file (sim.log) does not exist!")
                 retval = 1
             else:
-                # The report summary counts messages per severity; a log
-                # without it means the test never got to the end.
-                ERROR_LEVELS = ('UVM_FATAL : ',
-                                'UVM_ERROR : ')
-                summary_found = False
-                with open("sim.log") as file:
-                    for line in file.readlines():
-                        if "UVM Report Summary" in line:
-                            summary_found = True
-                        if any(error_level in line for error_level in ERROR_LEVELS):
-                            messages = int(line.split(":")[1])
-                            if messages:
-                                retval = 2
-                                logging.error("Test failed because of '%s'!", line.strip())
-                if not summary_found and retval == 0:
-                    logging.error("Test failed: no 'UVM Report Summary' in sim.log — the test did not run to completion.")
-                    retval = 2
+                retval = check_uvm_summary("sim.log")
 
     if retval == 0:
         retval = check_log_criteria(BAKE_SIM_PASS_REGEX, BAKE_SIM_FAIL_REGEX)
