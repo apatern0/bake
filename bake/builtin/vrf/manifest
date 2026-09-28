@@ -20,6 +20,8 @@
 
 """Verification (simulation) step."""
 
+import logging
+import shutil
 from pathlib import Path
 
 from bake.exceptions import BakeManifestError
@@ -49,6 +51,7 @@ class VrfConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.tpl_dict     = config.TemplateDictionary()
         self.options      = []
+        self.runtime_options = []   # for running the simulation only, e.g. plusargs
         self.defines      = []
         self.delays       = ""   # delay corner for SDF back-annotation: typ, min or max
         self.seed         = ""   # simulation seed; empty picks a random one (always logged)
@@ -58,6 +61,11 @@ class VrfConfig(config.FixedSchemaAttributes):
 
 
 config.register('vrf', VrfConfig())
+
+
+def _as_list(value):
+    """A vrf_*options value: a list, or a single string of options."""
+    return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
 class VrfStep(Step):
@@ -84,6 +92,11 @@ class VrfStep(Step):
         simulator = self.config.simulator or self.data.default_sim
         tpl_dict["BAKE_SIM_SIMULATOR"] = simulator
         tpl_dict["BAKE_SIM_OPTIONS"]   = list(self.data.vrf_options.get(simulator, []))
+        tpl_dict["BAKE_SIM_RUNTIME_OPTIONS"] = \
+            _as_list(self.data.vrf_runtime_options.get(simulator, [])) + list(self.config.runtime_options)
+        # Shared by the tests of the block/recipe: a flow that builds once
+        # keeps its builds here, one per build configuration.
+        tpl_dict["BAKE_SIM_BUILD_DIR"] = str(self.build_dir)
 
         # The design: a netlist (after impl, or a macro()), or RTL with the
         # netlists of the implemented sub-blocks it contains, which also bring
@@ -137,17 +150,37 @@ class VrfStep(Step):
     def workdir(self):
         return Path(super().workdir) / self.data.test
 
+    @property
+    def build_dir(self) -> Path:
+        """Where a flow keeps the simulation builds the block/recipe's tests
+        share: next to the tests' work directories."""
+        return Path(super().workdir) / "_build"
+
+    def clean(self):
+        """Remove the test's work directory, and the builds its block/recipe's
+        tests share: -r then rebuilds from scratch."""
+        super().clean()
+        if self.build_dir.is_dir():
+            logging.info("Cleaning shared simulation builds: %s", self.build_dir)
+            shutil.rmtree(self.build_dir)
+
     def check_pre(self):
         if not self.data.test:
             raise BakeManifestError(
                 f"Step vrf for block '{self.data.block}' needs a test; none is selected."
             )
+        if self.data.test == self.build_dir.name:
+            raise BakeManifestError(
+                f"Test '{self.data.test}' of block '{self.data.block}': the name is reserved for "
+                f"the simulation builds the block's tests share; rename the test."
+            )
         simulators = [sim[0] for sim in self.flow.simulators]
-        for sim_name in self.data.vrf_options:
-            if sim_name not in simulators:
-                raise BakeManifestError(
-                    f"Simulator '{sim_name}' (in vrf_options) is not provided by flow '{self.flow.name}'."
-                )
+        for field in ("vrf_options", "vrf_runtime_options"):
+            for sim_name in getattr(self.data, field):
+                if sim_name not in simulators:
+                    raise BakeManifestError(
+                        f"Simulator '{sim_name}' (in {field}) is not provided by flow '{self.flow.name}'."
+                    )
         simulator = self.config.simulator or self.data.default_sim
         if simulator and simulator not in simulators:
             raise BakeManifestError(

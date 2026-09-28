@@ -45,6 +45,7 @@ Settings for the verification (simulation) step.
 | `simulator` | `""` | Simulator to use. Overrides `default_sim` from the test. Recognized values depend on the flow; the built-in flow supports `icarus`, `xcelium`, `ius`, `vcs`, `questa`, `verilator`. |
 | `flow` | `None` | Name of the flow to use. When empty, the built-in simulation flow (`builtin_vrf_flow`) is used. Set to a custom flow name to replace the default. |
 | `options` | `[]` | Extra command-line options forwarded to the simulator invocation (available as `$BAKE_RUN_OPTIONS` in `.tpl` files). |
+| `runtime_options` | `[]` | Extra options for running the simulation only, e.g. plusargs, after the test's `vrf_runtime_options` (available as `$BAKE_SIM_RUNTIME_OPTIONS`). Unlike `options`, they do not change what is built; see [Building once for many tests](manifest_verif_model.md#building-once-for-many-tests). |
 | `defines` | `[]` | Additional Verilog preprocessor defines passed to the simulator (appended to defines from the test). |
 | `delays` | `""` | Delay corner for SDF back-annotation in gate-level simulation, `"typ"`, `"min"` or `"max"` (available as `$BAKE_SIM_DELAY_CORNER`; empty means `"typ"`). |
 | `seed` | `""` | Simulation seed, passed to the simulator in its own form; empty picks a random one. The seed used is always logged (see [Seeds](manifest_verif_model.md#seeds)). |
@@ -158,6 +159,8 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_SIM_SDF_FILES` | SDF files produced by an `impl` step earlier in the recipe, or brought in by an implemented include |
 | `$BAKE_SIM_OPTIONS` | Simulator-specific options from `vrf_options` |
 | `$BAKE_RUN_OPTIONS` | Extra options from `config.vrf.options` |
+| `$BAKE_SIM_RUNTIME_OPTIONS` | Options for running the simulation only: `vrf_runtime_options` for the simulator, then `config.vrf.runtime_options` |
+| `$BAKE_SIM_BUILD_DIR` | Directory shared by the tests of the block/recipe (`work/<block>/<recipe>/_build`), where a flow can keep builds several tests use; `-c`/`-r` remove it |
 | `$BAKE_SIM_SEED` | `config.vrf.seed`; empty means the flow picks a random seed |
 | `$BAKE_SIM_PASS_REGEX`, `$BAKE_SIM_FAIL_REGEX` | The test's pass/fail criteria (`vrf_pass_regex`, `vrf_fail_regex`) |
 

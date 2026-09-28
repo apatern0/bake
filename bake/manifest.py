@@ -401,6 +401,10 @@ class EnvSpec(BaseModel):
     vrf_incdirs: list[str] = Field(default_factory=list)
     vrf_libs: list[str] = Field(default_factory=list)
     vrf_options: dict = Field(default_factory=dict)
+    # Simulator-specific options for running the simulation only (plusargs,
+    # say): a flow that builds once and runs many tests leaves them out of
+    # the build, so tests differing only in these share it.
+    vrf_runtime_options: dict = Field(default_factory=dict)
     vrf_defines: list[str] = Field(default_factory=list)
 
     _lists = field_validator("includes", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
