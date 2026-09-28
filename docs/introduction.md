@@ -63,10 +63,12 @@ implemented first when its outputs are missing or stale. *bake* also tracks the 
 artifacts of each step and reports any step that fails to produce them. See
 [When a step runs](cli.md#when-a-step-runs) for the exact rules.
 
-On first invocation of a block/recipe pair, a `flow` directory is populated with a
-skeleton of the flow scripts. This directory can be placed under version control, and the skeleton
-files can be edited to customize any part of the flow. On subsequent invocations, *bake* reads
-this directory and fills any template files (files with a `.tpl` extension). During templating,
+Each step runs the scripts of its flow straight from the flow's directory, so a fix to a flow,
+or a *bake* upgrade, reaches every block using it. To customise a flow for one block/recipe pair,
+`bake <block> <recipe> -p` copies it into a `flow` directory in the project; that copy can be
+placed under version control and edited, and the step runs it from then on (*bake* warns when the
+flow it was copied from changes). On every run, *bake* fills the template files (files with a
+`.tpl` extension) of the flow the step runs. During templating,
 special tokens of the form `$BAKE_XYZ` are substituted with values derived from the manifest.
 Results are placed in an `output` directory corresponding to the block/recipe pair.
 

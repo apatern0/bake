@@ -102,6 +102,16 @@ compatibility patches rebased for each new release.
 
 **Flows and templates**
 
+- Steps run their flows from the flow's own directory: a run no longer copies the flow into
+  `flow/<block>/<recipe>/`, so fixes to a flow and *bake* upgrades reach every block that has not
+  customised it. `-p` makes the copy, on purpose: for the recipe's last step only (not its
+  earlier steps, nor its dependencies), and it combines with no other mode (`-n`, `-i`, `-f`,
+  `-c`, `-r`). A copy is used whenever it exists, so existing projects run as before.
+  `-p` records where the copy came from in `.bake_flow.json` (the flow, a digest of its files,
+  the *bake* version, the git commit and whether it was clean); when the flow changes, each run
+  warns and says how to see the changes, and `-p` on the existing copy records it as up to date.
+  Every run logs which flow it uses. **Projects:** a copy that was never customised can be
+  deleted, and the step then runs the flow itself.
 - Only `$BAKE_...` tokens are template placeholders; any other `$` (Tcl and shell variables)
   is copied as it is. `$$` still yields `$`, so existing templates render as before.
 - Every run writes the template variables to `work/<block>/<recipe>/bake_vars.json`, lists

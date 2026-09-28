@@ -16,6 +16,6 @@ step (03 and 05 load it; it needs `PDK_ROOT`, see [`test/pdk/fetch_sky130.sh`](.
 | [`06_custom_step`](06_custom_step/manifest) | a project-defined `lint` step and its flow, loaded like any manifest; recipe `lint-vrf` | Verilator, Icarus Verilog |
 | [`07_parametrized`](07_parametrized/manifest) | generating tests in a loop — manifests are Python | Icarus Verilog |
 
-All of them work with open-source tools only. `bake <block> <recipe> -p` populates the
-`flow/` directory without running anything, which is a useful way to look at the scripts a
-step would execute even when the tool it needs is not installed.
+All of them work with open-source tools only. Steps run their flows from *bake*'s installation;
+`bake <block> <recipe> -p` copies the flow of that recipe's last step into `flow/`, without
+running anything, for the block to customise (the step runs the copy from then on).

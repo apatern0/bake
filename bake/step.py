@@ -72,6 +72,57 @@ def bake_version() -> str:
         return "unknown"
 
 
+# What `-p` writes into a populated copy of a flow: which flow it was copied
+# from, the digest of that flow's files then, and the git commit they were at.
+FLOW_RECORD = ".bake_flow.json"
+
+
+def tree_digest(root) -> str:
+    """sha256 over the relative path and contents of every file under root,
+    the populate record excluded: equal for a flow and an untouched copy."""
+    root = Path(root)
+    digest = hashlib.sha256()
+    for current_dir, subdirs, files in os.walk(root):
+        subdirs.sort()
+        for name in sorted(files):
+            path = Path(current_dir) / name
+            if name == FLOW_RECORD and path.parent == root:
+                continue
+            digest.update(str(path.relative_to(root)).encode("utf-8"))
+            digest.update(b"\0")
+            with open(path, "rb") as f:
+                digest.update(f.read())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _git(cwd, *args) -> Optional[str]:
+    """The output of a git command run in cwd, or None when it fails (no git,
+    not a repository)."""
+    try:
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return proc.stdout.strip()
+
+
+def git_state(directory) -> Optional[dict]:
+    """The commit a directory is at, its path in its repository and whether
+    it has uncommitted changes; None outside a git repository (a flow
+    installed with pip, say)."""
+    top = _git(directory, "rev-parse", "--show-toplevel")
+    commit = _git(directory, "rev-parse", "HEAD") if top else None
+    if not top or not commit:
+        return None
+    status = _git(directory, "status", "--porcelain", "--", ".")
+    return {
+        "repo":   top,
+        "path":   os.path.relpath(Path(directory).resolve(), Path(top).resolve()),
+        "commit": commit,
+        "dirty":  bool(status),
+    }
+
+
 class BakeTemplate(string.Template):
     """string.Template that only knows $BAKE_* placeholders.
 
@@ -628,8 +679,20 @@ class Step(ABC):
         return getattr(context.config, self.name)
 
     @property
-    def flowdir(self) -> Path:
+    def flow_copy_dir(self) -> Path:
+        """Where `-p` puts the block's own copy of the flow:
+        flow/<block>/<recipe>/."""
         return Path(self.data.block_dir) / "flow" / self.data.block / self.recipe_path
+
+    @property
+    def uses_flow_copy(self) -> bool:
+        return self.flow_copy_dir.is_dir()
+
+    @property
+    def flowdir(self) -> Path:
+        """The flow the step runs: the block's copy when `-p` populated one,
+        the flow's own directory otherwise."""
+        return self.flow_copy_dir if self.uses_flow_copy else Path(self.flow.dir)
 
     @property
     def workdir(self) -> Path:
@@ -670,17 +733,6 @@ class Step(ABC):
         def digest(data: str) -> str:
             return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
-        flow_hash = hashlib.sha256()
-        for current_dir, subdirs, files in os.walk(self.flowdir):
-            subdirs.sort()
-            for name in sorted(files):
-                path = Path(current_dir) / name
-                flow_hash.update(str(path.relative_to(self.flowdir)).encode("utf-8"))
-                flow_hash.update(b"\0")
-                with open(path, "rb") as f:
-                    flow_hash.update(f.read())
-                flow_hash.update(b"\0")
-
         # How a run is watched is not what it builds: -v and -i do not
         # invalidate outputs.
         tpl_dict = {k: v for k, v in self.build_tpl_dict().items()
@@ -690,7 +742,7 @@ class Step(ABC):
             "bake":    bake_version(),
             "tpl":     digest(json.dumps(tpl_dict, sort_keys=True, default=str)),
             "sources": digest(json.dumps(sorted(str(f) for f in self.source_files))),
-            "flow":    flow_hash.hexdigest(),
+            "flow":    tree_digest(self.flowdir),
         }
 
     _FINGERPRINT_IGNORED_VARS = ("BAKE_VERBOSITY", "BAKE_INTERACTIVE")
@@ -900,6 +952,8 @@ class Step(ABC):
                 (current_dir_dest / subdir).mkdir(exist_ok=True)
             for subfile in files:
                 subfile_src = current_dir_src / subfile
+                if subfile == FLOW_RECORD and current_dir_src == self.flowdir:
+                    continue
                 if subfile_src.suffix == ".tpl":
                     subfile_dest = current_dir_dest / subfile_src.stem
                     logging.debug("Expanding template: %s → %s", subfile_src.name, subfile_dest.name)
@@ -921,20 +975,108 @@ class Step(ABC):
                         subfile_dest.unlink()
                     copy_method(subfile_src, subfile_dest)
 
-    def copy_flow_tree(self):
-        """Copy flow step files into the flow directory for the current step."""
-        if self.flowdir.exists():
-            logging.debug(
-                "Flow directory for step '%s' already exists: %s",
-                self.recipe_path, self.flowdir,
-            )
+    # ---------------------------------------------------------------------------
+    # The block's own copy of the flow (-p)
+    # ---------------------------------------------------------------------------
+
+    @property
+    def command(self) -> str:
+        """The command line that runs this step on its own."""
+        test = f" -t {self.data.test}" if self.require_test and self.data.test else ""
+        return f"bake {self.data.block} {self.recipe_path}{test}"
+
+    def _flow_record_now(self) -> dict:
+        return {
+            "flow":   self.flow.name,
+            "digest": tree_digest(self.flow.dir),
+            "bake":   bake_version(),
+            "git":    git_state(self.flow.dir),
+        }
+
+    def read_flow_record(self) -> Optional[dict]:
+        try:
+            with open(self.flow_copy_dir / FLOW_RECORD, "r", encoding="utf-8") as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return record if isinstance(record, dict) and "digest" in record else None
+
+    def _write_flow_record(self, record: dict) -> None:
+        # The repository's location is the populating user's: only the path
+        # of the flow in it is kept.
+        git = dict(record["git"], repo=None) if record["git"] else None
+        with open(self.flow_copy_dir / FLOW_RECORD, "w", encoding="utf-8") as f:
+            json.dump({**record, "git": git}, f, indent=2, sort_keys=True)
+            f.write("\n")
+
+    @staticmethod
+    def _describe_origin(git: Optional[dict]) -> str:
+        """" (commit abc123)", " (commit abc123 plus uncommitted changes)";
+        "" outside git."""
+        if not git:
+            return ""
+        dirty = " plus uncommitted changes" if git.get("dirty") else ""
+        return f" (commit {git['commit'][:12]}{dirty})"
+
+    def populate(self) -> None:
+        """Copy the flow into flow_copy_dir, the block's own copy from then on,
+        with a record of where it came from. A copy that exists is left as it
+        is: it is recorded as based on the flow as it is now (after its
+        changes have been merged into the copy, say)."""
+        record = self._flow_record_now()
+        copy_dir = self.flow_copy_dir
+        if not copy_dir.is_dir():
+            logging.info("Populating flow directory for '%s' from '%s'%s → %s",
+                         self.recipe_path, self.flow.dir, self._describe_origin(record["git"]), copy_dir)
+            shutil.copytree(self.flow.dir, copy_dir)
+            self._write_flow_record(record)
+            logging.info("`%s` runs this copy from now on: edit it to customise the flow, or "
+                         "delete it to run flow '%s' itself again.", self.command, self.flow.name)
             return
 
-        logging.info(
-            "Populating flow directory for '%s' from '%s' → %s",
-            self.recipe_path, self.flow.dir, self.flowdir,
-        )
-        shutil.copytree(self.flow.dir, self.flowdir)
+        old = self.read_flow_record()
+        if old and old.get("flow") == record["flow"] and old["digest"] == record["digest"]:
+            logging.info("The copy in %s is already based on flow '%s' as it is now: nothing to do.",
+                         copy_dir, self.flow.name)
+            return
+        self._write_flow_record(record)
+        logging.info("The copy in %s is left as it is, and recorded as based on flow '%s' as it is "
+                     "now%s. To start over from the flow instead, delete the copy and run -p again.",
+                     copy_dir, self.flow.name, self._describe_origin(record["git"]))
+
+    def report_flow(self) -> None:
+        """Say which flow the step runs; warn when the block's copy was
+        populated from a flow that has changed since."""
+        if not self.uses_flow_copy:
+            logging.info("Flow: '%s' from %s", self.flow.name, self.flow.dir)
+            return
+        copy_dir = self.flow_copy_dir
+        logging.info("Flow: the block's copy in %s", copy_dir)
+        record = self.read_flow_record()
+        if record is None:
+            logging.info("   It has no populate record, so changes to flow '%s' cannot be detected; "
+                         "`%s -p` records it as based on the flow as it is now.", self.flow.name, self.command)
+            return
+        if record.get("flow") != self.flow.name:
+            logging.warning("The copy in %s was populated from flow '%s', but %s now uses flow '%s'.",
+                            copy_dir, record.get("flow"), self.recipe_path, self.flow.name)
+            return
+        if tree_digest(self.flow.dir) == record["digest"]:
+            return
+
+        old_git, new_git = record.get("git"), git_state(self.flow.dir)
+        logging.warning("Flow '%s' has changed since its copy in %s was populated%s.",
+                        self.flow.name, copy_dir, self._describe_origin(old_git))
+        if old_git and new_git and old_git.get("path") == new_git["path"]:
+            logging.warning("   What changed: git -C %s diff %s -- %s",
+                            new_git["repo"], old_git["commit"][:12], new_git["path"])
+        elif record.get("bake") != bake_version():
+            logging.warning("   It was populated with bake %s; this is bake %s.", record.get("bake"), bake_version())
+        if tree_digest(copy_dir) == record["digest"]:
+            logging.warning("   The copy was never modified: delete it to run the updated flow.")
+        else:
+            logging.warning("   Merge the changes into the copy, then run `%s -p` to record it as up to date.",
+                            self.command)
 
     def execute_flow_step(self):
         """Execute the flow step entry point inside the correct directory."""

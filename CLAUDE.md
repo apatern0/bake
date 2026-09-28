@@ -35,7 +35,7 @@ bake <block> <recipe> -t <test>  # specify test explicitly
 bake <block> <recipe> -f     # force re-run even if outputs are up-to-date
 bake <block> <recipe> -c     # clean output directory for the step
 bake <block> <recipe> -r     # clean then re-run (restart)
-bake <block> <recipe> -p     # populate flow dirs without running any step
+bake <block> <recipe> -p     # copy the last step's flow into flow/ to customise it; runs nothing
 bake <block> <recipe> -n     # dry run: report what would run, dependencies included
 bake -l                      # list all known libraries
 bake -v                      # verbose / debug output
@@ -64,7 +64,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 | `bake/manifest.py` | Pydantic specs (`FlowSpec`, `LibSpec`, `DesignSpec`/`BlockSpec`/`MacroSpec`, `EnvSpec`, `TestSpec`) registered into `context` at parse time |
 | `bake/context.py` | Singleton `Context` (registries: `flows`, `libs`, `blocks`, `envs`, `tests`, `steps`) and `Config` (per-step config sections, `BakeConfig`) |
 | `bake/loader.py` | `exec`s manifest files; changes `cwd` to the manifest directory during loading so relative paths resolve correctly; deduplicates via a global `loaded` list |
-| `bake/step.py` | `StepData` and its kinds (`RtlData`, `LibData`), `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), `copy_flow_tree` |
+| `bake/step.py` | `StepData` and its kinds (`RtlData`, `LibData`), `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), flow selection and `-p` copies (`flowdir`, `populate`, `report_flow`) |
 | `bake/cli.py` | Argument parsing, builtin manifest loading, dispatch to `run()` in cli itself |
 | `bake/exceptions.py` | Seven custom exception classes (`BakeRuntimeError`, `BakeManifestError`, `BakeConfigError`, etc.) |
 | `bake/file_utils.py` | Path resolution and file existence utilities |
@@ -77,7 +77,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 2. `exec`'ing each manifest populates `context` with `BlockSpec`, `TestSpec`, `FlowSpec`, etc.
 3. CLI `run()` builds `step.Recipe(block, recipe)` and calls `elaborate()`.
 4. `Recipe.elaborate()` creates a `StepData` from the block/test (elaborating dependency recipes for recipe-form includes and recording them in `recipe.dependencies`), instantiates each `Step` in chain order, runs `check_pre()`, and threads `output_data` forward.
-5. For each step: `copy_flow_tree()` (first run only), then `run()` which checks timestamps, calls `copy_and_template()` to expand `.tpl` files, then `execute_flow_step()` (subprocess).
+5. For each step: `report_flow()` (which flow runs: the block's copy in `flow/<block>/<recipe>/` when `-p` made one, the flow's own directory otherwise; warns when a copy's flow changed since, per its `.bake_flow.json`), then `run()` which checks timestamps, calls `copy_and_template()` to expand `.tpl` files, then `execute_flow_step()` (subprocess). `-p` calls `populate()` on the recipe's last step only and runs nothing.
 
 ### Template variables
 
