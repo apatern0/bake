@@ -478,9 +478,13 @@ def test_verbosity_does_not_rerun_step(bake, capfd, project):
 
 
 def test_flow_script_change_reruns_step(bake, capfd, project):
-    """Editing the block's copy of a flow script re-runs the step."""
+    """Populating an untouched copy of the flow does not re-run the step;
+    editing the copy does."""
     project("incremental")
     assert not bake.run(["sample_target", "gen"])
+    assert not bake.run(["sample_target", "gen", "-p"])
+    assert not bake.run(["sample_target", "gen"])
+    assert_in_stderr(capfd, "up-to-date")
     script = Path("flow/sample_target/gen/run.sh.tpl")
     script.write_text(script.read_text() + "# edited\n")
     assert not bake.run(["sample_target", "gen"])
@@ -838,12 +842,13 @@ def test_clean_leaves_dependency(bake, project):
     assert Path("work/block/impl/output/block.v").is_file()
 
 
-def test_populate_includes_dependency(bake, project):
-    """-p populates the flow directories of dependencies too, and runs nothing."""
+def test_populate_only_last_step(bake, project):
+    """-p populates the flow of the recipe's last step only: not its
+    dependencies', and runs nothing."""
     project("hier")
     assert not bake.run(["top2", "vrf", "-p"])
-    assert Path("flow/block/impl").is_dir()
     assert Path("flow/top2/vrf/top2_test").is_dir()
+    assert not Path("flow/block").exists()
     assert not Path("work").exists()
 
 
@@ -1005,6 +1010,109 @@ def test_populate_flag_creates_flow_dir_only(bake, project):
     assert not bake.run(["sample_target", "impl", "-p"])
     assert Path("flow/sample_target/impl").is_dir()
     assert not Path("work/sample_target/impl/output").exists()
+
+
+def test_run_uses_the_flow_itself_without_copy(bake, capfd, project):
+    """Without -p, a step runs its flow from the flow's own directory and
+    copies nothing into flow/."""
+    project("sample")
+    assert not bake.run(["sample_target", "vrf"])
+    assert not Path("flow").exists()
+    assert_in_stderr(capfd, "Flow: 'dummy_vrf' from")
+    assert "sample_tb.v" in vrf_run_sh()
+
+
+def test_populate_last_step_of_longer_recipe(bake, project):
+    """impl-vrf -p copies the flow of the gate-level vrf only; impl keeps
+    running its flow itself."""
+    project("sample")
+    assert not bake.run(["sample_target", "impl-vrf", "-p"])
+    assert Path("flow/sample_target/impl-vrf/sample_test/run.sh.tpl").is_file()
+    assert not Path("flow/sample_target/impl").exists()
+
+
+def test_populated_copy_is_used_and_recorded(bake, capfd, project):
+    """-p writes the copy and its record; the step runs the copy from then on."""
+    project("sample")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    copy_dir = Path("flow/sample_target/vrf/sample_test")
+    record = json.loads((copy_dir / ".bake_flow.json").read_text())
+    assert record["flow"] == "dummy_vrf" and record["git"] is None and len(record["digest"]) == 64
+    script = copy_dir / "run.sh.tpl"
+    script.write_text(script.read_text() + "echo CUSTOMISED\n")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_in_stderr(capfd, "Flow: the block's copy in")
+    assert "CUSTOMISED" in vrf_run_sh()
+    assert not Path("work/sample_target/vrf/sample_test/.bake_flow.json").exists()
+
+
+def test_populated_copy_outdated_warning(bake, capfd, project):
+    """A change to the flow after -p is reported at every run, with what to
+    do: delete an untouched copy, merge into an edited one and record it
+    with -p, after which the warning stops."""
+    project("sample")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    flow_script = Path("../flows/vrf/run.sh.tpl")
+    flow_script.write_text(flow_script.read_text() + "echo FLOW_FIX\n")
+    capfd.readouterr()
+    assert not bake.run(["sample_target", "vrf"])
+    assert_stderr(capfd, expect=["has changed since its copy", "never modified: delete it"])
+    copy_script = Path("flow/sample_target/vrf/sample_test/run.sh.tpl")
+    copy_script.write_text(copy_script.read_text() + "echo CUSTOMISED\n")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_stderr(capfd, expect=["Merge the changes into the copy", "bake sample_target vrf -t sample_test -p"])
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    assert_in_stderr(capfd, "is left as it is, and recorded")
+    assert "CUSTOMISED" in copy_script.read_text()
+    assert not bake.run(["sample_target", "vrf"])
+    assert_not_in_stderr(capfd, "has changed since")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_populated_copy_records_git_commit(bake, capfd, project, tmp_run_dir):
+    """In a git repository the record keeps the flow's commit and whether it
+    was clean, and the warning shows how to see what changed since."""
+    import subprocess
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=tmp_run_dir, check=True, capture_output=True)
+
+    project("sample")
+    git("init", "-q")
+    git("add", "test/projects/flows")
+    git("commit", "-qm", "flows")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    record = json.loads(Path("flow/sample_target/vrf/sample_test/.bake_flow.json").read_text())
+    assert record["git"]["path"] == "test/projects/flows/vrf" and record["git"]["dirty"] is False
+    assert record["git"]["repo"] is None
+    flow_script = Path("../flows/vrf/run.sh.tpl")
+    flow_script.write_text(flow_script.read_text() + "echo FLOW_FIX\n")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_stderr(capfd, expect=[f"(commit {record['git']['commit'][:12]})",
+                                 f"diff {record['git']['commit'][:12]} -- test/projects/flows/vrf"])
+
+
+def test_copy_without_record_and_switched_flow(bake, capfd, project):
+    """A copy from an older bake has no record: the run says changes cannot be
+    detected, and -p records it. A copy of another flow than the step's is
+    reported."""
+    project("sample")
+    shutil.copytree("../flows/vrf", "flow/sample_target/vrf/sample_test")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_in_stderr(capfd, "no populate record")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    assert Path("flow/sample_target/vrf/sample_test/.bake_flow.json").is_file()
+    assert bake.run(["sample_target", "vrf", "-o", "vrf.flow=failing_vrf"])
+    assert_in_stderr(capfd, "was populated from flow 'dummy_vrf', but vrf now uses flow 'failing_vrf'")
+
+
+def test_populate_excludes_other_modes(bake, capfd, project):
+    """-p only copies a flow: combined with -n, -i, -f, -c or -r it is a usage error."""
+    project("sample")
+    for flag in ("-n", "-i", "-f", "-c", "-r"):
+        assert bake.run(["sample_target", "vrf", "-p", flag]) == 2
+    assert not Path("flow").exists()
 
 
 def test_force_flag_reruns_up_to_date_step(bake, capfd, project):

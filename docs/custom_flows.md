@@ -12,14 +12,42 @@ A flow directory typically contains:
   `$BAKE_XYZ` tokens in these files before executing.
 - Any additional helper scripts, config files, or data needed by the flow.
 
-On first invocation of a block/step combination, *bake* copies the entire flow directory into
-a per-block `flow/` directory in the project (`flow/<block>/<recipe>/`, plus the test name for
-`vrf`). That copy is yours: it is meant to be customised for the block, committed with the
-project, and *bake* never writes to it again — a later change to the flow it was copied from,
-or a bake upgrade, does not reach it. Subsequent invocations expand the copy's `.tpl` files
-into the work directory on every run, so edits take effect immediately (and re-run the step).
-To start over from the original flow, delete `flow/<block>/<recipe>/` and run again; `-c` and
-`-r` only touch the work directory.
+A step runs its flow straight from the flow's directory: on every run, *bake* expands the `.tpl`
+files into the work directory and executes the entry point there, and never writes to the flow
+itself. A fix to the flow, or a *bake* upgrade for a built-in one, reaches every block using it.
+
+## Customising a Flow for One Block
+
+`-p` copies the flow of a recipe's last step into the project, for the block to customise:
+
+```
+bake alu impl -p            # flow/alu/impl/
+bake alu vrf -t t -p        # flow/alu/vrf/t/          (the RTL simulation of test t)
+bake alu impl-vrf -t t -p   # flow/alu/impl-vrf/t/     (its gate-level simulation)
+```
+
+From then on that step runs the copy; the other steps, and the other recipes, keep running
+their flows. The copy is yours: edit it, commit it with the project. Edits take effect on the
+next run (and re-run the step); an untouched copy runs exactly like the flow, so populating one
+re-runs nothing. `-p` copies nothing else: not the recipe's earlier steps (`impl` for `impl-vrf`),
+which have flow directories of their own, nor the dependencies'.
+
+`-p` also writes `.bake_flow.json` into the copy: the flow it was copied from, a digest of the
+flow's files, the *bake* version and — when the flow is in a git repository — the commit and
+whether the flow had uncommitted changes. Commit it with the copy. When the flow changes later,
+every run of the step warns, and says what to do:
+
+```
+[bake] WARNING  Flow 'builtin_vrf_flow' has changed since its copy in .../flow/alu/vrf/t was populated (commit 3f2a9c1d04be).
+[bake] WARNING     What changed: git -C /path/to/bake diff 3f2a9c1d04be -- bake/builtin/vrf/flow
+[bake] WARNING     Merge the changes into the copy, then run `bake alu vrf -t t -p` to record it as up to date.
+```
+
+A copy that was never edited is reported as such: delete it, and the step runs the updated flow.
+`-p` on an existing copy leaves its files as they are and records it as based on the flow as it
+is now, which is how a merge is acknowledged (and how a copy made by an older *bake*, which has
+no record, starts being tracked). To start over from the flow, delete the copy and run `-p`
+again. `-c` and `-r` only touch the work directory.
 
 ## Registering a Flow
 
@@ -168,14 +196,15 @@ test(
 
 ```
 $ bake my_block vrf
-[bake] INFO     Populating flow directory for 'vrf' from '/path/to/my_sim_flow' → /path/to/project/flow/my_block/vrf/my_test
 [bake] INFO     Running vrf on block my_block
+[bake] INFO     Flow: 'icarus_custom_flow' from /path/to/project/flows/icarus_custom
 ...
 ```
 
-The custom `run.sh` is copied to the block's `flow/` directory on first run — from then on that
-copy is the one *bake* uses, and the place to customise the flow for this block — and executed
-from the step work directory on every invocation.
+The custom `run.sh` is expanded and executed from the step work directory on every invocation.
+Editing it in `flows/icarus_custom` changes it for every block using the flow; to change it for one
+block only, copy it with `bake my_block vrf -p` (see
+[Customising a Flow for One Block](#customising-a-flow-for-one-block)).
 
 ## Flow-Specific Options
 

@@ -130,8 +130,8 @@ class VrfStep(Step):
         return []
 
     @property
-    def flowdir(self):
-        return Path(super().flowdir) / self.data.test
+    def flow_copy_dir(self):
+        return Path(super().flow_copy_dir) / self.data.test
 
     @property
     def workdir(self):

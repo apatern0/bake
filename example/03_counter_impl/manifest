@@ -25,10 +25,10 @@
 #   bake -l                # list the libraries the PDK manifest registered
 #   bake counter impl      # synthesis + P&R; outputs in work/counter/impl/output
 #   bake counter impl-vrf  # then simulate the netlist with the SDF annotated
-#   bake counter impl -p   # only populate flow/counter/impl with the scripts
+#   bake counter impl -p   # copy the impl flow into flow/counter/impl to customise it
 #
 # counter.sdc defines the clock, which is what clock tree synthesis works on.
-# The scripts in flow/counter/impl are yours to edit after the first run.
+# Once copied, the scripts in flow/counter/impl are yours to edit; impl runs them.
 #
 # Needs: yosys, openroad (icarus for impl-vrf), and PDK_ROOT set to a sky130
 #   open_pdks build (PDK_ROOT=$HOME/.ciel test/pdk/fetch_sky130.sh && export

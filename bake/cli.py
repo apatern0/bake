@@ -237,7 +237,7 @@ def log_blocks_and_tests():
 # ---------------------------------------------------------------------------
 
 def _run_steps(recipe, force, owner=None):
-    """Populate, clean and execute the steps of one elaborated recipe.
+    """Clean and execute the steps of one elaborated recipe.
 
     `owner` names the block whose recipe pulled this one in as a dependency;
     clean/restart never touch dependencies, only the requested block. They
@@ -247,12 +247,6 @@ def _run_steps(recipe, force, owner=None):
     """
     is_dependency = owner is not None
     for s in recipe.steps:
-        s.copy_flow_tree()
-
-        if context.config.bake.populate:
-            logging.info("Populate-only mode: skipping execution of '%s'", s.recipe_path)
-            continue
-
         if not is_dependency and s is recipe.last_step and \
                 (context.config.bake.clean or context.config.bake.restart):
             s.clean()
@@ -265,6 +259,7 @@ def _run_steps(recipe, force, owner=None):
             logging.info("Running %s on block %s (dependency of %s)", s.recipe_path, recipe.block_name, owner)
         else:
             logging.info("Running %s on block %s", s.recipe_path, recipe.block_name)
+        s.report_flow()
         s.run(force=force)
 
 
@@ -304,6 +299,12 @@ def run(block, recipe_str):
 
     if context.config.bake.dry_run:
         _dry_run(recipe)
+        return
+
+    if context.config.bake.populate:
+        # The step the command names, only: not the recipe's earlier steps,
+        # which have flow directories of their own, nor its dependencies.
+        recipe.last_step.populate()
         return
 
     if context.config.bake.clean:
@@ -349,7 +350,9 @@ def main():
     mx.add_argument("-r", "--restart", dest="restart", action="store_true",
         help="Removes the working directory for a specified block/recipe combination, then runs the recipe")
     mx.add_argument("-p", "--populate-flow", dest="populate", action="store_true",
-        help="Only populates flow directories (dependencies included), does not invoke any step.")
+        help="Copy the flow of the recipe's last step into flow/<block>/<recipe>/ to customise it; "
+             "that step runs the copy from then on. Runs nothing. On an existing copy, records it as "
+             "based on the flow as it is now.")
     parser.add_argument("-l", "--list-libs", dest="listlibs", action="store_true",
         help="List all known libraries after evaluating manifests.")
     parser.add_argument("--version", action="version", version=f"bake {step.bake_version()}")
@@ -357,10 +360,13 @@ def main():
     argcomplete.autocomplete(argument_parser=parser, always_complete_options=False)
     args = parser.parse_args()
 
+    # -p only copies a flow; -f, -c and -r are excluded by the group above.
+    if args.populate and (args.dry_run or args.interactive):
+        parser.error("-p/--populate-flow only copies a flow: it cannot be combined with -n or -i")
     # -n reports what a run would do, so it combines with -f but not with
     # the modes that do something else instead of running.
-    if args.dry_run and (args.clean or args.restart or args.populate):
-        parser.error("-n/--dry-run cannot be combined with -c, -r or -p")
+    if args.dry_run and (args.clean or args.restart):
+        parser.error("-n/--dry-run cannot be combined with -c or -r")
 
     if args.verbose:
         coloredlogs.set_level(logging.DEBUG)

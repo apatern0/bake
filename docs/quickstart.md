@@ -100,8 +100,8 @@ Projects can add [steps of their own](custom_steps.md) to this list.
 ```
 $ bake counter vrf
 [bake] INFO     Auto-selecting test 'counter_test' (only test for block 'counter')
-[bake] INFO     Populating flow directory for 'vrf' from '.../bake/builtin/vrf/flow' → /home/user/quickstart/flow/counter/vrf/counter_test
 [bake] INFO     Running vrf on block counter
+[bake] INFO     Flow: 'builtin_vrf_flow' from .../bake/builtin/vrf/flow
 Test finished.
 counter_verilog_test.v:41: $finish called at 25012500000 (1ps)
 [bake] INFO     Step vrf completed in 00:00:01
@@ -158,10 +158,10 @@ Run the `tmr` step alone to triplicate the design:
 
 ```
 $ bake counter tmr
-[bake] INFO     Populating flow directory for 'tmr' from '.../bake/builtin/tmr/flow' → /home/user/quickstart/flow/counter/tmr
+[bake] INFO     Running tmr on block counter
+[bake] INFO     Flow: 'builtin_tmr_flow' from .../bake/builtin/tmr/flow
 [bake] INFO     Expected output files missing for step 'tmr':
 [bake] INFO        - /home/user/quickstart/work/counter/tmr/output/counterTMR.v
-[bake] INFO     Running tmr on block counter
 [tmrg ] INFO     Running tmrg
 [bake] INFO     Step tmr completed in 00:00:01
 ```
@@ -173,8 +173,8 @@ triplicated design:
 $ bake counter tmr-vrf
 [bake] INFO     Output files are up-to-date, skipping step tmr.
 [bake] INFO     Auto-selecting test 'counter_test' (only test for block 'counter')
-[bake] INFO     Populating flow directory for 'tmr-vrf' from '.../bake/builtin/vrf/flow' → /home/user/quickstart/flow/counter/tmr-vrf/counter_test
 [bake] INFO     Running tmr-vrf on block counter
+[bake] INFO     Flow: 'builtin_vrf_flow' from .../bake/builtin/vrf/flow
 Test finished.
 counter_verilog_test.v:41: $finish called at 25012500000 (1ps)
 [bake] INFO     Step vrf completed in 00:00:01
