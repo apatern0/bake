@@ -1134,6 +1134,41 @@ def test_test_inherits_target_from_env(bake, capfd, project):
     assert Path("work/dut/vrf/leaf_test").is_dir()
 
 
+def test_vrf_runtime_options_reach_flow(bake, project):
+    """vrf_runtime_options merge from the env and the test, config.vrf.runtime_options
+    follow; the shared build directory sits next to the tests' work directories."""
+    project("runtime_options")
+    assert not bake.run(["dut", "vrf", "-t", "plus_test", "-o", "vrf.runtime_options=+FROM_CLI=3"])
+    run_sh = vrf_run_sh("dut", "plus_test")
+    assert "RUNTIME=+FROM_ENV=1 +FROM_TEST=2 +FROM_CLI=3 " in run_sh
+    assert f"BUILD_DIR={Path('work/dut/vrf/_build').resolve()}" in run_sh
+    vars_json = json.loads(Path("work/dut/vrf/plus_test/bake_vars.json").read_text())
+    assert vars_json["BAKE_SIM_OPTIONS"] == ["-build_opt"]
+
+
+def test_vrf_runtime_options_unknown_simulator_errors(bake, capfd, project):
+    project("runtime_options")
+    assert bake.run(["dut", "vrf", "-t", "bad_sim_test"]) == 1
+    assert_in_stderr(capfd, "Simulator 'nosim' (in vrf_runtime_options)")
+
+
+def test_vrf_test_named_like_build_dir_errors(bake, capfd, project):
+    project("runtime_options")
+    assert bake.run(["dut", "vrf", "-t", "_build"]) == 1
+    assert_in_stderr(capfd, "the name is reserved")
+
+
+def test_vrf_clean_removes_shared_builds(bake, project):
+    """-c on a test removes its work directory and the builds shared by the
+    block's tests, so -r rebuilds from scratch."""
+    project("runtime_options")
+    assert not bake.run(["dut", "vrf", "-t", "plus_test"])
+    Path("work/dut/vrf/_build/abc").mkdir(parents=True)
+    assert not bake.run(["dut", "vrf", "-t", "plus_test", "-c"])
+    assert not Path("work/dut/vrf/plus_test").exists()
+    assert not Path("work/dut/vrf/_build").exists()
+
+
 def test_tpl_custom_variable_expanded(bake, project):
     """A config.bake.tpl_dict variable is substituted into .tpl files."""
     project("tpl_var")

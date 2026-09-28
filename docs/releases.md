@@ -116,6 +116,16 @@ compatibility patches rebased for each new release.
   simulator output (`bake_sim.log`); a UVM log without the report summary fails; every run
   has a seed, logged and settable with `config.vrf.seed` / `-o vrf.seed=N`; the cocotb
   Makefile carries the cocotb 2.x variable names as well.
+- `vrf`, Xcelium: plain SV and UVM tests are built (compiled and elaborated) once per build
+  configuration, in `work/<block>/<recipe>/_build/`, and each test runs from the build with
+  `xrun -R`: tests differing only in the UVM test, the seed or runtime options share it. A stamp
+  of the build inputs skips the build check when nothing changed, so parallel tests do not wait
+  for each other. New `vrf_runtime_options` (tests and envs) and `config.vrf.runtime_options` /
+  `$BAKE_SIM_RUNTIME_OPTIONS` hold options for the simulation only (plusargs); the other
+  simulators get them on the command line, Icarus on `vvp`'s, cocotb as `PLUSARGS`. `-c`/`-r`
+  on a test also remove the shared builds; a test cannot be named `_build`. **Projects:**
+  move plusargs from `vrf_options` (or `-o vrf.options=`) to `vrf_runtime_options` (or
+  `-o vrf.runtime_options=`), and seeds to `-o vrf.seed=`, or each value makes a build of its own.
 
 **Other**
 

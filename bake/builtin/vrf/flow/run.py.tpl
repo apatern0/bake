@@ -21,6 +21,8 @@
 
 """Verification run script template"""
 
+import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -73,7 +75,14 @@ SIMULATOR_OPTIONS = {
         'seed_opt': '-svseed %d',
         'delay_opts': {'typ': '-typdelays',
                        'min': '-mindelays',
-                       'max': '-maxdelays'}
+                       'max': '-maxdelays'},
+        # Build once per build configuration, run each test from the build
+        # (see build_once_and_run): the options of each phase.
+        'build_once': {'build': '-sv -cdslib cds.lib -elaborate -l elab.log',
+                       'run': '-cdslib cds.lib -l sim.log -R',
+                       'library': '-xmlibdirname %s -snapshot sim',
+                       'gui_build': '-access +rwc',
+                       'gui_run': '-gui'},
     },
     'icarus': {
         'executable': 'iverilog',
@@ -154,7 +163,7 @@ SIMULATOR_OPTIONS = {
 SIM_LOG = "bake_sim.log"
 
 
-def run_command(cmd, capture=True):
+def run_command(cmd, capture=True, cwd=None):
     proc = None
 
     def handle_signal(signum, frame):
@@ -163,9 +172,9 @@ def run_command(cmd, capture=True):
             proc.send_signal(signum)
 
     if capture:
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
     else:
-        proc = subprocess.Popen(cmd, shell=True)
+        proc = subprocess.Popen(cmd, shell=True, cwd=cwd)
     backup_handler_sigterm = signal.getsignal(signal.SIGTERM)
     backup_handler_sigint = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -181,6 +190,85 @@ def run_command(cmd, capture=True):
     signal.signal(signal.SIGINT, backup_handler_sigint)
 
     return proc.returncode
+
+
+# The files whose size and time a build's stamp covers: those a Verilog
+# `include can reach, by extension.
+HDL_EXTENSIONS = (".v", ".sv", ".vh", ".svh", ".vp", ".svp", ".inc", ".h", ".sva", ".vams")
+
+
+def build_inputs_digest(build_cmd, sources, incdirs, skip_dir):
+    """What a build was made from, as far as the flow can tell without the
+    simulator: the command, and the size and time of the sources and of the
+    HDL files under the include directories (recursively) and next to the
+    sources. Equal digests let a run reuse a build without asking the
+    simulator, which would wait for every simulation using the build."""
+    files = {os.path.abspath(f) for f in sources}
+    skip_dir = os.path.realpath(skip_dir)
+    for incdir in incdirs:
+        for current, subdirs, names in os.walk(incdir):
+            subdirs[:] = [d for d in subdirs if not d.startswith(".") and d not in ("xcelium.d", "INCA_libs")
+                          and os.path.realpath(os.path.join(current, d)) != skip_dir]
+            files.update(os.path.abspath(os.path.join(current, n)) for n in names if n.endswith(HDL_EXTENSIONS))
+    for directory in {os.path.dirname(os.path.abspath(f)) for f in sources}:
+        if os.path.isdir(directory):
+            files.update(os.path.join(directory, n) for n in os.listdir(directory) if n.endswith(HDL_EXTENSIONS))
+    digest = hashlib.sha256(build_cmd.encode("utf-8"))
+    for path in sorted(files):
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        digest.update(("%s\0%d\0%d\0" % (path, st.st_mtime_ns, st.st_size)).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def build_once_and_run(simulator, build_opts, run_opts, sources, incdirs, build_root, capture):
+    """Build (compile and elaborate) into a directory shared by every test
+    with the same build configuration, then simulate from it in the test's
+    directory.
+
+    The directory is named after a digest of the simulator and the build
+    command, so tests differing only in what they give the simulation (the
+    UVM test, the seed, runtime options) share one build, and others get
+    theirs. The simulator's incremental build brings a changed build up to
+    date; a stamp of the build inputs skips asking it when nothing changed,
+    since it would wait for every simulation running from the build. Builds
+    take turns (a lock); simulations take none: the simulator locks the
+    snapshot against a rebuild while they run."""
+    settings = simulator['build_once']
+    executable = simulator['executable']
+    build_cmd = " ".join([executable] + build_opts)
+    key = hashlib.sha256(json.dumps([os.path.realpath(shutil.which(executable)), build_cmd]).encode("utf-8"))
+    build_dir = os.path.join(build_root, key.hexdigest()[:16])
+    os.makedirs(build_dir, exist_ok=True)
+    library = settings['library'] % os.path.join(build_dir, "xcelium.d")
+    stamp_path = os.path.join(build_dir, "build_stamp")
+
+    with open(os.path.join(build_dir, "build.lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        inputs = build_inputs_digest(build_cmd, sources, incdirs, build_root)
+        try:
+            with open(stamp_path, encoding="utf-8") as f:
+                up_to_date = f.read().strip() == inputs
+        except OSError:
+            up_to_date = False
+        if up_to_date:
+            logging.info("Reusing the build in %s", build_dir)
+        else:
+            logging.info("Building in %s (shared by the tests with this build configuration)", build_dir)
+            if os.path.exists(stamp_path):
+                os.remove(stamp_path)
+            with open(os.path.join(build_dir, "build_cmd"), "w", encoding="utf-8") as f:
+                f.write(build_cmd + "\n")
+            open(os.path.join(build_dir, "cds.lib"), "a").close()
+            retval = run_command("%s %s %s" % (build_cmd, settings['build'], library), capture, cwd=build_dir)
+            if retval:
+                return retval
+            with open(stamp_path, "w", encoding="utf-8") as f:
+                f.write(inputs + "\n")
+
+    return run_command(" ".join([executable] + run_opts + [settings['run'], library]), capture)
 
 
 def check_log_criteria(pass_regex, fail_regex):
@@ -229,6 +317,8 @@ def main():
     BAKE_SIM_PASS_REGEX = V.get("BAKE_SIM_PASS_REGEX", "")
     BAKE_SIM_FAIL_REGEX = V.get("BAKE_SIM_FAIL_REGEX", "")
     BAKE_SIM_SEED = V.get("BAKE_SIM_SEED", "")
+    BAKE_SIM_RUNTIME_OPTIONS = " ".join(V.get("BAKE_SIM_RUNTIME_OPTIONS", []))
+    BAKE_SIM_BUILD_DIR = V.get("BAKE_SIM_BUILD_DIR", "")
 
     # basic data validation
     if not BAKE_DESIGN_VERILOG_FILES:
@@ -346,6 +436,7 @@ def main():
             makefile.write("RANDOM_SEED = %d\n" % seed)
             makefile.write("COCOTB_RANDOM_SEED = %d\n" % seed)
             makefile.write("COMPILE_ARGS = %s\n" % " ".join(simulator_options))
+            makefile.write("PLUSARGS = %s\n" % BAKE_SIM_RUNTIME_OPTIONS)
             makefile.write("RTL_SOURCES = %s\n" % " ".join(BAKE_DESIGN_VERILOG_FILES))
             makefile.write("RTL_INCLUDE_DIRS = %s\n" % " ".join(BAKE_INCLUDE_DIRS))
             makefile.write("VRF_SOURCES = %s\n" % " ".join(vrf_netlist_files))
@@ -372,14 +463,37 @@ def main():
         else:
             logging.error("File `results.xml` does not exist.")
             retval = 1
-    elif BAKE_SIM_FRAMEWORK == "uvm":
-        simulator_options.extend(BAKE_DESIGN_VERILOG_FILES)
-        simulator_options.extend(vrf_netlist_files)
-        simulator_options.append(simulator['uvm_opts'])
-        simulator_options.append(simulator['uvm_testname'] % BAKE_SIM_FRAMEWORK_TOP)
-        cmd = simulator['executable'] + " " + (" ".join(simulator_options))
-        retval = run_command(cmd, capture=not gui)
-        if not retval:
+    else:
+        uvm = BAKE_SIM_FRAMEWORK == "uvm"
+        sources = BAKE_DESIGN_VERILOG_FILES + vrf_netlist_files
+        framework_build = [simulator['uvm_opts']] if uvm else []
+        framework_run = [simulator['uvm_testname'] % BAKE_SIM_FRAMEWORK_TOP] if uvm else []
+        sdf = BAKE_SIM_SDF_FILES or any(f.endswith(".sdf") for f in BAKE_SIM_FILES)
+        if simulator.get('build_once') and BAKE_SIM_BUILD_DIR and not sdf:
+            settings = simulator['build_once']
+            build_opts = [BAKE_SIM_OPTIONS, simulator['def_timescale'], BAKE_RUN_OPTIONS,
+                          simulator['delay_opts'][BAKE_SIM_DELAY_CORNER]]
+            build_opts += [simulator["incdir"] + incdir for incdir in BAKE_INCLUDE_DIRS]
+            build_opts += [simulator["define"] + define for define in BAKE_SIM_DEFINES]
+            build_opts += [simulator["libfile"] + libfile for libfile in BAKE_LIB_VERILOG_FILES]
+            build_opts += ([settings['gui_build']] if gui else []) + sources + framework_build
+            run_opts = [BAKE_SIM_OPTIONS, BAKE_RUN_OPTIONS]
+            run_opts += [simulator['seed_opt'] % seed] if simulator['seed_opt'] else []
+            run_opts += [BAKE_SIM_RUNTIME_OPTIONS] + framework_run + ([settings['gui_run']] if gui else [])
+            retval = build_once_and_run(simulator, build_opts, run_opts, sources + BAKE_LIB_VERILOG_FILES,
+                                        BAKE_INCLUDE_DIRS, BAKE_SIM_BUILD_DIR, capture=not gui)
+        else:
+            if simulator.get('build_once') and sdf:
+                logging.info("SDF back-annotation: building in the test's directory, not shared with other tests.")
+            simulator_options.extend(sources)
+            simulator_options.extend(framework_build + framework_run)
+            if BAKE_SIM_SIMULATOR != "icarus":
+                simulator_options.append(BAKE_SIM_RUNTIME_OPTIONS)
+            cmd = simulator['executable'] + " " + (" ".join(simulator_options))
+            retval = run_command(cmd, capture=not gui)
+            if BAKE_SIM_SIMULATOR == "icarus" and retval == 0:
+                retval = run_command("./a.out " + BAKE_SIM_RUNTIME_OPTIONS, capture=not gui)
+        if uvm and not retval:
             if not os.path.isfile("sim.log"):
                 logging.error("Test failed as the output log file (sim.log) does not exist!")
                 retval = 1
@@ -401,13 +515,6 @@ def main():
                 if not summary_found and retval == 0:
                     logging.error("Test failed: no 'UVM Report Summary' in sim.log — the test did not run to completion.")
                     retval = 2
-    else:
-        simulator_options.extend(BAKE_DESIGN_VERILOG_FILES)
-        simulator_options.extend(vrf_netlist_files)
-        cmd = simulator['executable'] + " " + (" ".join(simulator_options))
-        retval = run_command(cmd, capture=not gui)
-        if BAKE_SIM_SIMULATOR == "icarus" and retval == 0:
-            retval = run_command("./a.out", capture=not gui)
 
     if retval == 0:
         retval = check_log_criteria(BAKE_SIM_PASS_REGEX, BAKE_SIM_FAIL_REGEX)

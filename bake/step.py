@@ -208,6 +208,7 @@ class StepData:
     vrf_libs:          list = field(default_factory=list)  # list[LibSpec | MacroSpec], resolved
     vrf_defines:       list = field(default_factory=list)
     vrf_options:       dict = field(default_factory=dict)
+    vrf_runtime_options: dict = field(default_factory=dict)
     vrf_framework:     str  = ""
     vrf_framework_top: str  = ""
     default_sim:       str  = ""
@@ -220,7 +221,7 @@ class StepData:
 
     _TEST_FIELDS: ClassVar[tuple] = (
         "vrf_top", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
-        "vrf_options", "vrf_framework", "vrf_framework_top", "default_sim",
+        "vrf_options", "vrf_runtime_options", "vrf_framework", "vrf_framework_top", "default_sim",
         "vrf_pass_regex", "vrf_fail_regex",
     )
 
@@ -290,6 +291,8 @@ class StepData:
         self.vrf_defines       = list(env.vrf_defines)
         self.vrf_options       = {k: list(v) if isinstance(v, list) else v
                                   for k, v in env.vrf_options.items()}
+        self.vrf_runtime_options = {k: list(v) if isinstance(v, list) else v
+                                    for k, v in env.vrf_runtime_options.items()}
         self.vrf_framework     = env.vrf_framework
         self.vrf_framework_top = env.vrf_framework_top
         self.default_sim       = env.default_sim

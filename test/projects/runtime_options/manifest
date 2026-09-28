@@ -1,0 +1,32 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# vrf_runtime_options: options for running the simulation only, from an env
+# and a test, next to the build options (vrf_options).
+
+from bake import load, block, env, test
+
+load("../flows")
+config.vrf.flow = "dummy_vrf"
+
+block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])
+
+env(name="base_env", target="dut", default_sim="stub", vrf_runtime_options={"stub": ["+FROM_ENV=1"]})
+
+test(name="plus_test", includes=["base_env"], vrf_files=["../rtl/tb1.v"],
+     vrf_options={"stub": ["-build_opt"]}, vrf_runtime_options={"stub": ["+FROM_TEST=2"]})
+test(name="_build", target="dut", vrf_files=["../rtl/tb2.v"], default_sim="stub")
+test(name="bad_sim_test", target="dut", vrf_files=["../rtl/tb2.v"], default_sim="stub",
+     vrf_runtime_options={"nosim": ["+X"]})

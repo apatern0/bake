@@ -6,7 +6,7 @@ Verification environments are defined using the `env()` function. The full synta
 
 ```python
 env(name, desc, includes, target, vrf_top, vrf_files, vrf_incdirs, vrf_libs,
-    vrf_options, vrf_defines, vrf_framework, vrf_framework_top, default_sim,
+    vrf_options, vrf_runtime_options, vrf_defines, vrf_framework, vrf_framework_top, default_sim,
     vrf_pass_regex, vrf_fail_regex)
 ```
 
@@ -21,6 +21,9 @@ Arguments:
   * `vrf_incdirs` — list of include directory paths (relative or absolute) — optional
   * `vrf_libs` — list of *bake* library or block names whose Verilog models are included for simulation — optional
   * `vrf_options` — dictionary of simulator-specific option lists — optional
+  * `vrf_runtime_options` — dictionary of simulator-specific option lists for running the
+    simulation only, such as plusargs; tests differing only in these share one build, see
+    [Building once for many tests](#building-once-for-many-tests) — optional
   * `vrf_defines` — list of preprocessor defines passed in a simulator-independent manner — optional
   * `vrf_framework` — verification framework: one of `""` (plain V/SV), `"uvm"`, or `"cocotb"`
   * `vrf_framework_top` — top-level entity or module required by the verification framework (e.g. cocotb test module name) — optional
@@ -81,6 +84,36 @@ Support matrix for verification frameworks:
 | Synopsys VCS    | y          | y   | y      |
 | Siemens Questa  | y          | y   | y      |
 | Verilator       | n          | n   | y      |
+
+### Building once for many tests
+
+With Xcelium, for plain SV and UVM tests, the built-in flow builds (compiles and elaborates) the
+design and testbench once, and runs every test that needs the same build from it. The builds
+live in `work/<block>/<recipe>/_build/`, next to the tests' work directories, one directory per
+build configuration: tests whose build commands are identical share one. What each test gives
+only the simulation stays out of the build: the UVM test name (`vrf_framework_top`), the seed
+and the runtime options (`vrf_runtime_options`, `config.vrf.runtime_options`). Anything else
+that differs — `vrf_defines`, `vrf_options`, files, include directories, `-i` — makes a build of
+its own. So options a test gives the simulation only belong in `vrf_runtime_options`:
+
+```python
+test(name="t", target="core", vrf_framework="uvm", vrf_framework_top="t", default_sim="xcelium",
+     vrf_options={"xcelium": ["-64bit"]},                                # both phases
+     vrf_runtime_options={"xcelium": ["+HITS_FILE=hits.txt"]})           # simulation only
+```
+
+Before each test, the flow checks whether the build is current: when neither the build command
+nor any source file, nor an HDL file under the include directories (recursively) or next to a
+source file, changed since the last build, the build is reused as it is. Otherwise Xcelium's
+incremental build brings it up to date, recompiling what changed. Files the check cannot see —
+an `include` outside those directories, a `-f` file list given in `vrf_options` — are still
+picked up by Xcelium the next time something else triggers the incremental build; `-r` on any of
+the block's tests removes the shared builds and starts over.
+
+Tests may run in parallel: builds take turns, and Xcelium keeps a build from being rebuilt while
+simulations run from it. The build's output is in `_build/<id>/elab.log`, and in the output of
+the test that built it. Gate-level simulations with SDF back-annotation still build and run
+in one step in the test's work directory: the annotated build is not shared.
 
 ## Pass/fail criteria
 
