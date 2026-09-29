@@ -59,6 +59,11 @@ bake = ["builtin/**"]
 [tool.pytest.ini_options]
 testpaths = ["test"]
 
+[tool.coverage.run]
+# The flow scripts run as subprocesses of the tools, out of coverage's sight;
+# a test importing one for a helper would count the whole script as missed.
+omit = ["bake/builtin/*/flow/*"]
+
 [tool.ruff]
 line-length = 120
 
