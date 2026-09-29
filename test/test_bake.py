@@ -26,6 +26,7 @@ be run by hand. Tests that need an EDA tool skip themselves when it is
 missing.
 """
 
+import importlib.metadata
 import json
 import os
 import shutil
@@ -111,7 +112,8 @@ def test_no_manifest(bake, capfd):
 def test_version_flag(bake, capfd):
     """--version prints the installed version and exits 0, manifest or not."""
     assert bake.run(["--version"]) == 0
-    assert "bake 1." in str(capfd.readouterr())
+    version = importlib.metadata.version("bake-eda")
+    assert capfd.readouterr().out == f"bake {version}\n"
 
 
 def test_dry_run_excludes_clean_restart_populate(bake, capfd, project):
