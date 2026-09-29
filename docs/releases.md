@@ -136,6 +136,10 @@ compatibility patches rebased for each new release.
   on a test also remove the shared builds; a test cannot be named `_build`. **Projects:**
   move plusargs from `vrf_options` (or `-o vrf.options=`) to `vrf_runtime_options` (or
   `-o vrf.runtime_options=`), and seeds to `-o vrf.seed=`, or each value makes a build of its own.
+- `vrf`, UVM: 10000 or more `UVM_ERROR`s or `UVM_FATAL`s in the report summary passed the
+  test. UVM prints the count as `%5d` right after the colon, so from five digits there is no
+  space for the check to find; the counts are now matched with any spacing, and only in the
+  summary.
 
 **Other**
 
