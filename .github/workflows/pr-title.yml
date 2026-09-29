@@ -1,0 +1,26 @@
+name: PR title
+
+# GitHub writes the pull request title into the merge commit's message, and
+# release-please reads a Conventional Commits line there as one more commit:
+# the change would be listed twice in the changelog, once from the branch's
+# commit and once from the merge. Titles are therefore plain sentences.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  pr-title:
+    # release-please's own pull request keeps its "chore(main): release X.Y.Z"
+    # title, which it looks for, and chore is left out of the changelog anyway.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject a Conventional Commits title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if printf '%s\n' "$TITLE" | grep -Eq '^[[:alnum:]]+(\([^)]*\))?!?:[[:space:]]'; then
+            echo "::error::The PR title \"$TITLE\" is a Conventional Commits line: the merge commit would repeat it in the changelog. Write it as a plain sentence, e.g. \"Count UVM errors of five digits or more\"."
+            exit 1
+          fi
