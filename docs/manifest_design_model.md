@@ -12,8 +12,8 @@ A manifest declares three kinds of design component:
 
 ## Blocks
 A manifest defines design units using the `block()` function. `target()`, its old name, still
-works but is deprecated: it logs a warning and will be removed in *bake* 2.0.0. The full syntax
-is:
+works but is deprecated: it logs a warning and will be removed in a future major release of
+*bake*. The full syntax is:
 
 ```python
 block(name, desc, includes, top, rtl_files, rtl_incdirs, libs,

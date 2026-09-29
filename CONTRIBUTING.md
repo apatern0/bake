@@ -26,11 +26,15 @@ The test suite runs without any EDA tool installed: tests that need `tmrg`, `yos
   of **steps**, a step runs a **flow**. See `docs/glossary.md`.
 - Steps must not read `context` registries at run time — only `self.data` and `self.config`.
 - Log messages at `INFO` must make sense to someone who does not know the code.
-- User-facing changes get a line in `docs/releases.md` under the upcoming version.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
 `feat(vrf): ...`, `fix(impl): ...`, `docs: ...`, with a `!` or `BREAKING CHANGE:` footer when
-manifests or flow skeletons have to change.
+manifests, custom steps or flows have to change. They make the releases: the version, the tag
+and the changelog in `docs/releases.md` come from them (see
+[How releases are made](docs/releases.md#how-releases-are-made)), so do not edit the changelog by
+hand. A `feat:` or `fix:` subject is a line of the changelog: write it for users. A breaking
+change's `BREAKING CHANGE:` footer says what projects have to change. A pull request merged by
+squashing takes its title as the commit message, so the title follows the same form.
 
 ## Adding a built-in step or flow
 

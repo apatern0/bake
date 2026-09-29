@@ -5,7 +5,7 @@ each step runs a **flow**.
 
 **manifest**: File in which design intent (files, hierarchies, interactions between components, ...) is communicated to *bake*. Written in plain Python using the *bake* manifest API (`from bake import ...`). Always named literally `manifest` (no file extension). Executed by *bake* with `exec()`, so arbitrary Python is permitted.
 
-**block**: A unit of RTL files that can be used for implementation flows or as a DUT in a verification context. Assumed to be a self-contained set of files. Optionally linked to a set of **libraries** used during simulation or implementation, and optionally *including* other blocks (as RTL, or as their implemented output). Registered in a manifest using `block()`. `target()` is a deprecated alias of `block()`, to be removed in 2.0.0; the `target=` argument of `env()`/`test()` names the block a test runs on.
+**block**: A unit of RTL files that can be used for implementation flows or as a DUT in a verification context. Assumed to be a self-contained set of files. Optionally linked to a set of **libraries** used during simulation or implementation, and optionally *including* other blocks (as RTL, or as their implemented output). Registered in a manifest using `block()`. `target()` is a deprecated alias of `block()`, to be removed in a future major release; the `target=` argument of `env()`/`test()` names the block a test runs on.
 
 **library**: A cell library — standard cells, IO cells, a PDK's technology files — that blocks are mapped onto. Bundles a simulation model (e.g. a gate-level Verilog or behavioral model) with timing and physical design information. Registered in a manifest using `lib()` and named by blocks in `libs=`; not a design, so not a target and not included.
 
