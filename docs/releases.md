@@ -42,61 +42,6 @@ under the breaking changes: it says what projects have to change.
 
 ## [2.0.0](https://github.com/apatern0/bake/compare/v1.0.0...v2.0.0) (2026-09-29)
 
-
-### ⚠ BREAKING CHANGES
-
-* **manifest:** netlist_files, netlist_incdirs, liberty_files, si_files and layout_info are no longer block() arguments; declare such a block with macro() and include it where it is instantiated.
-
-### Features
-
-* bring back config.bake.default_libs ([d69dcab](https://github.com/apatern0/bake/commit/d69dcabd2d76d42e6a1d16290b47a5041faee29e))
-* bring back config.bake.default_libs ([8518b32](https://github.com/apatern0/bake/commit/8518b323adddf40371ac5bddd4de8a2fd771e81d))
-* **cli:** add --version; refuse -n with -c, -r or -p ([9b69bf9](https://github.com/apatern0/bake/commit/9b69bf9713da64cd0870c933a9bfa25f31b076d2))
-* **cli:** report manifest errors as one line with their location ([f24c535](https://github.com/apatern0/bake/commit/f24c53591a56fed41292f6d26cefee6f391a3194))
-* **manifest:** declare implemented blocks with macro() ([0e2aca4](https://github.com/apatern0/bake/commit/0e2aca46e5a8ca9e71066ecfce837f2e3a5afd72))
-* **manifest:** deprecate target() in favour of block() ([0ea0cff](https://github.com/apatern0/bake/commit/0ea0cff689551a89018bc995513c55e34a168be9))
-* **manifest:** let tools add kinds of design through DesignSpec ([320e47c](https://github.com/apatern0/bake/commit/320e47c299ef6c59095933633fd83f16a553f3dd))
-* run flows in place; -p copies the last step's flow, with provenance ([323d864](https://github.com/apatern0/bake/commit/323d864a9a75d5585fe73ca6a8a02bf84bc6ccab))
-* **step:** run flows in place and copy them only with -p ([84ff59f](https://github.com/apatern0/bake/commit/84ff59fb7cc8d79b0a449d13ad6ca1a3cd813c8d))
-* **step:** split StepData into rtl and lib data kinds ([a612d02](https://github.com/apatern0/bake/commit/a612d02d764e3c11eda9911bd8121a34e20062b1))
-* **step:** treat only $BAKE_* as template placeholders ([4cb5753](https://github.com/apatern0/bake/commit/4cb57534b245602de3e5e65f7678c5b83609f38c))
-* **step:** write the template variables to bake_vars.json ([4d1aafe](https://github.com/apatern0/bake/commit/4d1aafe8a4a0b8119935b516bcd0d4330a013796))
-* typed step data (rtl/lib kinds), design specs, release 1.0.1 ([6f68cfb](https://github.com/apatern0/bake/commit/6f68cfbf4b7b8c6710c35c8dc876c34c711ff84b))
-* **vrf:** build once per configuration and run each test from it ([efcac13](https://github.com/apatern0/bake/commit/efcac13f455f5d4f4d3ba583562e5e24056cbba3))
-* **vrf:** build once per configuration, run each Xcelium test from it ([e15a22e](https://github.com/apatern0/bake/commit/e15a22ef165e448a75ca3517535b83861eae2b28))
-* **vrf:** false-pass fixes — criteria, UVM summary, seeds (batch 4) ([45085e8](https://github.com/apatern0/bake/commit/45085e85c98c4d8c9b1c1979e335117b7bc1d498))
-* **vrf:** pass/fail criteria on the log, required UVM summary, seeds ([ea63fbd](https://github.com/apatern0/bake/commit/ea63fbdb38fb3ec9ad17b759d2e9c785d04651cd))
-
-
-### Bug Fixes
-
-* **cli:** make a builtin step that fails to load fatal ([10d57d4](https://github.com/apatern0/bake/commit/10d57d49eca9aca476d23823f6ea1ae954990669))
-* **completion:** write the cache atomically, honour XDG_CACHE_HOME, prune ([7a0f689](https://github.com/apatern0/bake/commit/7a0f6893a13e78d2f8e9422da1259f9aa1fb3760))
-* **config:** reject unknown attributes on the builtin step configs ([f2b29ba](https://github.com/apatern0/bake/commit/f2b29ba780dd1d91c49e5ebd6d13206c76ae9631))
-* **context:** make a missing config section an AttributeError too ([16342c2](https://github.com/apatern0/bake/commit/16342c27c90bc05592719ffdbe3d379faa513b59))
-* **impl:** check Liberty corners in check_pre and expect the .lib outputs ([05de5e1](https://github.com/apatern0/bake/commit/05de5e1e297d6d791a7c9e28bb651d32dc3da5df))
-* incremental-build correctness (batch 1) ([478d9f4](https://github.com/apatern0/bake/commit/478d9f4c6032c4ba8044e28c56cdc4d3a1233934))
-* **manifest:** make block vcd_files a corner dict ([a1ab2e6](https://github.com/apatern0/bake/commit/a1ab2e611f14df683f0af712e81ee771c6212d26))
-* **manifest:** reject a test defined twice for the same block ([61d94bf](https://github.com/apatern0/bake/commit/61d94bf9989c23f5a3c5ebb7b623c4728fd1e34b))
-* **step:** always restore signal handlers after a flow step ([ac63b2f](https://github.com/apatern0/bake/commit/ac63b2fea8ca073d78872393b1c6f65c5128cc3e))
-* **step:** import BlockSpec for type checking ([119c4bf](https://github.com/apatern0/bake/commit/119c4bf5b04c60d71ad8e8df0e4ac28932fbefcc))
-* **step:** keep the mode of flow files that are not templates ([a223c68](https://github.com/apatern0/bake/commit/a223c68a9134651c3338faa368566b09387e5be2))
-* **step:** replace a dangling symlink when copying flow files ([e6f6aae](https://github.com/apatern0/bake/commit/e6f6aaec7ebe0808d5add7c8b863ccb89cd3f08f))
-* **step:** report an undefined template variable as a config error ([5e50462](https://github.com/apatern0/bake/commit/5e50462bf3f22dcfa0ccbd5e2dac5fc7b2877085))
-* **step:** rework the up-to-date check ([310e44f](https://github.com/apatern0/bake/commit/310e44fa16946a11d6613a96806cbae027b30ccd))
-* **tmr:** refuse RTL files that share a basename ([e7e8f26](https://github.com/apatern0/bake/commit/e7e8f262689ac95d801504189cbe033817cdecac))
-* **vrf:** count UVM errors of five digits or more ([9a1fd3d](https://github.com/apatern0/bake/commit/9a1fd3d958f89c2a0ca71cddaaf48cf50c896790))
-* **vrf:** count UVM errors of five digits or more ([f81e2f0](https://github.com/apatern0/bake/commit/f81e2f09f3ccb94fa36104f23fe969d4f38e8bb0))
-* **vrf:** log the cocotb Makefile run at INFO, not ERROR ([f0acda1](https://github.com/apatern0/bake/commit/f0acda17b6656474d10aac2e0c53aeab0897009c))
-* **vrf:** write the cocotb 2.x Makefile variable names as well ([0653103](https://github.com/apatern0/bake/commit/065310330aa91fc173b5c74753a8f700337b5e2c))
-
-
-### Documentation
-
-* flow copies are owned by the project; -o is applied after the manifest ([696afd1](https://github.com/apatern0/bake/commit/696afd14f6cade790f1248a10355b45a8e25c81c))
-
-## v2.0.0
-
 **Breaking changes.** Manifests and custom steps may need these changes; the entries below say
 more.
 
