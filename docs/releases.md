@@ -40,6 +40,11 @@ release.
 Each commit's subject is its line in the changelog, and a `BREAKING CHANGE:` footer is quoted
 under the breaking changes: it says what projects have to change.
 
+Pull requests are merged with a merge commit, whose message GitHub ends with the pull request
+title. A pull request title is therefore a plain sentence ("Count UVM errors of five digits or
+more"), not a Conventional Commits line, which release-please would list a second time; the
+*PR title* check rejects one.
+
 ## [2.0.0](https://github.com/apatern0/bake/compare/v1.0.0...v2.0.0) (2026-09-29)
 
 
