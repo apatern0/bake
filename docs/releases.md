@@ -1,41 +1,58 @@
 
 # Release Information
 
-*bake* loosely follows [semantic versioning](https://semver.org/) conventions. Since it lives on
-the boundary between a user tool and a library with a user-facing API, there are minor deviations
-from this model.
+## Versioning
 
-The following conventions are followed for the MAJOR.MINOR.PATCH version number.
+*bake* follows [Semantic Versioning 2.0.0](https://semver.org/). A version is MAJOR.MINOR.PATCH,
+and what it promises is measured against *bake*'s public API:
 
-1. The MAJOR version is incremented when incompatible API changes are made. API here refers to
-   changes in the manifest format (e.g. the definition of targets, flows, etc.) and any breaking
-   changes in the templating process (e.g. change of the contents or order of elements in template
-   variables). For every major version change, used flows MUST be carefully re-evaluated for
-   correct functioning. While some backwards-compatibility testing MAY be performed, no guarantees
-   are provided for correct operation with older flow versions. User-defined flows may stop working
-   and will need to be re-qualified.
-2. The MINOR version is incremented when backwards-compatible API changes or new features are
-   added. This also applies to the addition of new flows, but not the removal of existing flows.
-   For updates to flows delivered with *bake*, whether MINOR or PATCH is incremented depends on
-   the version increment of the particular sub-flow. When multiple flows are updated, the most
-   significant increment is propagated. Older flow versions (up to the last MAJOR release) are
-   expected to continue working without regressions, including flows maintained downstream of
-   *bake*, though caution is nonetheless advised.
-3. The PATCH version is incremented when backwards-compatible bug fixes are made, including bug
-   fixes in any of the flows delivered with *bake*.
+- the manifest API: the functions a manifest calls (`block()`, `macro()`, `lib()`, `test()`,
+  `env()`, `flow()`, `load()`, ...), their arguments, and the `config` sections and attributes;
+- the Python API of custom steps: `Step`, `StepData` and its kinds, `DesignSpec`;
+- what a flow receives: the `$BAKE_...` template variables and `bake_vars.json`, and the layout
+  of `flow/` and `work/`;
+- the command line;
+- the built-in steps: their options, what they take and what they produce.
 
-Release notes are provided for each release, covering changes in a) the *bake* core and b) each
-affected flow. Instructions are provided when flows need to be updated, with references to
-downstream issues for context.
+1. MAJOR is incremented for an incompatible change: an existing manifest, custom step or flow may
+   have to change. The release notes say how.
+2. MINOR is incremented for a backwards-compatible feature, a new step or flow option included.
+3. PATCH is incremented for a backwards-compatible bug fix, in the built-in flows included.
+
+The scripts of a built-in flow are not API. A copy made with `-p` and customised belongs to the
+project; a change to the original is versioned by what it changes for projects running the flow
+as shipped.
 
 Flows shipped with *bake* but maintained in external repositories follow the tags used in those
 repositories. For each *bake* release, each such flow must tag a commit `vX.Y.Z`. This tag is
 either used directly, or a separate `vX.Y.Z-bake` tag marks a commit adding optional
 compatibility patches rebased for each new release.
 
-## Changelog
+## How releases are made
 
-### v1.0.1
+Versions, tags and this changelog are made by
+[release-please](https://github.com/googleapis/release-please) from the commit messages, which
+follow [Conventional Commits](https://www.conventionalcommits.org/): a `fix:` makes a PATCH
+release, a `feat:` a MINOR one, and a `!` after the type (`feat(manifest)!:`) or a
+`BREAKING CHANGE:` footer a MAJOR one. release-please keeps a release pull request open on
+`main` with the next version and its entry below; merging it tags `vX.Y.Z` and creates the GitHub
+release.
+
+Each commit's subject is its line in the changelog, and a `BREAKING CHANGE:` footer is quoted
+under the breaking changes: it says what projects have to change.
+
+## v2.0.0
+
+**Breaking changes.** Manifests and custom steps may need these changes; the entries below say
+more.
+
+- `block()` no longer takes `netlist_files`, `netlist_incdirs`, `liberty_files`, `si_files` or
+  `layout_info`: declare such a block with `macro()`.
+- A custom step reading `rtl_files` or netlist fields should declare `consumes`; code
+  constructing `StepData(rtl_files=...)` constructs `RtlData` or `LibData`.
+- A `test()` defined twice for the same block, and an attribute a builtin step's config does
+  not have, are errors.
+- Python 3.9 is no longer supported.
 
 **Data kinds.** What flows through a recipe now has a kind, and steps say which kinds they take.
 
@@ -95,7 +112,7 @@ compatibility patches rebased for each new release.
 - `config.bake.default_libs` is back: a block that declares no `libs=` uses it, so shared
   RTL can be implemented in whatever libraries the including project sets.
 - `target()` is deprecated: it still declares a block, logs a warning naming the manifest
-  line, and will be removed in 2.0.0. Use `block()`. (The `target=` argument of `test()` and
+  line, and will be removed in a future major release. Use `block()`. (The `target=` argument of `test()` and
   `env()` is unaffected.)
 - The `dummy` step is no longer a builtin; `example/06_custom_step` is the template for a
   step of your own.
@@ -148,7 +165,7 @@ compatibility patches rebased for each new release.
 - Python 3.9 is no longer supported. CI runs ruff and mypy next to pylint and enforces a
   coverage floor.
 
-### v1.0.0
+## v1.0.0
 
 First public release of **bake**. bake is a modified derivative of
 [tmake](https://gitlab.cern.ch/tmake/tmake) (Copyright 2025 CERN, Apache-2.0), forked at tmake

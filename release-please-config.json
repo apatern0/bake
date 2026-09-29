@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "a7689b29f5ee0b8481cb4120170ec20869d5c842",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "bake-eda",
+      "changelog-path": "docs/releases.md"
+    }
+  }
+}

@@ -265,7 +265,8 @@ def test_target_alias_works(bake, capfd, project):
     assert not bake.run()
     err = capfd.readouterr().err
     assert "my_block" in err
-    assert err.count("manifest:21: target() is deprecated and will be removed in bake 2.0.0; use block()") == 1
+    assert err.count("manifest:21: target() is deprecated and will be removed in a future major release; "
+                     "use block()") == 1
 
 
 def test_block_without_rtl_files_not_listed(bake, capfd, project):
