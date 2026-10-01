@@ -73,7 +73,7 @@ jobs:
           activate-environment: eda
       - name: Install Yosys, OpenROAD and Icarus Verilog
         run: conda install -y openroad yosys iverilog "fmt=8"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ env.PDK_ROOT }}
           key: sky130-${{ hashFiles('test/pdk/fetch_sky130.sh') }}
