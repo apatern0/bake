@@ -93,7 +93,7 @@ live in `work/<block>/<recipe>/_build/`, next to the tests' work directories, on
 build configuration: tests whose build commands are identical share one. What each test gives
 only the simulation stays out of the build: the UVM test name (`vrf_framework_top`), the seed
 and the runtime options (`vrf_runtime_options`, `config.vrf.runtime_options`). Anything else
-that differs — `vrf_defines`, `vrf_options`, files, include directories, `-i` — makes a build of
+that differs — `vrf_defines`, `vrf_options`, files, include directories — makes a build of
 its own. So options a test gives the simulation only belong in `vrf_runtime_options`:
 
 ```python
@@ -114,6 +114,11 @@ Tests may run in parallel: builds take turns, and Xcelium keeps a build from bei
 simulations run from it. The build's output is in `_build/<id>/elab.log`, and in the output of
 the test that built it. Gate-level simulations with SDF back-annotation still build and run
 in one step in the test's work directory: the annotated build is not shared.
+
+Interactive runs (`-i`) do not use the shared builds either: they build and run in one step in
+the test's work directory, as before. The GUI's *Reinvoke* reruns that command, so it rebuilds
+what changed in the sources; a run from a shared build would only reload the build it started
+from.
 
 ## Pass/fail criteria
 

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for Xcelium's xrun: records its command line and succeeds.
+echo "$*" >> "$FAKE_XRUN_LOG"
+exit 0
