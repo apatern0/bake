@@ -51,7 +51,7 @@ test(
 ```
 
 The manifest imports the *bake* API and then declares the design block and its verification test.
-No additional flow selection is needed — built-in steps (`vrf`, `tmr`, `impl`) and their flows
+No additional flow selection is needed — built-in steps (`vrf`, `tmr`, `impl`, `regression`) and their flows
 are loaded automatically by *bake* on every invocation.
 
 A `block` in *bake* corresponds to an RTL unit. Here we give it a name (`counter`), specify the

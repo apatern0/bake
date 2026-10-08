@@ -247,6 +247,7 @@ What flows through a recipe is a `StepData` of one *kind*, the form the design h
 |------|-------|------------|-------------|
 | `rtl` | `RtlData` | A design in RTL, with the implemented sub-blocks it contains as `macros` | a `block()` |
 | `lib` | `LibData` | An implemented block: its netlist and the abstracts (LEF, Liberty) a parent integrates it with | a `macro()`, or `impl` |
+| `regression` | `RegressionData` | The runs of a regression: tests of blocks, with their seeds | a `regression()` |
 
 A step declares the kinds it takes in `consumes` and the kind it gives in `produces`
 (`None`: the kind it took). The built-in steps:
@@ -256,6 +257,7 @@ A step declares the kinds it takes in `consumes` and the kind it gives in `produ
 | `tmr` | `rtl` | `rtl` |
 | `impl` | `rtl` | `lib` |
 | `vrf` | `rtl` or `lib` | what it took |
+| `regression` | `regression` | `regression` |
 
 When a recipe is elaborated, each step's data is checked against its `consumes` before
 `check_pre()` runs, so `bake counter impl-tmr` stops with *Step tmr cannot run on block

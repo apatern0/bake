@@ -49,8 +49,18 @@ Settings for the verification (simulation) step.
 | `defines` | `[]` | Additional Verilog preprocessor defines passed to the simulator (appended to defines from the test). |
 | `delays` | `""` | Delay corner for SDF back-annotation in gate-level simulation, `"typ"`, `"min"` or `"max"` (available as `$BAKE_SIM_DELAY_CORNER`; empty means `"typ"`). |
 | `seed` | `""` | Simulation seed, passed to the simulator in its own form; empty picks a random one. The seed used is always logged (see [Seeds](manifest_verif_model.md#seeds)). |
+| `run_dir` | `""` | The directory the test runs in, instead of `work/<block>/<recipe>/<test>`; the simulation builds the tests share stay in `work/<block>/<recipe>/_build`. A relative path is relative to the directory *bake* is started in. The runs of the [regression](manifest_verif_model.md#regressions) step have `.`, the directory each starts in. |
 | `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`; see [Custom Flows](custom_flows.md#flow-specific-options). |
 | `tpl_dict` | `{}` | Extra template variables injected into `vrf`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
+
+### `config.regression`
+Settings for the [regression](manifest_verif_model.md#regressions) step.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `flow` | `None` | Name of the flow to use. When empty, the built-in flow (`builtin_regression_flow`) runs the regression on this machine; a project's own flow runs it on another engine (see [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow)). |
+| `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`: `jobs` and `timeout` for the built-in flow (see [Regressions](manifest_verif_model.md#regressions)). |
+| `tpl_dict` | `{}` | Extra template variables injected into `regression`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
 
 ### `config.impl`
 Settings for the implementation (synthesis and place-and-route) step.
@@ -167,6 +177,12 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_DESIGN_VERILOG_FILES` | RTL and netlist files of the design under test |
 | `$BAKE_LIB_VERILOG_FILES` | Simulation models of the cell libraries (`lib()` netlists) |
 | `$BAKE_INCLUDE_DIRS` | Include directories from the block, the test and the libraries |
+
+### Built-in variables (regression step)
+
+| Variable | Description |
+|----------|-------------|
+| `$BAKE_REGRESSION_RUNS` | One entry per run of the regression: `block`, `test`, `recipe`, `run` (numbered from 1 within its test), `name` (`<block>/<test>/<run>`, unique in the regression), `seed` (`null`: *bake* draws one), `options` (the run's `-o` overrides: its seed, the regression's options, then the command line's) and `command`, the run ready to start in a directory of its own (the *bake* invocation of the test with `options` and `vrf.run_dir=.`). A list of objects: read it from `bake_vars.json`. See [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow). |
 
 ### Built-in variables (impl step)
 
