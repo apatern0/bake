@@ -45,6 +45,18 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-10-08)
+
+
+### Features
+
+* **regression:** run tests many times with regression() and a regression step ([6254dde](https://github.com/apatern0/bake/commit/6254dde4051edfa6235f9c0f10585e6fed9ec17d))
+
+
+### Bug Fixes
+
+* **vrf:** let the Xcelium GUI's Reinvoke rebuild changed sources ([f22ee2a](https://github.com/apatern0/bake/commit/f22ee2a57b99db5252c8fb038649d6770f8a44ef))
+
 ## [2.0.0](https://github.com/apatern0/bake/compare/v1.0.0...v2.0.0) (2026-09-29)
 
 **Breaking changes.** Manifests and custom steps may need these changes; the entries below say
