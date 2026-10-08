@@ -80,9 +80,7 @@ SIMULATOR_OPTIONS = {
         # (see build_once_and_run): the options of each phase.
         'build_once': {'build': '-sv -cdslib cds.lib -elaborate -l elab.log',
                        'run': '-cdslib cds.lib -l sim.log -R',
-                       'library': '-xmlibdirname %s -snapshot sim',
-                       'gui_build': '-access +rwc',
-                       'gui_run': '-gui'},
+                       'library': '-xmlibdirname %s -snapshot sim'},
     },
     'icarus': {
         'executable': 'iverilog',
@@ -496,22 +494,27 @@ def main():
         framework_build = [simulator['uvm_opts']] if uvm else []
         framework_run = [simulator['uvm_testname'] % BAKE_SIM_FRAMEWORK_TOP] if uvm else []
         sdf = BAKE_SIM_SDF_FILES or any(f.endswith(".sdf") for f in BAKE_SIM_FILES)
-        if simulator.get('build_once') and BAKE_SIM_BUILD_DIR and not sdf:
-            settings = simulator['build_once']
+        # An interactive run builds in the test's directory too: the GUI's
+        # "Reinvoke" reruns its command, which then rebuilds what changed,
+        # where a run from the shared build (-R) would only reload it.
+        if simulator.get('build_once') and BAKE_SIM_BUILD_DIR and not sdf and not gui:
             build_opts = [BAKE_SIM_OPTIONS, simulator['def_timescale'], BAKE_RUN_OPTIONS,
                           simulator['delay_opts'][BAKE_SIM_DELAY_CORNER]]
             build_opts += [simulator["incdir"] + incdir for incdir in BAKE_INCLUDE_DIRS]
             build_opts += [simulator["define"] + define for define in BAKE_SIM_DEFINES]
             build_opts += [simulator["libfile"] + libfile for libfile in BAKE_LIB_VERILOG_FILES]
-            build_opts += ([settings['gui_build']] if gui else []) + sources + framework_build
+            build_opts += sources + framework_build
             run_opts = [BAKE_SIM_OPTIONS, BAKE_RUN_OPTIONS]
             run_opts += [simulator['seed_opt'] % seed] if simulator['seed_opt'] else []
-            run_opts += [BAKE_SIM_RUNTIME_OPTIONS] + framework_run + ([settings['gui_run']] if gui else [])
+            run_opts += [BAKE_SIM_RUNTIME_OPTIONS] + framework_run
             retval = build_once_and_run(simulator, build_opts, run_opts, sources + BAKE_LIB_VERILOG_FILES,
-                                        BAKE_INCLUDE_DIRS, BAKE_SIM_BUILD_DIR, capture=not gui)
+                                        BAKE_INCLUDE_DIRS, BAKE_SIM_BUILD_DIR, capture=True)
         else:
             if simulator.get('build_once') and sdf:
                 logging.info("SDF back-annotation: building in the test's directory, not shared with other tests.")
+            elif simulator.get('build_once') and gui:
+                logging.info("Interactive run: building in the test's directory, so that the GUI's "
+                             "Reinvoke picks up source changes.")
             simulator_options.extend(sources)
             simulator_options.extend(framework_build + framework_run)
             if BAKE_SIM_SIMULATOR != "icarus":

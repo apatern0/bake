@@ -1318,6 +1318,28 @@ def test_vrf_clean_removes_shared_builds(bake, project):
     assert not Path("work/dut/vrf/_build").exists()
 
 
+def test_vrf_xcelium_gui_builds_in_test_dir(bake, project, monkeypatch, tmp_path):
+    """A batch Xcelium run builds in the shared build and runs from it (-R);
+    an interactive one builds and runs in one xrun in the test's directory,
+    so that the GUI's Reinvoke rebuilds what changed."""
+    calls = tmp_path / "xrun_calls"
+    monkeypatch.setenv("PATH", f"{project('xcelium_build') / 'fake_bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_XRUN_LOG", str(calls))
+
+    assert not bake.run(["dut", "vrf", "-t", "plain"])
+    build, run = calls.read_text().splitlines()
+    assert "-elaborate" in build.split() and "-R" in run.split()
+    assert Path("work/dut/vrf/_build").is_dir()
+
+    calls.unlink()
+    shutil.rmtree("work/dut/vrf/_build")
+    assert not bake.run(["dut", "vrf", "-t", "plain", "-i", "-f"])
+    (gui,) = calls.read_text().splitlines()
+    assert "-gui" in gui.split() and "-R" not in gui.split() and "-elaborate" not in gui.split()
+    assert "-xmlibdirname" not in gui.split()
+    assert not Path("work/dut/vrf/_build").exists()
+
+
 def test_tpl_custom_variable_expanded(bake, project):
     """A config.bake.tpl_dict variable is substituted into .tpl files."""
     project("tpl_var")
