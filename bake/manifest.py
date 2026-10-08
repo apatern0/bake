@@ -34,6 +34,7 @@ import logging
 from abc import abstractmethod
 import os
 from pathlib import Path
+import re
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -42,7 +43,7 @@ from . import loader
 from . import file_utils
 from .context import context
 from .exceptions import BakeManifestError
-from .step import LibData, RtlData, StepData
+from .step import LibData, RegressionData, RtlData, StepData
 
 
 def load(path):
@@ -388,6 +389,91 @@ class MacroSpec(DesignSpec, AbstractsSpec):
                 f"{len(self.liberty_files)} liberty corners")
 
 
+# A command-line override, as -o takes it: section.attribute=value
+_OPTION = re.compile(r"^[A-Za-z0-9_]+\.[A-Za-z0-9_]+=.*$")
+
+
+class RegressionSpec(DesignSpec):
+    """A regression: tests of a block, each run a number of times with random
+    seeds or once per given seed, through the recipe that simulates them.
+    `bake <name> regression` runs it; including other regressions adds their
+    runs to it."""
+    manifest_function: ClassVar[str] = "regression"
+
+    target: str = ""                                                  # the block whose tests run
+    tests: dict[str, int | list[int]] = Field(default_factory=dict)  # {test: runs | [seeds]}
+    recipe: str = "vrf"                                               # what each run executes, ending with vrf
+    options: list[str] = Field(default_factory=list)                 # -o overrides for every run
+
+    _lists = field_validator("options", mode="before")(_as_list)
+
+    @field_validator("tests", mode="before")
+    @classmethod
+    def coerce_tests(cls, v):
+        # Convenience: a test, or a list of tests, runs once each.
+        if isinstance(v, str):
+            v = [v]
+        if isinstance(v, (list, tuple)):
+            return {name: 1 for name in v}
+        return v
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.tests or self.includes)
+
+    @property
+    def data_type(self) -> type[StepData]:
+        return RegressionData
+
+    def _resolve(self) -> None:
+        owner = f"Regression '{self.name}'"
+        if self.tests and not self.target:
+            raise BakeManifestError(f"{owner}: tests= needs target=, the block the tests belong to.")
+        for name, runs in self.tests.items():
+            if isinstance(runs, list) and not runs:
+                raise BakeManifestError(f"{owner}: test '{name}' has an empty list of seeds.")
+            if isinstance(runs, list) and any(seed < 0 for seed in runs):
+                raise BakeManifestError(f"{owner}: test '{name}': a seed cannot be negative.")
+            if isinstance(runs, int) and runs < 1:
+                raise BakeManifestError(f"{owner}: test '{name}' runs {runs} times; give at least 1.")
+        for option in self.options:
+            if not _OPTION.match(option):
+                raise BakeManifestError(
+                    f"{owner}: option '{option}' is not of the form section.attribute=value, "
+                    f"as -o takes it (e.g. vrf.runtime_options=+VERBOSE)."
+                )
+
+    def to_data(self):
+        """The runs, checked against what the manifests declare: called when a
+        recipe is elaborated, once every manifest has loaded."""
+        owner = f"Regression '{self.name}'"
+        steps = self.recipe.split("-")
+        unknown = [s for s in steps if s not in context.steps]
+        if unknown:
+            raise BakeManifestError(f"{owner}: recipe '{self.recipe}' names unknown step '{unknown[0]}'.")
+        if steps[-1] != "vrf":
+            raise BakeManifestError(
+                f"{owner}: recipe '{self.recipe}' must end with vrf, the step that runs a test."
+            )
+        if self.tests and self.target not in context.blocks:
+            raise BakeManifestError(f"{owner}: target '{self.target}' is not a block.")
+        missing = [t for t in self.tests if not context.test_exists(t, self.target)]
+        if missing:
+            raise BakeManifestError(
+                f"{owner}: block '{self.target}' has no test {', '.join(repr(t) for t in missing)}."
+            )
+        runs = [
+            {"block": self.target, "test": name, "recipe": self.recipe,
+             "seeds": list(runs) if isinstance(runs, list) else [None] * runs,
+             "options": list(self.options)}
+            for name, runs in self.tests.items()
+        ]
+        return RegressionData(block=self.name, block_dir=self.dir, runs=runs, options=list(self.options))
+
+    def _summary(self) -> str:
+        return f"target={self.target or '<none>'}, {len(self.tests)} tests, {len(self.includes)} includes"
+
+
 class EnvSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
     manifest_function: ClassVar[str] = "env"
@@ -500,6 +586,7 @@ flow  = FlowSpec
 lib   = LibSpec    # PDK cell libraries
 block = BlockSpec  # user design blocks, in RTL
 macro = MacroSpec  # implemented blocks (hard macros)
+regression = RegressionSpec  # tests run many times, with their seeds
 
 
 def target(**kwargs):

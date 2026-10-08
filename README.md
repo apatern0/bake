@@ -31,6 +31,7 @@ Tools are discovered on `PATH`. Out of the box the built-in steps drive:
 | `vrf`  | compile and run a test                | Icarus Verilog, Verilator, cocotb          | Xcelium, Questa, VCS (incl. UVM) |
 | `impl` | synthesis + place-and-route           | Yosys + OpenROAD, with the PDK libraries your manifest registers | — |
 | `tmr`  | triple-modular-redundancy insertion   | [tmrg](https://github.com/rlf-arlut/tmrg)  | — |
+| `regression` | run tests many times, with their seeds | built-in parallel runner | — |
 
 bake has **no PDK dependency** and ships no PDK-specific code. The `impl` step consumes whatever
 standard-cell libraries a manifest registers with `lib()`. The reference for doing that is

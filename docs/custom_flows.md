@@ -1,8 +1,9 @@
 # Custom Flows
 
 A *flow* is a directory of scripts and template files that implement a particular step. Built-in
-flows are provided for the `vrf`, `impl`, and `tmr` steps and are loaded automatically. Custom
-flows let you replace or extend any of these, or supply scripts for a custom step.
+flows are provided for the `vrf`, `impl`, `tmr` and `regression` steps and are loaded
+automatically. Custom flows let you replace or extend any of these, or supply scripts for a
+custom step.
 
 ## What a Flow Contains
 
@@ -283,3 +284,58 @@ sys.exit(subprocess.run(cmd).returncode)
 
 The file is a plain `{"BAKE_XYZ": value}` object. A variable that is a list in *bake* (file
 lists, options, defines) is a JSON list there and space-joined in `.tpl` files.
+
+## Writing a Regression Flow
+
+The [regression](manifest_verif_model.md#regressions) step leaves its flow one job: being the
+engine that starts the runs, be it a batch system, a regression manager or the machine *bake*
+runs on. The step hands the flow every run ready to start, in `BAKE_REGRESSION_RUNS` (see
+[Configuration](configuration.md#built-in-variables-regression-step)), and the flow
+
+1. starts each run's `command` in a directory of its own. The command ends with
+   `-o vrf.run_dir=.`, so that directory becomes the test's work directory, while the runs
+   share the simulation builds;
+2. exits nonzero when a run fails, that is, when a command exits nonzero.
+
+The rest is the flow's to choose: how many runs at a time, where their directories are (`name`,
+`<block>/<test>/<run>`, is unique in the regression), how it reports them. A run whose `seed`
+is `null` lets *bake* draw a seed, which it prints as `Simulation seed: <n>`; `bake <block>
+<recipe> -t <test>` with the run's `options` and `-o vrf.seed=<n>` repeats the run.
+
+A flow that starts the runs one after the other, `flows/serial/run.py`:
+
+```python
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+with open(os.environ["BAKE_VARS"], encoding="utf-8") as f:
+    V = json.load(f)
+
+failed = 0
+for run in V["BAKE_REGRESSION_RUNS"]:
+    run_dir = Path("runs") / run["name"]
+    run_dir.mkdir(parents=True, exist_ok=True)
+    with open(run_dir / "run.log", "w", encoding="utf-8") as log:
+        code = subprocess.run(run["command"], cwd=run_dir, stdout=log, stderr=subprocess.STDOUT,
+                              check=False).returncode
+    print(f"{run['name']}: {'passed' if code == 0 else 'failed'}", flush=True)
+    failed += code != 0
+sys.exit(1 if failed else 0)
+```
+
+```python
+# manifest
+flow(name="serial_regression", dir="flows/serial")
+config.regression.flow = "serial_regression"
+```
+
+On a batch system, the flow submits each command as a job with the run's directory as the
+job's working directory (Slurm's `sbatch --chdir`, LSF's `bsub -cwd`) and waits for the jobs.
+The command starts the *bake* installation and the project the regression runs from, by their
+paths, in the job's environment: the hosts that run the jobs need them, and the simulators, at
+the same paths. The flow's own settings, a queue say, are
+[flow options](#flow-specific-options).

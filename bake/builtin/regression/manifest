@@ -1,0 +1,103 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Regression step: runs the tests of a regression() many times.
+
+Every run is a bake invocation of its recipe on one test, with one seed, in
+a directory of its own (config.vrf.run_dir), so that the runs of a
+regression never share a work directory while they share the simulation
+builds. The step hands its flow the runs ready to start, so that a flow is
+only the engine that starts them: the built-in flow runs them in parallel on
+this machine, and a project's own flow on whatever it submits them to (a
+batch system, a regression manager)."""
+
+import sys
+
+from bake.context import context
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import RegressionData, Step
+
+
+FlowSpec(
+    name="builtin_regression_flow",
+    desc="Runs a regression's runs in parallel on this machine",
+    dir="flow/local",
+    tpl_defaults={
+        "jobs": 0,       # runs at a time; 0: one per CPU
+        "timeout": 0,    # seconds a run may take; 0: no limit
+    },
+)
+
+
+class RegressionConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = None
+        self.flow_options = {}
+
+
+config.register("regression", RegressionConfig())
+
+
+class RegressionStep(Step):
+    """Runs a regression: every run is `bake <block> <recipe> -t <test>` with
+    its seed and the -o options of the regression and of the command line,
+    in a directory of its own."""
+
+    name = "regression"
+    default_flow = "builtin_regression_flow"
+    consumes = (RegressionData,)
+
+    @property
+    def source_files(self):
+        return []
+
+    @property
+    def output_files(self):
+        return []   # a regression always runs
+
+    def check_pre(self):
+        if not self.data.runs:
+            raise BakeManifestError(
+                f"Regression '{self.data.block}' has no runs: give it tests= or include regressions that have."
+            )
+
+    def build_tpl_dict(self):
+        """$BAKE_REGRESSION_RUNS: one entry per run, numbered from 1 within
+        its test across the regression, with `name` (block/test/n, unique in
+        the regression), `seed` (None: a random one), `options` (the -o
+        overrides of the run: its seed, the regression's options, then the
+        command line's, which win) and `command`, the run ready to start in
+        a directory of its own: the bake invocation of its test (the bake
+        installation and the project of this command) with `options` and
+        `vrf.run_dir=.`, the directory it starts in."""
+        tpl_dict = super().build_tpl_dict()
+        bake = [sys.executable, "-m", "bake", "-m", context.config.bake.manifest_dir]
+        runs, numbers = [], {}
+        for entry in self.data.runs:
+            for seed in entry["seeds"]:
+                key = (entry["block"], entry["test"])
+                numbers[key] = numbers.get(key, 0) + 1
+                options = (([f"vrf.seed={seed}"] if seed is not None else [])
+                           + list(entry["options"]) + list(context.config.bake.options))
+                command = bake + [entry["block"], entry["recipe"], "-t", entry["test"]]
+                for option in options + ["vrf.run_dir=."]:
+                    command += ["-o", option]
+                runs.append({"block": entry["block"], "test": entry["test"], "recipe": entry["recipe"],
+                             "run": numbers[key], "name": f"{entry['block']}/{entry['test']}/{numbers[key]}",
+                             "seed": seed, "options": options, "command": command})
+        tpl_dict["BAKE_REGRESSION_RUNS"] = runs
+        return tpl_dict

@@ -378,6 +378,8 @@ def main():
     context.reset()
     context.config.bake.verbosity = args.verbose
     context.config.bake.interactive = args.interactive
+    context.config.bake.manifest_dir = file_utils.absolute_path(args.manifestpath)
+    context.config.bake.options = list(args.options)
     context.config.bake.test = args.test
     context.config.bake.force = args.force
     context.config.bake.clean = args.clean

@@ -723,6 +723,139 @@ def test_vrf_seed_from_config(bake, capfd, project, monkeypatch):
 
 
 # ===========================================================================
+# Tests — regression step (fake simulator)
+# ===========================================================================
+
+def _regression_project(project, monkeypatch, tmp_path):
+    """The regression project with its fake simulator on PATH; returns the
+    file the fake appends its command lines to."""
+    calls = tmp_path / "sim_calls"
+    monkeypatch.setenv("PATH", f"{project('regression') / 'fake_bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_SIM_LOG", str(calls))
+    return calls
+
+
+def _simulations(calls):
+    """The simulations the fake simulator ran: the seed bake gave each, then
+    its arguments."""
+    return [line.split()[1:] for line in calls.read_text().splitlines() if line.startswith("a.out ")]
+
+
+def _regression_results(name):
+    import csv
+    with open(f"work/{name}/regression/results.csv", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def test_regression_runs_locally(bake, capfd, project, monkeypatch, tmp_path):
+    """The built-in flow runs every run of a regression as a bake invocation
+    in a directory of its own, with a random seed of its own; the runs keep
+    the tests' shared build directory."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert not bake.run(["smoke", "regression"])
+    assert_in_stderr(capfd, "Regression smoke: 2 runs, 2 passed, 0 not")
+
+    results = _regression_results("smoke")
+    assert [(r["test"], r["run"], r["status"]) for r in results] == [("good", "1", "passed"), ("good", "2", "passed")]
+    assert results[0]["seed"] and results[0]["seed"] != results[1]["seed"]
+    for r in results:
+        run_dir = Path(r["dir"])
+        assert run_dir == Path.cwd() / "work/smoke/regression/runs/dut/good" / r["run"]
+        assert f"Simulation seed: {r['seed']}" in (run_dir / "run.log").read_text()
+        assert json.loads((run_dir / "bake_vars.json").read_text())["BAKE_SIM_BUILD_DIR"] == \
+            str(Path.cwd() / "work/dut/vrf/_build")
+
+    assert sorted(sim[0] for sim in _simulations(calls)) == sorted(r["seed"] for r in results)
+    assert not Path("work/dut/vrf/good").exists()
+
+
+def test_regression_failing_run(bake, capfd, project, monkeypatch, tmp_path):
+    """A failing run fails the regression and is reported with the command
+    that repeats it; a given seed is used as it is. Included regressions add
+    their runs, which take the including one's options as well."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert bake.run(["full", "regression"]) == 1
+    out = stderr(capfd)
+    assert "Regression full: 3 runs, 2 passed, 1 not" in out
+    assert "repeat: bake dut vrf -t bad -o vrf.seed=7 -o vrf.runtime_options=+NIGHTLY" in out
+
+    results = _regression_results("full")
+    assert [(r["test"], r["seed"], r["status"]) for r in results][0] == ("bad", "7", "failed")
+    assert [r["status"] for r in results[1:]] == ["passed", "passed"]
+    sims = _simulations(calls)
+    assert len(sims) == 3 and all("+NIGHTLY" in sim for sim in sims)
+
+
+def test_regression_forwards_command_line_options(bake, project, monkeypatch, tmp_path):
+    """-o options of the regression's command line reach every run."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert not bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FROM_CLI"])
+    sims = _simulations(calls)
+    assert len(sims) == 2 and all("+FROM_CLI" in sim for sim in sims)
+
+
+def test_regression_repeats_drawn_seed(bake, capfd, project, monkeypatch, tmp_path):
+    """A failing run with a random seed is repeated with the seed bake drew
+    for it, after its options."""
+    _regression_project(project, monkeypatch, tmp_path)
+    assert bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FAIL"]) == 1
+    out = stderr(capfd)
+    for r in _regression_results("smoke"):
+        assert f"repeat: bake dut vrf -t good -o vrf.runtime_options=+FAIL -o vrf.seed={r['seed']}" in out
+
+
+def test_regression_numbers_runs_across_includes(bake, project, monkeypatch, tmp_path):
+    """A test listed again by an included regression adds runs, numbered on
+    from the runs it has, each in a directory of its own."""
+    _regression_project(project, monkeypatch, tmp_path)
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text()
+                        + 'regression(name="twice", target="dut", tests={"good": 1}, includes=["smoke"])\n')
+    assert not bake.run(["twice", "regression"])
+    results = _regression_results("twice")
+    assert [(r["test"], r["run"], r["status"]) for r in results] == \
+        [("good", "1", "passed"), ("good", "2", "passed"), ("good", "3", "passed")]
+    assert len({r["dir"] for r in results}) == 3
+
+
+def test_regression_own_flow(bake, capfd, project, monkeypatch, tmp_path):
+    """A project's own regression flow only has to start each run's command
+    in a directory of its own, which becomes the test's work directory, and
+    to fail when a run fails."""
+    _regression_project(project, monkeypatch, tmp_path)
+    monkeypatch.setenv("BAKE_TEST_OWN_FLOW", "1")
+    assert not bake.run(["smoke", "regression"])
+    assert_stderr(capfd, expect=["dut/good/1: passed", "dut/good/2: passed"])
+    for n in (1, 2):
+        run_dir = Path(f"work/smoke/regression/runs/dut/good/{n}")
+        assert json.loads((run_dir / "bake_vars.json").read_text())["BAKE_SIM_BUILD_DIR"] == \
+            str(Path.cwd() / "work/dut/vrf/_build")
+
+    assert bake.run(["full", "regression"]) == 1
+    assert_stderr(capfd, expect=["dut/bad/1: failed", "dut/good/2: passed"])
+
+
+@pytest.mark.parametrize("declaration, message", [
+    ('regression(name="r", tests=["good"])', "tests= needs target="),
+    ('regression(name="r", target="dut", tests={"good": 0})', "runs 0 times"),
+    ('regression(name="r", target="dut", tests={"good": []})', "empty list of seeds"),
+    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form section.attribute=value"),
+    ('regression(name="r", includes=["dut"])', "cannot include 'dut', which is rtl"),
+    ('regression(name="r", target="dut", tests=["nope"])', "block 'dut' has no test 'nope'"),
+    ('regression(name="r", target="nodut", tests=["good"])', "target 'nodut' is not a block"),
+    ('regression(name="r", target="dut", tests=["good"], recipe="impl")', "must end with vrf"),
+    ('regression(name="r")', "has no runs"),
+])
+def test_regression_declaration_errors(bake, capfd, project, declaration, message):
+    """What a regression() must declare, checked when its manifest loads or
+    when it runs (tests and blocks may be declared after it)."""
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text() + declaration + "\n")
+    assert bake.run(["r", "regression"])
+    assert_in_stderr(capfd, message)
+
+
+# ===========================================================================
 # Tests — TMR step (tmrg required)
 # ===========================================================================
 
