@@ -723,6 +723,156 @@ def test_vrf_seed_from_config(bake, capfd, project, monkeypatch):
 
 
 # ===========================================================================
+# Tests — regression step (fake xrun and vmanager)
+# ===========================================================================
+
+def _regression_project(project, monkeypatch, tmp_path):
+    """The regression project with its fakes on PATH; returns the file the
+    fake xrun appends its command lines to."""
+    calls = tmp_path / "xrun_calls"
+    monkeypatch.setenv("PATH", f"{project('regression') / 'fake_bin'}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_XRUN_LOG", str(calls))
+    return calls
+
+
+def _regression_results(name):
+    import csv
+    with open(f"work/{name}/regression/results.csv", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def test_regression_runs_locally(bake, capfd, project, monkeypatch, tmp_path):
+    """The built-in flow runs every run of a regression as a bake invocation
+    in a directory of its own, with a random seed of its own; the runs share
+    the simulation build."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert not bake.run(["smoke", "regression"])
+    assert_in_stderr(capfd, "Regression smoke: 2 runs, 2 passed, 0 not")
+
+    results = _regression_results("smoke")
+    assert [(r["test"], r["run"], r["status"]) for r in results] == [("good", "1", "passed"), ("good", "2", "passed")]
+    assert results[0]["seed"] and results[0]["seed"] != results[1]["seed"]
+    for r in results:
+        run_dir = Path(r["dir"])
+        assert run_dir == Path.cwd() / "work/smoke/regression/runs/dut/good" / r["run"]
+        assert f"Simulation seed: {r['seed']}" in (run_dir / "run.log").read_text()
+        assert json.loads((run_dir / "bake_vars.json").read_text())["BAKE_SIM_BUILD_DIR"] == \
+            str(Path.cwd() / "work/dut/vrf/_build")
+
+    build, *runs = calls.read_text().splitlines()
+    assert "-elaborate" in build.split()
+    assert sorted(line.split()[1] for line in runs) == sorted(r["seed"] for r in results)  # -svseed <n>
+    assert not Path("work/dut/vrf/good").exists()
+
+
+def test_regression_failing_run(bake, capfd, project, monkeypatch, tmp_path):
+    """A failing run fails the regression and is reported with the command
+    that repeats it; a given seed is used as it is. Included regressions add
+    their runs, which take the including one's options as well."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert bake.run(["full", "regression"]) == 1
+    out = stderr(capfd)
+    assert "Regression full: 3 runs, 2 passed, 1 not" in out
+    assert "repeat: bake dut vrf -t bad -o vrf.runtime_options=+NIGHTLY -o vrf.seed=7" in out
+
+    results = _regression_results("full")
+    assert [(r["test"], r["seed"], r["status"]) for r in results][0] == ("bad", "7", "failed")
+    assert [r["status"] for r in results[1:]] == ["passed", "passed"]
+    runs = [line.split() for line in calls.read_text().splitlines() if "-R" in line.split()]
+    assert len(runs) == 3 and all("+NIGHTLY" in run for run in runs)
+
+
+def test_regression_forwards_command_line_options(bake, project, monkeypatch, tmp_path):
+    """-o options of the regression's command line reach every run."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    assert not bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FROM_CLI"])
+    runs = [line.split() for line in calls.read_text().splitlines() if "-R" in line.split()]
+    assert len(runs) == 2 and all("+FROM_CLI" in run for run in runs)
+
+
+def test_regression_vmanager_session(bake, capfd, project, monkeypatch, tmp_path):
+    """The vmanager flow writes a session with a group per block and a test
+    per test (a test of its own per given seed), whose runs start the tests'
+    bake invocations; the exported runs decide the exit code."""
+    _regression_project(project, monkeypatch, tmp_path)
+    session = tmp_path / "session.vsif"
+    monkeypatch.setenv("BAKE_TEST_VMANAGER", "1")
+    monkeypatch.setenv("FAKE_VMANAGER_LOG", str(session))
+    assert not bake.run(["full", "regression"])
+    assert_in_stderr(capfd, "3 runs, 3 passed, 0 not")
+
+    work = Path.cwd() / "work/full/regression"
+    vsif = session.read_text()
+    assert "session full {" in vsif and "group dut {" in vsif
+    assert f"top_dir: {work / 'sessions'};" in vsif
+    assert f"vm_scan.pl shell.flt {work / 'bake.flt'}" in vsif
+    assert "test bad_seed7 {" in vsif and "sv_seed: 7;" in vsif
+    good = vsif[vsif.index("test good {"):]
+    assert "count: 2;" in good[:good.index("};")]
+    assert f"bake_run.py {work / 'runs.json'} 1\"" in vsif
+    runs = json.loads((work / "runs.json").read_text())
+    assert [(r["test"], r["seeds"]) for r in runs] == [("bad", [7]), ("good", [None, None])]
+    assert runs[1]["command"][-4:] == ["dut", "vrf", "-t", "good"]
+    assert runs[1]["options"] == ["vrf.runtime_options=+NIGHTLY"]
+
+    monkeypatch.setenv("FAKE_VMANAGER_STATUS", "failed")
+    assert bake.run(["full", "regression"]) == 1
+    assert_in_stderr(capfd, "3 runs, 0 passed, 3 not")
+
+
+def test_regression_vmanager_needs_server(bake, capfd, project, monkeypatch, tmp_path):
+    """The vmanager flow refuses to run without a server."""
+    _regression_project(project, monkeypatch, tmp_path)
+    monkeypatch.setenv("BAKE_TEST_VMANAGER", "noserver")
+    assert bake.run(["smoke", "regression"]) == 1
+    assert_in_stderr(capfd, "No vManager server")
+
+
+def _vmanager_bake_run():
+    """The vmanager flow's per-run script, loaded as a module."""
+    from importlib.machinery import SourceFileLoader
+    from importlib.util import module_from_spec, spec_from_loader
+    import bake as bake_pkg
+    path = Path(bake_pkg.__file__).parent / "builtin" / "regression" / "flow" / "vmanager" / "bake_run.py"
+    spec = spec_from_loader("bake_run", SourceFileLoader("bake_run", str(path)))
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("seed, expected", [
+    ("random", ["-o", "vrf.runtime_options=+X", "-o", "vrf.run_dir=/runs/1"]),
+    ("42", ["-o", "vrf.seed=42", "-o", "vrf.runtime_options=+X", "-o", "vrf.run_dir=/runs/1"]),
+])
+def test_regression_vmanager_run_seed(seed, expected):
+    """A vManager run passes a numeric sv_seed on to bake and lets bake draw
+    one for "random"; the run directory comes last, the seed before the
+    options, which may override it."""
+    run = {"command": ["python", "-m", "bake", "dut", "vrf", "-t", "good"], "options": ["vrf.runtime_options=+X"]}
+    assert _vmanager_bake_run().command(run, seed, "/runs/1") == run["command"] + expected
+
+
+@pytest.mark.parametrize("declaration, message", [
+    ('regression(name="r", tests=["good"])', "tests= needs target="),
+    ('regression(name="r", target="dut", tests={"good": 0})', "runs 0 times"),
+    ('regression(name="r", target="dut", tests={"good": []})', "empty list of seeds"),
+    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form section.attribute=value"),
+    ('regression(name="r", includes=["dut"])', "cannot include 'dut', which is rtl"),
+    ('regression(name="r", target="dut", tests=["nope"])', "block 'dut' has no test 'nope'"),
+    ('regression(name="r", target="nodut", tests=["good"])', "target 'nodut' is not a block"),
+    ('regression(name="r", target="dut", tests=["good"], recipe="impl")', "must end with vrf"),
+    ('regression(name="r")', "has no runs"),
+])
+def test_regression_declaration_errors(bake, capfd, project, declaration, message):
+    """What a regression() must declare, checked when its manifest loads or
+    when it runs (tests and blocks may be declared after it)."""
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text() + declaration + "\n")
+    assert bake.run(["r", "regression"])
+    assert_in_stderr(capfd, message)
+
+
+# ===========================================================================
 # Tests — TMR step (tmrg required)
 # ===========================================================================
 

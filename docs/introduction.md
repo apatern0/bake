@@ -45,7 +45,7 @@ first designs while scaling smoothly to larger projects.
 *bake* follows instructions provided in `manifest` files. These are plain Python files that
 communicate both design intent (files, hierarchies, interactions between components, test cases)
 and flow configuration (simulator selection, synthesis scripts, custom template variables). A
-manifest calls functions such as `block()`, `macro()`, `test()`, `env()`, `lib()`, and `flow()` to register
+manifest calls functions such as `block()`, `macro()`, `test()`, `env()`, `regression()`, `lib()`, and `flow()` to register
 design objects into the *bake* registry, and sets configuration via the `config` object that is
 always available in manifest scope.
 
@@ -78,7 +78,7 @@ centralized in `manifest` files — where they can be shared between RTL develop
 and verification tasks.
 
 ## Step and Flow Discovery
-*bake* discovers available steps automatically. Built-in steps (`vrf`, `impl`, `tmr`) are
+*bake* discovers available steps automatically. Built-in steps (`vrf`, `impl`, `tmr`, `regression`) are
 located in the `bake/builtin/` directory of the package and are loaded on every invocation
 without any action required from the user.
 

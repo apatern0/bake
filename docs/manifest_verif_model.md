@@ -144,6 +144,97 @@ random unless `config.vrf.seed` is set; to repeat a failing run:
 bake counter vrf -o vrf.seed=1234567
 ```
 
+## Regressions
+
+A regression runs tests many times: each a number of times with random seeds, or once per
+given seed. It is declared with `regression()`, a block of its own kind, and run by the
+`regression` step:
+
+```python
+from bake import regression
+
+regression(name="counter_smoke", target="counter",
+           tests={"counter_test": 4,                  # four runs, random seeds
+                  "counter_wrap_test": [11, 42]})     # one run per seed
+regression(name="counter_nightly", target="counter",
+           tests={"counter_random_test": 50},
+           includes=["counter_smoke"],                  # its runs as well
+           options=["vrf.runtime_options=+VERBOSE"])    # an -o for every run
+```
+
+```
+bake counter_nightly regression
+```
+
+| Argument | Description |
+|----------|-------------|
+| `target` | The block whose tests run |
+| `tests` | `{test: runs}`, with random seeds, or `{test: [seeds]}`; a test name or a list of names runs once each |
+| `recipe` | What each run executes, ending with `vrf` (default `"vrf"`; `"tmr-vrf"`, say) |
+| `options` | `-o` overrides for every run, `section.attribute=value` |
+| `includes` | Other regressions, whose runs are added, with this regression's `options` after their own |
+
+Every run is a *bake* invocation of its recipe on its test — `bake <target> <recipe> -t <test>`
+with the run's seed and the options — in a directory of its own (`config.vrf.run_dir`): the
+runs of a regression never share a work directory, while they share the simulation builds in
+`work/<block>/<recipe>/_build/` (see [Building once for many tests](#building-once-for-many-tests)).
+The `-o` options of the regression's own command line reach every run too, after the
+regression's: `bake counter_nightly regression -o vrf.simulator=xcelium`. Tests, blocks and
+steps are checked when the regression runs, so they may be declared in manifests loaded after
+it.
+
+Earlier steps of the recipe (`tmr` for `tmr-vrf`) and the block's dependencies are built by the
+runs that need them: bring them up to date before a regression starts many runs at once
+(`bake counter tmr`).
+
+The step has two built-in flows.
+
+### On this machine
+
+The default flow, `builtin_regression_flow`, runs the regression on the machine *bake* runs on,
+each run in `work/<regression>/regression/runs/<block>/<test>/<n>/` with its output in
+`run.log`. It writes `results.csv` (block, test, run, seed, status, duration, directory), lists
+the runs that did not pass with the command that repeats each, and fails the step if there is
+one. Flow options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `jobs` | `0` | Runs at a time; `0`: one per CPU |
+| `timeout` | `0` | Seconds a run may take before it is stopped; `0`: no limit |
+
+```python
+config.regression.flow_options["jobs"] = 8
+```
+
+### Cadence vManager
+
+The `vmanager` flow runs the regression as a session on a vManager server (vManager has no
+local mode since 23.09). It writes the session file `work/<regression>/regression/<regression>.vsif`
+— a group per block, a vManager test per test, and a test of its own per given seed — launches it
+on the server, waits for it, and exports its runs to `report/runs.csv` and `report/runs.html`; a
+run that did not pass fails the step. Each vManager run starts its test's *bake* invocation in its
+run directory, which is the test's work directory, in the environment *bake* runs in. For
+vManager's random seeds, *bake* draws the seed and the run records it as its `sv_seed`, so a
+rerun from vManager repeats it.
+
+```python
+config.regression.flow = "vmanager"
+config.regression.flow_options["server"] = "vmgr-host:8080"
+config.regression.flow_options["scan_filters"] = [os.path.abspath("project.flt")]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `server` | `""` | The vManager server, `host:port`; required |
+| `drm` | `"parallel local"` | How vManager dispatches the runs |
+| `max_runs_in_parallel` | `0` | Runs at a time; `0`: vManager's default |
+| `timeout` | `0` | Seconds a run may take; `0`: vManager's default |
+| `top_dir` | `""` | Where the sessions go; empty: `sessions/` in the work directory |
+| `scan_filters` | `[]` | The project's `vm_scan.pl` filter files, absolute paths, scanned after the flow's own `bake.flt` (the seed, and the errors of *bake* and of the vrf flow) |
+
+With Xcelium on `PATH`, the flow also adds Xcelium's own scan filters (`cdns_sim.flt`), which
+Xcelium registers with each run it simulates, to vManager's `VMANAGER_PATH`.
+
 ## UVM Support
 Basic UVM tests use the following `env`/`test` options:
 

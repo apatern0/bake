@@ -1,0 +1,105 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Regression step: runs the tests of a regression() many times.
+
+Every run is a bake invocation of its recipe on one test, with one seed, in
+a directory of its own (config.vrf.run_dir), so that the runs of a
+regression never share a work directory while they share the simulation
+builds. The built-in flow runs them in parallel on this machine; the
+vmanager flow runs them as a Cadence vManager session."""
+
+import sys
+
+from bake.context import context
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import RegressionData, Step
+
+
+FlowSpec(
+    name="builtin_regression_flow",
+    desc="Runs a regression's runs in parallel on this machine",
+    dir="flow/local",
+    tpl_defaults={
+        "jobs": 0,       # runs at a time; 0: one per CPU
+        "timeout": 0,    # seconds a run may take; 0: no limit
+    },
+)
+
+FlowSpec(
+    name="vmanager",
+    desc="Runs a regression as a Cadence vManager session",
+    dir="flow/vmanager",
+    tpl_defaults={
+        "server": "",                # host:port of the vManager server (required)
+        "drm": "parallel local",     # how vManager dispatches the runs
+        "max_runs_in_parallel": 0,   # 0: vManager's default
+        "timeout": 0,                # seconds a run may take; 0: vManager's default
+        "top_dir": "",               # where the sessions go; "": sessions/ in the work directory
+        "scan_filters": [],          # vm_scan.pl filter files of the project, absolute paths
+    },
+)
+
+
+class RegressionConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = None
+        self.flow_options = {}
+
+
+config.register("regression", RegressionConfig())
+
+
+class RegressionStep(Step):
+    """Runs a regression: every run is `bake <block> <recipe> -t <test>` with
+    its seed and the -o options of the regression and of the command line,
+    in a directory of its own."""
+
+    name = "regression"
+    default_flow = "builtin_regression_flow"
+    consumes = (RegressionData,)
+
+    @property
+    def source_files(self):
+        return []
+
+    @property
+    def output_files(self):
+        return []   # a regression always runs
+
+    def check_pre(self):
+        if not self.data.runs:
+            raise BakeManifestError(
+                f"Regression '{self.data.block}' has no runs: give it tests= or include regressions that have."
+            )
+
+    def build_tpl_dict(self):
+        """$BAKE_REGRESSION_RUNS: one entry per test of the regression, as in
+        RegressionData.runs, plus `command`, the bake invocation of the test
+        (the bake installation and the project of this command), and
+        `options`, the -o overrides of its runs: the regression's, then the
+        command line's, which win. A flow adds the seed of each run before
+        `options` and the run's directory (vrf.run_dir) after them."""
+        tpl_dict = super().build_tpl_dict()
+        bake = [sys.executable, "-m", "bake", "-m", context.config.bake.manifest_dir]
+        tpl_dict["BAKE_REGRESSION_RUNS"] = [
+            {**run, "seeds": list(run["seeds"]),
+             "command": bake + [run["block"], run["recipe"], "-t", run["test"]],
+             "options": list(run["options"]) + list(context.config.bake.options)}
+            for run in self.data.runs
+        ]
+        return tpl_dict

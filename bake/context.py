@@ -92,8 +92,9 @@ class BakeConfig(FixedSchemaAttributes):
     tpl_dict = None
     default_libs = None   # libraries of every block that declares none
     file_copy_method = "copy"
-    options = None
+    options = None        # the command line's -o overrides, as given
     output_dir = None
+    manifest_dir = ""     # the project's manifest directory (-m), absolute
     verbosity = 0
     interactive = False
     test = None

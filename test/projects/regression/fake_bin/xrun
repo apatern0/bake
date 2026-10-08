@@ -1,0 +1,8 @@
+#!/bin/bash
+# Stand-in for Xcelium's xrun: records its command line; a simulation given
+# +FAIL fails.
+echo "$*" >> "$FAKE_XRUN_LOG"
+case " $* " in
+  *" +FAIL "*) echo "fake xrun: failing as asked"; exit 1 ;;
+esac
+exit 0

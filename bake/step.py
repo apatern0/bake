@@ -509,6 +509,33 @@ class RtlData(StepData):
 RtlData.accepts = (RtlData, LibData)
 
 
+@dataclass
+class RegressionData(StepData):
+    """A regression: the runs the regression step executes, each one test of a
+    block simulated by a recipe with one seed.
+
+    `runs` holds one entry per test: {"block", "test", "recipe", "seeds",
+    "options"}, where `seeds` lists one seed per run (None: a random one)
+    and `options` are the `section.attribute=value` overrides given to its
+    runs. `options` is the regression's own overrides: an included
+    regression adds its runs after the including one's, with the including
+    one's overrides after their own, so that they win."""
+
+    kind: ClassVar[str] = "regression"
+
+    runs:    list = field(default_factory=list)
+    options: list = field(default_factory=list)
+
+    def absorb(self, data: StepData) -> None:
+        if isinstance(data, RegressionData):
+            self.runs = self.runs + [{**run, "options": run["options"] + self.options} for run in data.runs]
+        else:
+            super().absorb(data)
+
+
+RegressionData.accepts = (RegressionData,)
+
+
 def include_kind(owner: "DesignSpec", dep: "DesignSpec", recipe: str) -> type[StepData]:
     """The kind `dep` has once `recipe` ran on it, checked step by step and
     against what `owner` can include; raises BakeManifestError otherwise.

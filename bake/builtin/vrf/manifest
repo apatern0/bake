@@ -55,6 +55,7 @@ class VrfConfig(config.FixedSchemaAttributes):
         self.defines      = []
         self.delays       = ""   # delay corner for SDF back-annotation: typ, min or max
         self.seed         = ""   # simulation seed; empty picks a random one (always logged)
+        self.run_dir      = ""   # where the test runs instead of work/<block>/<recipe>/<test>
         self.simulator    = ""
         self.flow         = None
         self.flow_options = {}
@@ -148,6 +149,10 @@ class VrfStep(Step):
 
     @property
     def workdir(self):
+        # A regression gives each of its runs a directory of its own; the
+        # shared builds stay next to the tests' directories (build_dir).
+        if self.config.run_dir:
+            return Path(self.config.run_dir).absolute()
         return Path(super().workdir) / self.data.test
 
     @property
