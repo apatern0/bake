@@ -20,8 +20,8 @@ a directory of its own (config.vrf.run_dir), so that the runs of a
 regression never share a work directory while they share the simulation
 builds. The step hands its flow the runs ready to start, so that a flow is
 only the engine that starts them: the built-in flow runs them in parallel on
-this machine, the vmanager flow as a Cadence vManager session, and a
-project's own flow on whatever it submits them to."""
+this machine, and a project's own flow on whatever it submits them to (a
+batch system, a regression manager)."""
 
 import sys
 
@@ -38,20 +38,6 @@ FlowSpec(
     tpl_defaults={
         "jobs": 0,       # runs at a time; 0: one per CPU
         "timeout": 0,    # seconds a run may take; 0: no limit
-    },
-)
-
-FlowSpec(
-    name="vmanager",
-    desc="Runs a regression as a Cadence vManager session",
-    dir="flow/vmanager",
-    tpl_defaults={
-        "server": "",                # host:port of the vManager server (required)
-        "drm": "parallel local",     # how vManager dispatches the runs
-        "max_runs_in_parallel": 0,   # 0: vManager's default
-        "timeout": 0,                # seconds a run may take; 0: vManager's default
-        "top_dir": "",               # where the sessions go; "": sessions/ in the work directory
-        "scan_filters": [],          # vm_scan.pl filter files of the project, absolute paths
     },
 )
 

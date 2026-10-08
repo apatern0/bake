@@ -188,9 +188,9 @@ runs that need them: bring them up to date before a regression starts many runs 
 (`bake counter tmr`).
 
 The step hands its flow the runs ready to start, one command each, so the flow is only the
-engine that starts them. It has two built-in flows; to run regressions on another engine (a
-batch system, another regression manager), a project registers a flow of its own (see
-[Writing a Regression Flow](custom_flows.md#writing-a-regression-flow)).
+engine that starts them. The built-in flow starts them on this machine; to run regressions on
+another engine (a batch system, a regression manager), a project registers a flow of its own
+(see [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow)).
 
 ### On this machine
 
@@ -208,35 +208,6 @@ one. Flow options:
 ```python
 config.regression.flow_options["jobs"] = 8
 ```
-
-### Cadence vManager
-
-The `vmanager` flow runs the regression as a session on a vManager server (vManager has no
-local mode since 23.09). It writes the session file `work/<regression>/regression/<regression>.vsif`
-— a group per block, a vManager test per test, and a test of its own per given seed — launches it
-on the server, waits for it, and exports its runs to `report/runs.csv` and `report/runs.html`; a
-run that did not pass fails the step. Each vManager run starts its run's command in its run
-directory, which is the test's work directory, in the environment *bake* runs in. For
-vManager's random seeds, *bake* draws the seed and the run records it as its `sv_seed`, so a
-rerun from vManager repeats it.
-
-```python
-config.regression.flow = "vmanager"
-config.regression.flow_options["server"] = "vmgr-host:8080"
-config.regression.flow_options["scan_filters"] = [os.path.abspath("project.flt")]
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `server` | `""` | The vManager server, `host:port`; required |
-| `drm` | `"parallel local"` | How vManager dispatches the runs |
-| `max_runs_in_parallel` | `0` | Runs at a time; `0`: vManager's default |
-| `timeout` | `0` | Seconds a run may take; `0`: vManager's default |
-| `top_dir` | `""` | Where the sessions go; empty: `sessions/` in the work directory |
-| `scan_filters` | `[]` | The project's `vm_scan.pl` filter files, absolute paths, scanned after the flow's own `bake.flt` (the seed, and the errors of *bake* and of the vrf flow) |
-
-With Xcelium on `PATH`, the flow also adds Xcelium's own scan filters (`cdns_sim.flt`), which
-Xcelium registers with each run it simulates, to vManager's `VMANAGER_PATH`.
 
 ## UVM Support
 Basic UVM tests use the following `env`/`test` options:

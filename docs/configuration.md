@@ -58,8 +58,8 @@ Settings for the [regression](manifest_verif_model.md#regressions) step.
 
 | Attribute | Default | Description |
 |-----------|---------|-------------|
-| `flow` | `None` | Name of the flow to use. When empty, the built-in flow (`builtin_regression_flow`) runs the regression on this machine; `"vmanager"` runs it as a Cadence vManager session. |
-| `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`: `jobs` and `timeout` for the built-in flow; `server`, `drm`, `max_runs_in_parallel`, `timeout`, `top_dir` and `scan_filters` for `vmanager` (see [Regressions](manifest_verif_model.md#regressions)). |
+| `flow` | `None` | Name of the flow to use. When empty, the built-in flow (`builtin_regression_flow`) runs the regression on this machine; a project's own flow runs it on another engine (see [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow)). |
+| `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`: `jobs` and `timeout` for the built-in flow (see [Regressions](manifest_verif_model.md#regressions)). |
 | `tpl_dict` | `{}` | Extra template variables injected into `regression`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
 
 ### `config.impl`

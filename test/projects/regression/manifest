@@ -13,12 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# How the regression step runs a regression(), against a fake xrun and a fake
-# vmanager (fake_bin/, which the tests put on PATH). The fake xrun appends
-# each command line to $FAKE_XRUN_LOG and fails a simulation given +FAIL;
-# the fake vmanager is described in its own file. With BAKE_TEST_VMANAGER
-# set, the regressions run through the vmanager flow (with no server if it
-# is "noserver"); with BAKE_TEST_OWN_FLOW set, through the project's own
+# How the regression step runs a regression(), against a fake xrun
+# (fake_bin/, which the tests put on PATH), which appends each command line
+# to $FAKE_XRUN_LOG and fails a simulation given +FAIL. With
+# BAKE_TEST_OWN_FLOW set, the regressions run through the project's own
 # flow, flows/serial.
 
 import os
@@ -38,7 +36,3 @@ flow(name="serial_regression", dir="flows/serial")
 
 if os.environ.get("BAKE_TEST_OWN_FLOW"):
     config.regression.flow = "serial_regression"
-if os.environ.get("BAKE_TEST_VMANAGER"):
-    config.regression.flow = "vmanager"
-    if os.environ["BAKE_TEST_VMANAGER"] != "noserver":
-        config.regression.flow_options["server"] = "localhost:8080"
