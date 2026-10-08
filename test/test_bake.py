@@ -773,7 +773,7 @@ def test_regression_failing_run(bake, capfd, project, monkeypatch, tmp_path):
     assert bake.run(["full", "regression"]) == 1
     out = stderr(capfd)
     assert "Regression full: 3 runs, 2 passed, 1 not" in out
-    assert "repeat: bake dut vrf -t bad -o vrf.runtime_options=+NIGHTLY -o vrf.seed=7" in out
+    assert "repeat: bake dut vrf -t bad -o vrf.seed=7 -o vrf.runtime_options=+NIGHTLY" in out
 
     results = _regression_results("full")
     assert [(r["test"], r["seed"], r["status"]) for r in results][0] == ("bad", "7", "failed")
@@ -788,6 +788,47 @@ def test_regression_forwards_command_line_options(bake, project, monkeypatch, tm
     assert not bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FROM_CLI"])
     runs = [line.split() for line in calls.read_text().splitlines() if "-R" in line.split()]
     assert len(runs) == 2 and all("+FROM_CLI" in run for run in runs)
+
+
+def test_regression_repeats_drawn_seed(bake, capfd, project, monkeypatch, tmp_path):
+    """A failing run with a random seed is repeated with the seed bake drew
+    for it, after its options."""
+    _regression_project(project, monkeypatch, tmp_path)
+    assert bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FAIL"]) == 1
+    out = stderr(capfd)
+    for r in _regression_results("smoke"):
+        assert f"repeat: bake dut vrf -t good -o vrf.runtime_options=+FAIL -o vrf.seed={r['seed']}" in out
+
+
+def test_regression_numbers_runs_across_includes(bake, project, monkeypatch, tmp_path):
+    """A test listed again by an included regression adds runs, numbered on
+    from the runs it has, each in a directory of its own."""
+    _regression_project(project, monkeypatch, tmp_path)
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text()
+                        + 'regression(name="twice", target="dut", tests={"good": 1}, includes=["smoke"])\n')
+    assert not bake.run(["twice", "regression"])
+    results = _regression_results("twice")
+    assert [(r["test"], r["run"], r["status"]) for r in results] == \
+        [("good", "1", "passed"), ("good", "2", "passed"), ("good", "3", "passed")]
+    assert len({r["dir"] for r in results}) == 3
+
+
+def test_regression_own_flow(bake, capfd, project, monkeypatch, tmp_path):
+    """A project's own regression flow only has to start each run's command
+    in a directory of its own, which becomes the test's work directory, and
+    to fail when a run fails."""
+    _regression_project(project, monkeypatch, tmp_path)
+    monkeypatch.setenv("BAKE_TEST_OWN_FLOW", "1")
+    assert not bake.run(["smoke", "regression"])
+    assert_stderr(capfd, expect=["dut/good/1: passed", "dut/good/2: passed"])
+    for n in (1, 2):
+        run_dir = Path(f"work/smoke/regression/runs/dut/good/{n}")
+        assert json.loads((run_dir / "bake_vars.json").read_text())["BAKE_SIM_BUILD_DIR"] == \
+            str(Path.cwd() / "work/dut/vrf/_build")
+
+    assert bake.run(["full", "regression"]) == 1
+    assert_stderr(capfd, expect=["dut/bad/1: failed", "dut/good/2: passed"])
 
 
 def test_regression_vmanager_session(bake, capfd, project, monkeypatch, tmp_path):
@@ -809,10 +850,11 @@ def test_regression_vmanager_session(bake, capfd, project, monkeypatch, tmp_path
     assert "test bad_seed7 {" in vsif and "sv_seed: 7;" in vsif
     good = vsif[vsif.index("test good {"):]
     assert "count: 2;" in good[:good.index("};")]
-    assert f"bake_run.py {work / 'runs.json'} 1\"" in vsif
+    assert f"bake_run.py {work / 'runs.json'} 1\"" in vsif and "test good_2" not in vsif
     runs = json.loads((work / "runs.json").read_text())
-    assert [(r["test"], r["seeds"]) for r in runs] == [("bad", [7]), ("good", [None, None])]
-    assert runs[1]["command"][-4:] == ["dut", "vrf", "-t", "good"]
+    assert [(r["name"], r["seed"]) for r in runs] == [("dut/bad/1", 7), ("dut/good/1", None), ("dut/good/2", None)]
+    assert runs[0]["command"][-10:] == ["dut", "vrf", "-t", "bad", "-o", "vrf.seed=7",
+                                        "-o", "vrf.runtime_options=+NIGHTLY", "-o", "vrf.run_dir=."]
     assert runs[1]["options"] == ["vrf.runtime_options=+NIGHTLY"]
 
     monkeypatch.setenv("FAKE_VMANAGER_STATUS", "failed")
@@ -840,16 +882,17 @@ def _vmanager_bake_run():
     return module
 
 
-@pytest.mark.parametrize("seed, expected", [
-    ("random", ["-o", "vrf.runtime_options=+X", "-o", "vrf.run_dir=/runs/1"]),
-    ("42", ["-o", "vrf.seed=42", "-o", "vrf.runtime_options=+X", "-o", "vrf.run_dir=/runs/1"]),
+@pytest.mark.parametrize("seed, sv_seed, extra", [
+    (None, "random", []),
+    (None, "42", ["-o", "vrf.seed=42"]),
+    (7, "7", []),
 ])
-def test_regression_vmanager_run_seed(seed, expected):
-    """A vManager run passes a numeric sv_seed on to bake and lets bake draw
-    one for "random"; the run directory comes last, the seed before the
-    options, which may override it."""
-    run = {"command": ["python", "-m", "bake", "dut", "vrf", "-t", "good"], "options": ["vrf.runtime_options=+X"]}
-    assert _vmanager_bake_run().command(run, seed, "/runs/1") == run["command"] + expected
+def test_regression_vmanager_run_seed(seed, sv_seed, extra):
+    """A vManager run starts its run's command, which lets bake draw a
+    random seed; a rerun of such a run passes the seed it recorded (its
+    sv_seed) on to bake."""
+    run = {"seed": seed, "command": ["python", "-m", "bake", "dut", "vrf", "-t", "good", "-o", "vrf.run_dir=."]}
+    assert _vmanager_bake_run().command(run, sv_seed) == run["command"] + extra
 
 
 @pytest.mark.parametrize("declaration, message", [

@@ -14,15 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""One run of a regression in a vManager session: the bake invocation of a
-test of runs.json, in the run directory (the current directory), which is
-the test's work directory (vrf.run_dir).
+"""One run of a regression in a vManager session: the command of a run of
+runs.json, in the vManager run directory (the current directory), which is
+the test's work directory.
 
 Usage: bake_run.py <runs.json> <index>
 
-The seed is the run's sv_seed. A number repeats a run; "random", which is
-how vManager passes `sv_seed: random` on, lets bake draw one, which bake.flt
-records as the run's sv_seed, so that a rerun from vManager repeats it.
+A run with a random seed gets "random" as its sv_seed, which is how vManager
+passes `sv_seed: random` on, and bake draws one, which bake.flt records as
+the run's sv_seed. A rerun from vManager then gets that number, which it
+passes on to bake to repeat the run.
 """
 
 import json
@@ -31,14 +32,12 @@ import shlex
 import sys
 
 
-def command(run, seed, run_dir):
-    """The run's seed, then its options, which may override it, then its directory."""
-    options = ([f"vrf.seed={seed}"] if seed.isdigit() else []) + run["options"]
-    options.append(f"vrf.run_dir={run_dir}")
-    cmd = list(run["command"])
-    for option in options:
-        cmd += ["-o", option]
-    return cmd
+def command(run, seed):
+    """The run's command; a rerun of a run with a random seed repeats the
+    seed it recorded, which is the one the run used."""
+    if run["seed"] is None and seed.isdigit():
+        return run["command"] + ["-o", f"vrf.seed={seed}"]
+    return list(run["command"])
 
 
 def main():
@@ -46,7 +45,7 @@ def main():
         sys.exit(f"usage: {sys.argv[0]} <runs.json> <index>")
     with open(sys.argv[1], encoding="utf-8") as f:
         run = json.load(f)[int(sys.argv[2])]
-    cmd = command(run, os.environ.get("BRUN_SV_SEED", "random"), os.getcwd())
+    cmd = command(run, os.environ.get("BRUN_SV_SEED", "random"))
     print(shlex.join(cmd), flush=True)
     os.execv(cmd[0], cmd)
 

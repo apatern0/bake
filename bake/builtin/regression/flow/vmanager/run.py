@@ -17,8 +17,8 @@
 """Runs a regression as a Cadence vManager session.
 
 Writes the session file, <regression>.vsif (a group per block, a vManager
-test per test of the regression), and runs.json, the tests' bake
-invocations that bake_run.py starts in each vManager run. Then launches the
+test per test of the regression), and runs.json, the regression's runs, one
+of which bake_run.py starts in each vManager run. Then launches the
 session on the server (flow option `server`, host:port), waits for it, and
 exports its runs to report/runs.csv and report/runs.html. The exit code is
 nonzero when a run did not pass.
@@ -58,8 +58,9 @@ def test_lines(name, taken, script, attributes):
 
 
 def vsif(V, runs_file, top_dir):
-    """The session file: random seeds as one vManager test of `count` runs,
-    each given seed as a test of its own."""
+    """The session file: the random runs of a test as one vManager test of
+    `count` runs (they all start the same command), each given seed as a
+    test of its own."""
     here = Path.cwd()
     lines = [f"session {ident(V['BAKE_BLOCK'])} {{",
              f"    top_dir: {top_dir};",
@@ -70,24 +71,27 @@ def vsif(V, runs_file, top_dir):
 
     filters = [str(here / "bake.flt")] + [str(f) for f in V["BAKE_FLOW_OPT_SCAN_FILTERS"]]
     groups = {}
-    for index, entry in enumerate(V["BAKE_REGRESSION_RUNS"]):
-        groups.setdefault(entry["block"], []).append((index, entry))
-    for block, entries in groups.items():
+    for index, run in enumerate(V["BAKE_REGRESSION_RUNS"]):
+        groups.setdefault(run["block"], []).append((index, run))
+    for block, runs in groups.items():
         lines += ["", f"group {ident(block)} {{",
                   f"    scan_script: \"vm_scan.pl shell.flt {' '.join(filters)}\";",
                   "    sv_seed: random;"]
         if int(V["BAKE_FLOW_OPT_TIMEOUT"]):
             lines.append(f"    timeout: {int(V['BAKE_FLOW_OPT_TIMEOUT'])};")
+        counts = {}   # random runs: [the first run of their command, how many]
+        for index, run in runs:
+            if run["seed"] is None:
+                counts.setdefault(tuple(run["command"]), [index, 0])[1] += 1
         taken = set()
-        for index, entry in entries:
+        for index, run in runs:
             script = shlex.join([sys.executable, str(here / "bake_run.py"), str(runs_file), str(index)])
-            random_runs = sum(1 for seed in entry["seeds"] if seed is None)
-            if random_runs:
-                lines += test_lines(ident(entry["test"]), taken, script, [f"count: {random_runs}"])
-            for seed in entry["seeds"]:
-                if seed is not None:
-                    lines += test_lines(f"{ident(entry['test'])}_seed{seed}", taken, script,
-                                        [f"sv_seed: {seed}", "count: 1"])
+            if run["seed"] is not None:
+                lines += test_lines(f"{ident(run['test'])}_seed{run['seed']}", taken, script,
+                                    [f"sv_seed: {run['seed']}", "count: 1"])
+            elif counts[tuple(run["command"])][0] == index:
+                lines += test_lines(ident(run["test"]), taken, script,
+                                    [f"count: {counts[tuple(run['command'])][1]}"])
         lines.append("};")
     return "\n".join(lines) + "\n"
 

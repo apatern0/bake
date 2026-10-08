@@ -187,7 +187,10 @@ Earlier steps of the recipe (`tmr` for `tmr-vrf`) and the block's dependencies a
 runs that need them: bring them up to date before a regression starts many runs at once
 (`bake counter tmr`).
 
-The step has two built-in flows.
+The step hands its flow the runs ready to start, one command each, so the flow is only the
+engine that starts them. It has two built-in flows; to run regressions on another engine (a
+batch system, another regression manager), a project registers a flow of its own (see
+[Writing a Regression Flow](custom_flows.md#writing-a-regression-flow)).
 
 ### On this machine
 
@@ -212,8 +215,8 @@ The `vmanager` flow runs the regression as a session on a vManager server (vMana
 local mode since 23.09). It writes the session file `work/<regression>/regression/<regression>.vsif`
 — a group per block, a vManager test per test, and a test of its own per given seed — launches it
 on the server, waits for it, and exports its runs to `report/runs.csv` and `report/runs.html`; a
-run that did not pass fails the step. Each vManager run starts its test's *bake* invocation in its
-run directory, which is the test's work directory, in the environment *bake* runs in. For
+run that did not pass fails the step. Each vManager run starts its run's command in its run
+directory, which is the test's work directory, in the environment *bake* runs in. For
 vManager's random seeds, *bake* draws the seed and the run records it as its `sv_seed`, so a
 rerun from vManager repeats it.
 

@@ -49,7 +49,7 @@ Settings for the verification (simulation) step.
 | `defines` | `[]` | Additional Verilog preprocessor defines passed to the simulator (appended to defines from the test). |
 | `delays` | `""` | Delay corner for SDF back-annotation in gate-level simulation, `"typ"`, `"min"` or `"max"` (available as `$BAKE_SIM_DELAY_CORNER`; empty means `"typ"`). |
 | `seed` | `""` | Simulation seed, passed to the simulator in its own form; empty picks a random one. The seed used is always logged (see [Seeds](manifest_verif_model.md#seeds)). |
-| `run_dir` | `""` | The directory the test runs in, instead of `work/<block>/<recipe>/<test>`; the simulation builds the tests share stay in `work/<block>/<recipe>/_build`. The [regression](manifest_verif_model.md#regressions) step gives each of its runs one. |
+| `run_dir` | `""` | The directory the test runs in, instead of `work/<block>/<recipe>/<test>`; the simulation builds the tests share stay in `work/<block>/<recipe>/_build`. A relative path is relative to the directory *bake* is started in. The runs of the [regression](manifest_verif_model.md#regressions) step have `.`, the directory each starts in. |
 | `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`; see [Custom Flows](custom_flows.md#flow-specific-options). |
 | `tpl_dict` | `{}` | Extra template variables injected into `vrf`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
 
@@ -182,7 +182,7 @@ Provided by the `Step` base class, so custom steps get them without overriding
 
 | Variable | Description |
 |----------|-------------|
-| `$BAKE_REGRESSION_RUNS` | One entry per test of the regression: `block`, `test`, `recipe`, `seeds` (one per run; `null`: a random one), `command` (the *bake* invocation of the test) and `options` (the `-o` overrides of its runs: the regression's, then the command line's). A list of objects: read it from `bake_vars.json`. A flow adds each run's seed (`vrf.seed`) before the options and its directory (`vrf.run_dir`) after them. |
+| `$BAKE_REGRESSION_RUNS` | One entry per run of the regression: `block`, `test`, `recipe`, `run` (numbered from 1 within its test), `name` (`<block>/<test>/<run>`, unique in the regression), `seed` (`null`: *bake* draws one), `options` (the run's `-o` overrides: its seed, the regression's options, then the command line's) and `command`, the run ready to start in a directory of its own (the *bake* invocation of the test with `options` and `vrf.run_dir=.`). A list of objects: read it from `bake_vars.json`. See [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow). |
 
 ### Built-in variables (impl step)
 

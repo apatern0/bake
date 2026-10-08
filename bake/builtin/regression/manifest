@@ -18,8 +18,10 @@
 Every run is a bake invocation of its recipe on one test, with one seed, in
 a directory of its own (config.vrf.run_dir), so that the runs of a
 regression never share a work directory while they share the simulation
-builds. The built-in flow runs them in parallel on this machine; the
-vmanager flow runs them as a Cadence vManager session."""
+builds. The step hands its flow the runs ready to start, so that a flow is
+only the engine that starts them: the built-in flow runs them in parallel on
+this machine, the vmanager flow as a Cadence vManager session, and a
+project's own flow on whatever it submits them to."""
 
 import sys
 
@@ -88,18 +90,28 @@ class RegressionStep(Step):
             )
 
     def build_tpl_dict(self):
-        """$BAKE_REGRESSION_RUNS: one entry per test of the regression, as in
-        RegressionData.runs, plus `command`, the bake invocation of the test
-        (the bake installation and the project of this command), and
-        `options`, the -o overrides of its runs: the regression's, then the
-        command line's, which win. A flow adds the seed of each run before
-        `options` and the run's directory (vrf.run_dir) after them."""
+        """$BAKE_REGRESSION_RUNS: one entry per run, numbered from 1 within
+        its test across the regression, with `name` (block/test/n, unique in
+        the regression), `seed` (None: a random one), `options` (the -o
+        overrides of the run: its seed, the regression's options, then the
+        command line's, which win) and `command`, the run ready to start in
+        a directory of its own: the bake invocation of its test (the bake
+        installation and the project of this command) with `options` and
+        `vrf.run_dir=.`, the directory it starts in."""
         tpl_dict = super().build_tpl_dict()
         bake = [sys.executable, "-m", "bake", "-m", context.config.bake.manifest_dir]
-        tpl_dict["BAKE_REGRESSION_RUNS"] = [
-            {**run, "seeds": list(run["seeds"]),
-             "command": bake + [run["block"], run["recipe"], "-t", run["test"]],
-             "options": list(run["options"]) + list(context.config.bake.options)}
-            for run in self.data.runs
-        ]
+        runs, numbers = [], {}
+        for entry in self.data.runs:
+            for seed in entry["seeds"]:
+                key = (entry["block"], entry["test"])
+                numbers[key] = numbers.get(key, 0) + 1
+                options = (([f"vrf.seed={seed}"] if seed is not None else [])
+                           + list(entry["options"]) + list(context.config.bake.options))
+                command = bake + [entry["block"], entry["recipe"], "-t", entry["test"]]
+                for option in options + ["vrf.run_dir=."]:
+                    command += ["-o", option]
+                runs.append({"block": entry["block"], "test": entry["test"], "recipe": entry["recipe"],
+                             "run": numbers[key], "name": f"{entry['block']}/{entry['test']}/{numbers[key]}",
+                             "seed": seed, "options": options, "command": command})
+        tpl_dict["BAKE_REGRESSION_RUNS"] = runs
         return tpl_dict

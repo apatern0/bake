@@ -18,11 +18,12 @@
 # each command line to $FAKE_XRUN_LOG and fails a simulation given +FAIL;
 # the fake vmanager is described in its own file. With BAKE_TEST_VMANAGER
 # set, the regressions run through the vmanager flow (with no server if it
-# is "noserver").
+# is "noserver"); with BAKE_TEST_OWN_FLOW set, through the project's own
+# flow, flows/serial.
 
 import os
 
-from bake import block, regression, test
+from bake import block, flow, regression, test
 
 block(name="dut", top="sample", rtl_files=["../rtl/sample.v"])
 test(name="good", target="dut", vrf_files=["../rtl/sample_tb.v"], default_sim="xcelium")
@@ -33,6 +34,10 @@ regression(name="smoke", target="dut", tests={"good": 2})
 regression(name="full", target="dut", tests={"bad": [7]}, includes=["smoke"],
            options=["vrf.runtime_options=+NIGHTLY"])
 
+flow(name="serial_regression", dir="flows/serial")
+
+if os.environ.get("BAKE_TEST_OWN_FLOW"):
+    config.regression.flow = "serial_regression"
 if os.environ.get("BAKE_TEST_VMANAGER"):
     config.regression.flow = "vmanager"
     if os.environ["BAKE_TEST_VMANAGER"] != "noserver":
