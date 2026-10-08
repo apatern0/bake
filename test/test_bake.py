@@ -723,16 +723,22 @@ def test_vrf_seed_from_config(bake, capfd, project, monkeypatch):
 
 
 # ===========================================================================
-# Tests — regression step (fake xrun)
+# Tests — regression step (fake simulator)
 # ===========================================================================
 
 def _regression_project(project, monkeypatch, tmp_path):
-    """The regression project with its fakes on PATH; returns the file the
-    fake xrun appends its command lines to."""
-    calls = tmp_path / "xrun_calls"
+    """The regression project with its fake simulator on PATH; returns the
+    file the fake appends its command lines to."""
+    calls = tmp_path / "sim_calls"
     monkeypatch.setenv("PATH", f"{project('regression') / 'fake_bin'}:{os.environ['PATH']}")
-    monkeypatch.setenv("FAKE_XRUN_LOG", str(calls))
+    monkeypatch.setenv("FAKE_SIM_LOG", str(calls))
     return calls
+
+
+def _simulations(calls):
+    """The simulations the fake simulator ran: the seed bake gave each, then
+    its arguments."""
+    return [line.split()[1:] for line in calls.read_text().splitlines() if line.startswith("a.out ")]
 
 
 def _regression_results(name):
@@ -743,8 +749,8 @@ def _regression_results(name):
 
 def test_regression_runs_locally(bake, capfd, project, monkeypatch, tmp_path):
     """The built-in flow runs every run of a regression as a bake invocation
-    in a directory of its own, with a random seed of its own; the runs share
-    the simulation build."""
+    in a directory of its own, with a random seed of its own; the runs keep
+    the tests' shared build directory."""
     calls = _regression_project(project, monkeypatch, tmp_path)
     assert not bake.run(["smoke", "regression"])
     assert_in_stderr(capfd, "Regression smoke: 2 runs, 2 passed, 0 not")
@@ -759,9 +765,7 @@ def test_regression_runs_locally(bake, capfd, project, monkeypatch, tmp_path):
         assert json.loads((run_dir / "bake_vars.json").read_text())["BAKE_SIM_BUILD_DIR"] == \
             str(Path.cwd() / "work/dut/vrf/_build")
 
-    build, *runs = calls.read_text().splitlines()
-    assert "-elaborate" in build.split()
-    assert sorted(line.split()[1] for line in runs) == sorted(r["seed"] for r in results)  # -svseed <n>
+    assert sorted(sim[0] for sim in _simulations(calls)) == sorted(r["seed"] for r in results)
     assert not Path("work/dut/vrf/good").exists()
 
 
@@ -778,16 +782,16 @@ def test_regression_failing_run(bake, capfd, project, monkeypatch, tmp_path):
     results = _regression_results("full")
     assert [(r["test"], r["seed"], r["status"]) for r in results][0] == ("bad", "7", "failed")
     assert [r["status"] for r in results[1:]] == ["passed", "passed"]
-    runs = [line.split() for line in calls.read_text().splitlines() if "-R" in line.split()]
-    assert len(runs) == 3 and all("+NIGHTLY" in run for run in runs)
+    sims = _simulations(calls)
+    assert len(sims) == 3 and all("+NIGHTLY" in sim for sim in sims)
 
 
 def test_regression_forwards_command_line_options(bake, project, monkeypatch, tmp_path):
     """-o options of the regression's command line reach every run."""
     calls = _regression_project(project, monkeypatch, tmp_path)
     assert not bake.run(["smoke", "regression", "-o", "vrf.runtime_options=+FROM_CLI"])
-    runs = [line.split() for line in calls.read_text().splitlines() if "-R" in line.split()]
-    assert len(runs) == 2 and all("+FROM_CLI" in run for run in runs)
+    sims = _simulations(calls)
+    assert len(sims) == 2 and all("+FROM_CLI" in sim for sim in sims)
 
 
 def test_regression_repeats_drawn_seed(bake, capfd, project, monkeypatch, tmp_path):

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Stand-in for Icarus Verilog: records its command line in $FAKE_SIM_LOG and
+# "compiles" to an a.out that records its own, with the seed bake gives the
+# simulation ($RANDOM_SEED), and fails a simulation given +FAIL.
+echo "iverilog $*" >> "$FAKE_SIM_LOG"
+cat > a.out <<'EOF'
+#!/bin/bash
+echo "a.out $RANDOM_SEED $*" >> "$FAKE_SIM_LOG"
+case " $* " in
+  *" +FAIL "*) echo "fake simulation: failing as asked"; exit 1 ;;
+esac
+exit 0
+EOF
+chmod +x a.out

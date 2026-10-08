@@ -179,7 +179,7 @@ with the run's seed and the options — in a directory of its own (`config.vrf.r
 runs of a regression never share a work directory, while they share the simulation builds in
 `work/<block>/<recipe>/_build/` (see [Building once for many tests](#building-once-for-many-tests)).
 The `-o` options of the regression's own command line reach every run too, after the
-regression's: `bake counter_nightly regression -o vrf.simulator=xcelium`. Tests, blocks and
+regression's: `bake counter_nightly regression -o vrf.simulator=icarus`. Tests, blocks and
 steps are checked when the regression runs, so they may be declared in manifests loaded after
 it.
 

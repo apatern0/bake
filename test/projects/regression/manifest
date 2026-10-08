@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# How the regression step runs a regression(), against a fake xrun
+# How the regression step runs a regression(), against a fake Icarus Verilog
 # (fake_bin/, which the tests put on PATH), which appends each command line
-# to $FAKE_XRUN_LOG and fails a simulation given +FAIL. With
+# of a compilation and of a simulation to $FAKE_SIM_LOG and fails a
+# simulation given +FAIL. With
 # BAKE_TEST_OWN_FLOW set, the regressions run through the project's own
 # flow, flows/serial.
 
@@ -24,9 +25,9 @@ import os
 from bake import block, flow, regression, test
 
 block(name="dut", top="sample", rtl_files=["../rtl/sample.v"])
-test(name="good", target="dut", vrf_files=["../rtl/sample_tb.v"], default_sim="xcelium")
-test(name="bad", target="dut", vrf_files=["../rtl/sample_tb.v"], default_sim="xcelium",
-     vrf_runtime_options={"xcelium": ["+FAIL"]})
+test(name="good", target="dut", vrf_files=["../rtl/sample_tb.v"], default_sim="icarus")
+test(name="bad", target="dut", vrf_files=["../rtl/sample_tb.v"], default_sim="icarus",
+     vrf_runtime_options={"icarus": ["+FAIL"]})
 
 regression(name="smoke", target="dut", tests={"good": 2})
 regression(name="full", target="dut", tests={"bad": [7]}, includes=["smoke"],
