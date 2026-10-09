@@ -52,7 +52,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional, TypeVar, TYPE_CHECKING
 
-from . import exceptions
+from . import exceptions, procs
 from .context import context
 
 if TYPE_CHECKING:
@@ -1109,8 +1109,13 @@ class Step(ABC):
                             self.command)
 
     def execute_flow_step(self):
-        """Execute the flow step entry point inside the correct directory."""
-        proc = None
+        """Execute the flow step entry point inside the correct directory.
+
+        Every process the flow starts is tracked (bake/procs.py): an interrupt
+        of bake (SIGINT, SIGTERM, SIGHUP) is passed on to all of them, a
+        second one kills them, and those left when the flow's script exits
+        are ended.  An interrupted step fails, whatever its script returns.
+        """
         start_time = time.monotonic()
         heartbeat_stop = threading.Event()
 
@@ -1123,47 +1128,60 @@ class Step(ABC):
                 elapsed = time.monotonic() - start_time
                 logging.info("Step %s still running — %s elapsed", self.name, _fmt_elapsed(elapsed))
 
-        def handle_signal(signum, _frame):
-            if proc is not None:
-                logging.info(
-                    "Received %s, forwarding to flow step script.",
-                    signal.Signals(signum).name,
-                )
-                try:
-                    os.killpg(os.getpgid(proc.pid), signum)
-                except ProcessLookupError:
-                    pass
-
         run_cmd        = self.flow.run_cmd
         run_cmd_path   = Path(run_cmd)
         run_dir        = self.workdir / run_cmd_path.parent
         run_executable = run_cmd_path.name
 
+        tracker = procs.track()
         logging.debug(
-            "Executing step '%s': ./%s (cwd=%s)",
-            self.recipe_path, run_executable, run_dir,
+            "Executing step '%s': ./%s (cwd=%s, processes tracked by %s)",
+            self.recipe_path, run_executable, run_dir, tracker.mechanism,
         )
 
-        backup_sigterm = signal.getsignal(signal.SIGTERM)
-        backup_sigint  = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGTERM, handle_signal)
-        signal.signal(signal.SIGINT,  handle_signal)
+        handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+        backups = {signum: signal.getsignal(signum) for signum in handled}
+        for signum in handled:
+            signal.signal(signum, lambda signum, _frame: tracker.interrupt(signum))
         env = dict(os.environ, BAKE_VARS=str(self.vars_path.resolve()))
         try:
-            with subprocess.Popen("./" + run_executable, shell=True, cwd=run_dir, env=env,
-                                  start_new_session=True) as proc:
+            try:
+                # A tracker's preexec only makes system calls (open, write, close).
+                proc = subprocess.Popen(  # pylint: disable=subprocess-popen-preexec-fn
+                    tracker.command("./" + run_executable), shell=True, cwd=run_dir,
+                    env=env, start_new_session=True, preexec_fn=tracker.preexec)
+            except subprocess.SubprocessError as err:
+                # the step's process could not move into its cgroup
+                raise exceptions.BakeRuntimeError(
+                    f"Cannot start step '{self.recipe_path}' in {tracker.where} ({err}); "
+                    "-o bake.process_tracking=subreaper runs it without a cgroup."
+                ) from err
+            with proc:
+                tracker.started(proc)
                 heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
                 heartbeat_thread.start()
                 try:
-                    proc.wait()
+                    while True:
+                        try:
+                            proc.wait(timeout=1)
+                            break
+                        except subprocess.TimeoutExpired:
+                            tracker.poll()
                 finally:
                     heartbeat_stop.set()
                     heartbeat_thread.join()
+                    tracker.end(context.config.bake.kill_grace)
         finally:
-            signal.signal(signal.SIGTERM, backup_sigterm)
-            signal.signal(signal.SIGINT, backup_sigint)
+            for signum, handler in backups.items():
+                signal.signal(signum, handler)
+            tracker.close()
 
         elapsed = _fmt_elapsed(time.monotonic() - start_time)
+        if tracker.signal_name:
+            logging.error("Step '%s' interrupted by %s after %s", self.recipe_path, tracker.signal_name, elapsed)
+            raise exceptions.BakeStepExecutionError(
+                f"{run_dir / run_cmd} interrupted by {tracker.signal_name}."
+            )
         if proc.returncode:
             logging.error(
                 "Step '%s' failed with return code %d after %s",

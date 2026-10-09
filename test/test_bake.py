@@ -30,6 +30,9 @@ import importlib.metadata
 import json
 import os
 import shutil
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -853,6 +856,212 @@ def test_regression_declaration_errors(bake, capfd, project, declaration, messag
     manifest.write_text(manifest.read_text() + declaration + "\n")
     assert bake.run(["r", "regression"])
     assert_in_stderr(capfd, message)
+
+
+# ===========================================================================
+# Tests — the processes of a step (interrupts, leftovers)
+# ===========================================================================
+
+def _running(pid):
+    """Whether a process exists and has not exited (a zombie has)."""
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return text[text.rindex(")") + 2] != "Z"
+
+
+def _wait_for(condition, seconds=30):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.05)
+
+
+def _leak_pids(tmp_path):
+    return [int(p) for p in (tmp_path / "pids").read_text().split()]
+
+
+def _leaky_project(project, monkeypatch, tmp_path, mode):
+    """The leaky project, whose flow writes the pids of the processes it
+    leaves to tmp_path/pids."""
+    project("leaky")
+    monkeypatch.setenv("LEAK_PIDS", str(tmp_path / "pids"))
+    monkeypatch.setenv("LEAK_MODE", mode)
+
+
+def _spawn_bake(args, log):
+    """bake as a process of its own, so that it can be sent signals."""
+    return subprocess.Popen([sys.executable, "-c", "from bake.cli import main; main()", *args],
+                            stdout=log, stderr=subprocess.STDOUT)
+
+
+def test_step_leftovers_are_ended(bake, capfd, project, monkeypatch, tmp_path):
+    """A step owns the processes its flow starts: those still running when
+    its script exits are ended and named, whether they stayed in the
+    script's process group, left its session or were orphaned. bake says
+    how it tracks them."""
+    _leaky_project(project, monkeypatch, tmp_path, "exit")
+    assert not bake.run(["t", "leak", "-o", "bake.kill_grace=5"])
+    out = stderr(capfd)
+    assert "Flow processes are tracked" in out
+    assert "The flow left 3 processes running" in out
+    for pid in _leak_pids(tmp_path):
+        assert f"{pid}  sleep 1000" in out
+        assert not _running(pid)
+
+
+def test_group_tracking_misses_escaped_processes(bake, capfd, project, monkeypatch, tmp_path):
+    """process_tracking=group is bake's behaviour before trackers: what a
+    flow leaves keeps running."""
+    _leaky_project(project, monkeypatch, tmp_path, "exit")
+    assert not bake.run(["t", "leak", "-o", "bake.process_tracking=group"])
+    pids = _leak_pids(tmp_path)
+    try:
+        assert_stderr(capfd, expect=["Flow processes are tracked by process group"],
+                      expect_not=["The flow left"])
+        assert all(_running(pid) for pid in pids)
+    finally:
+        for pid in pids:
+            os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("mode, signum", [
+    ("wait", signal.SIGINT),
+    ("wait", signal.SIGTERM),
+    ("wait", signal.SIGHUP),      # the terminal closed
+    ("trap", signal.SIGINT),      # the flow's script returns 0 when interrupted
+])
+def test_interrupt_reaches_every_flow_process(project, monkeypatch, tmp_path, mode, signum):
+    """An interrupt of bake is passed on to every process of the running
+    step, and the step fails, whatever its script returns."""
+    _leaky_project(project, monkeypatch, tmp_path, mode)
+    with open(tmp_path / "bake.log", "w+") as log:
+        bake_proc = _spawn_bake(["t", "leak", "-o", "bake.kill_grace=5"], log)
+        _wait_for(lambda: (tmp_path / "pids.ready").exists())
+        bake_proc.send_signal(signum)
+        assert bake_proc.wait(timeout=60) == 1
+    out = (tmp_path / "bake.log").read_text()
+    name = signal.Signals(signum).name
+    assert f"Received {name}, forwarding it to" in out
+    assert f"interrupted by {name}" in out
+    for pid in _leak_pids(tmp_path):
+        assert not _running(pid)
+
+
+def test_second_interrupt_kills_the_flow(project, monkeypatch, tmp_path):
+    """A flow that ignores the interrupt is killed at the second."""
+    _leaky_project(project, monkeypatch, tmp_path, "stubborn")
+    with open(tmp_path / "bake.log", "w+") as log:
+        bake_proc = _spawn_bake(["t", "leak"], log)
+        _wait_for(lambda: (tmp_path / "pids.ready").exists())
+        bake_proc.send_signal(signal.SIGINT)
+        _wait_for(lambda: "forwarding it to" in (tmp_path / "bake.log").read_text())
+        time.sleep(0.5)
+        assert bake_proc.poll() is None
+        bake_proc.send_signal(signal.SIGINT)
+        assert bake_proc.wait(timeout=30) == 1
+    assert "Received SIGINT again, killing" in (tmp_path / "bake.log").read_text()
+    for pid in _leak_pids(tmp_path):
+        assert not _running(pid)
+
+
+def test_process_tracking_values(bake, capfd, project, monkeypatch, tmp_path):
+    """An unknown mechanism is an error, and so is cgroup where bake cannot
+    make cgroups, with why."""
+    from bake import procs
+    _leaky_project(project, monkeypatch, tmp_path, "exit")
+    assert bake.run(["t", "leak", "-o", "bake.process_tracking=jail"]) == 1
+    assert_in_stderr(capfd, "expected one of auto, cgroup, subreaper, group")
+
+    monkeypatch.setattr(procs, "_own_cgroup_parent", lambda: (None, "no cgroup here"))
+    monkeypatch.setattr(procs, "_systemd_user", lambda: (False, "no systemd either"))
+    assert bake.run(["t", "leak", "-o", "bake.process_tracking=cgroup"]) == 1
+    assert_in_stderr(capfd, "bake cannot make cgroups here: no cgroup here; no systemd either.")
+
+
+def test_own_cgroup_detection(monkeypatch, tmp_path):
+    """bake makes its cgroups below its own, when the cgroup2 file system is
+    writable and so is that cgroup."""
+    from bake import procs
+    (tmp_path / "user" / "me").mkdir(parents=True)
+    (tmp_path / "user" / "me" / "cgroup.procs").touch()
+    monkeypatch.setattr(procs, "own_cgroup", lambda pid="self": "/user/me")
+
+    monkeypatch.setattr(procs, "_cgroup_mount", lambda root: None)
+    assert procs._own_cgroup_parent(tmp_path) == (None, f"no cgroup v2 file system at {tmp_path}")
+    monkeypatch.setattr(procs, "_cgroup_mount", lambda root: ["ro", "nosuid"])
+    assert procs._own_cgroup_parent(tmp_path) == (None, f"{tmp_path} is mounted read-only")
+    monkeypatch.setattr(procs, "_cgroup_mount", lambda root: ["rw", "nosuid"])
+    assert procs._own_cgroup_parent(tmp_path) == (tmp_path / "user" / "me", None)
+
+
+def _sleepers(n):
+    return [subprocess.Popen(["sleep", "1000"]) for _ in range(n)]
+
+
+def test_cgroup_tracker(capfd, tmp_path):
+    """In a cgroup, a step's processes are those of the cgroup and of the
+    cgroups below it; those left are ended and named."""
+    from bake import procs
+    tracker = procs.CgroupTracker(parent=tmp_path)
+    sub = tracker.path / "sub"
+    sub.mkdir()
+    sleepers = _sleepers(3)
+    (tracker.path / "cgroup.procs").write_text(f"{sleepers[0].pid}\n{sleepers[1].pid}\n")
+    (sub / "cgroup.procs").write_text(f"{sleepers[2].pid}\n")
+    try:
+        assert tracker.path.name.startswith(f"bake.{os.getpid()}.")
+        assert tracker.pids() == {s.pid for s in sleepers}
+        tracker.end(5)
+        assert not tracker.pids()
+        out = stderr(capfd)
+        assert f"The flow left 3 processes running (cgroup {tracker.path})" in out
+        assert f"{sleepers[2].pid}  sleep 1000" in out
+    finally:
+        for s in sleepers:
+            s.kill()
+            s.wait()
+
+
+def test_cgroup_left_by_a_killed_bake(capfd, tmp_path):
+    """The processes in the cgroup of a bake that is gone are killed, and
+    its cgroup removed, by the next bake; those of a running bake are not."""
+    from bake import procs
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    stale, live = tmp_path / f"bake.{gone.pid}.4", tmp_path / f"bake.{os.getppid()}.1"
+    stale.mkdir()
+    live.mkdir()
+    sleepers = _sleepers(2)
+    (stale / "cgroup.procs").write_text(f"{sleepers[0].pid}\n")
+    (live / "cgroup.procs").write_text(f"{sleepers[1].pid}\n")
+    try:
+        procs.CgroupTracker(parent=tmp_path)
+        assert sleepers[0].wait(timeout=5) == -signal.SIGKILL
+        assert sleepers[1].poll() is None
+        assert_in_stderr(capfd, f"Killing 1 processes left by an earlier bake (pid {gone.pid}) in {stale}")
+    finally:
+        for s in sleepers:
+            s.kill()
+            s.wait()
+
+
+def _cgroups_here():
+    from bake import procs
+    return procs._own_cgroup_parent()[0] is not None or procs._systemd_user()[0]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux") or not _cgroups_here(),
+                    reason="bake cannot make cgroups here")
+def test_step_in_a_real_cgroup(bake, capfd, project, monkeypatch, tmp_path):
+    """Where bake can make cgroups, a step runs in one, and what its flow
+    leaves is ended."""
+    _leaky_project(project, monkeypatch, tmp_path, "exit")
+    assert not bake.run(["t", "leak", "-o", "bake.process_tracking=cgroup", "-o", "bake.kill_grace=5"])
+    assert_stderr(capfd, expect=["Flow processes are tracked in cgroups", "The flow left 3 processes running"])
+    for pid in _leak_pids(tmp_path):
+        assert not _running(pid)
 
 
 # ===========================================================================

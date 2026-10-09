@@ -103,6 +103,11 @@ class BakeConfig(FixedSchemaAttributes):
     clean = False
     restart = False
     dry_run = False
+    # How the processes a step starts are tracked, so that an interrupt
+    # reaches all of them and none outlives the step: auto, cgroup,
+    # subreaper or group (see bake/procs.py).
+    process_tracking = "auto"
+    kill_grace = 10       # seconds a leftover process has to exit before SIGKILL
 
     def __init__(self):
         self.tpl_dict = TemplateDictionary()
@@ -213,6 +218,7 @@ class Context:
         self.envs = {}
         self.tests = []
         self.steps = {}
+        self.process_tracking = None   # the tracking mechanism last announced
 
     def validate(self):
         """Check the declarations once every manifest has loaded.
