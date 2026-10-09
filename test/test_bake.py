@@ -838,6 +838,35 @@ def test_regression_own_flow(bake, capfd, project, monkeypatch, tmp_path):
     assert_stderr(capfd, expect=["dut/bad/1: failed", "dut/good/2: passed"])
 
 
+def test_regression_interrupted(project, monkeypatch, tmp_path):
+    """An interrupted regression starts no further run, and the running one
+    stops with it; nothing is left running."""
+    calls = _regression_project(project, monkeypatch, tmp_path)
+    monkeypatch.setenv("FAKE_SIM_SECONDS", "987")
+    manifest = Path("manifest")
+    manifest.write_text(manifest.read_text() + 'config.regression.flow_options = {"jobs": 1}\n')
+    with open(tmp_path / "bake.log", "w+") as log:
+        bake_proc = subprocess.Popen([sys.executable, "-c", "from bake.cli import main; main()",
+                                      "full", "regression", "-o", "bake.kill_grace=5"],
+                                     stdout=log, stderr=subprocess.STDOUT)
+        _wait_for(lambda: calls.exists() and _simulations(calls))
+        bake_proc.send_signal(signal.SIGINT)
+        assert bake_proc.wait(timeout=60) == 1
+    out = (tmp_path / "bake.log").read_text()
+    assert "Regression full interrupted: no further run starts" in out
+    assert "interrupted by SIGINT" in out
+    assert [r["status"] for r in _regression_results("full")] == ["stopped", "not run", "not run"]
+    assert len(_simulations(calls)) == 1
+    assert not [p for p in Path("/proc").iterdir() if p.name.isdigit() and _cmdline(p) == "sleep 987"]
+
+
+def _cmdline(proc_dir):
+    try:
+        return (proc_dir / "cmdline").read_bytes().replace(b"\0", b" ").decode().strip()
+    except OSError:
+        return ""
+
+
 @pytest.mark.parametrize("declaration, message", [
     ('regression(name="r", tests=["good"])', "tests= needs target="),
     ('regression(name="r", target="dut", tests={"good": 0})', "runs 0 times"),
