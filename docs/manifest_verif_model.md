@@ -203,7 +203,9 @@ The default flow, `builtin_regression_flow`, runs the regression on the machine 
 each run in `work/<regression>/regression/runs/<block>/<test>/<n>/` with its output in
 `run.log`. It writes `results.csv` (block, test, run, seed, status, duration, directory), lists
 the runs that did not pass with the command that repeats each, and fails the step if there is
-one. Flow options:
+one. Interrupted, it starts no further run, and the running ones stop with it (*bake* passes the
+interrupt on to them); `results.csv` has those as `stopped`, the others as `not run`. Flow
+options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
