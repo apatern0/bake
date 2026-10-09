@@ -322,19 +322,25 @@ class CgroupTracker(Tracker):
         super().started(proc)
         if self.path is not None:
             return
-        # systemd-run moves itself into the scope, then execs the command.
+        # systemd-run moves itself into the scope, then execs the command,
+        # which may be over already: then systemd knows the scope, as long
+        # as processes are left in it.
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and proc.poll() is None:
-            path = own_cgroup(proc.pid)
-            if path is not None and path.endswith(f"/{self.scope_unit}.scope"):
+        while time.monotonic() < deadline:
+            running = proc.poll() is None
+            path = own_cgroup(proc.pid) if running else None
+            if path is None or not path.endswith(f"/{self.scope_unit}.scope"):
+                path = _scope_cgroup(self.scope_unit)
+            if path:
                 self.path = self.cgroup_root / path.lstrip("/")
                 logging.debug("Step processes are in cgroup %s", self.path)
                 cleanup_stale(self.path.parent, "bake-{pid}-")
                 return
+            if not running:
+                return   # no scope left: nothing of the step's is
             time.sleep(0.05)
-        if proc.poll() is None:
-            logging.warning("The scope %s did not appear; tracking the step's descendants only.",
-                            self.scope_unit)
+        logging.warning("The scope %s did not appear; tracking the step's descendants only.",
+                        self.scope_unit)
 
     def pids(self):
         if self.path is None:
@@ -381,6 +387,17 @@ def own_cgroup(pid="self"):
         if line.startswith("0::"):
             return line[3:]
     return None
+
+
+def _scope_cgroup(unit):
+    """The cgroup of a systemd user scope ('/a/b.scope'); None when systemd
+    does not know the scope."""
+    try:
+        proc = subprocess.run(["systemctl", "--user", "show", "--property=ControlGroup", "--value",
+                               f"{unit}.scope"], capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return proc.stdout.strip() or None
 
 
 def cgroup_pids(path):
