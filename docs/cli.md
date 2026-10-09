@@ -67,21 +67,23 @@ or session (a simulator's GUI) and those that daemonize (a GUI's server):
   step was not interrupted. A process meant to outlive the step (a server shared by many runs)
   is started outside *bake*.
 
-How *bake* knows a step's processes is said once per run, with why a better way is not
-available:
-
-```
-[bake] INFO     Flow processes are tracked as bake's children (subreaper), as cgroups are unavailable: /sys/fs/cgroup is mounted read-only; no systemd user manager (...). A bake killed with SIGKILL can still leave them running.
-```
+How *bake* knows a step's processes:
 
 | `config.bake.process_tracking` | How |
 |-------------------------------|-----|
 | `auto` (default) | The first of `cgroup` and `subreaper` that works here |
-| `cgroup` | Each step runs in a cgroup v2 of its own: below *bake*'s own cgroup when that is writable (a delegated subtree), otherwise a systemd user scope (`systemd-run --user --scope`). Nothing leaves a cgroup, and the processes of a *bake* that was killed with `SIGKILL` are killed by the next *bake* that makes its cgroups there. An error where *bake* cannot make cgroups (a container with `/sys/fs/cgroup` mounted read-only and no systemd). |
+| `cgroup` | Each step runs in a cgroup v2 of its own: below *bake*'s own cgroup when that is writable (a delegated subtree), otherwise a systemd user scope (`systemd-run --user --scope`). Nothing leaves a cgroup, and the processes of a *bake* that was killed with `SIGKILL` are killed by the next *bake* that makes its cgroups there. Where *bake* cannot make cgroups (a container with `/sys/fs/cgroup` mounted read-only and no systemd), it says why and uses `subreaper`. |
 | `subreaper` | *bake* is the child subreaper of the step's processes (Linux), so that those that daemonize are re-parented to *bake* rather than to init. A *bake* killed with `SIGKILL` leaves them running. |
 | `group` | The step's process group only: what leaves it is out of reach, and what the script leaves is not ended (how *bake* tracked them before) |
 
-`-o bake.process_tracking=subreaper` chooses one for a run.
+`-o bake.process_tracking=cgroup` chooses one for a run. *bake* chooses when a run is to start a
+flow, before it starts any, and says nothing about it unless it cannot use the cgroups asked for:
+
+```
+[bake] WARNING  cgroups unavailable (/sys/fs/cgroup is mounted read-only; no systemd user manager (...)); falling back to subreaper process tracking.
+```
+
+`-v` shows what `auto` chose, and why.
 
 ## Exit status
 

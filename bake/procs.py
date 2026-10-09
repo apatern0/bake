@@ -20,7 +20,7 @@ simulator opens its GUI in a session of its own, a server daemonizes.  A
 tracker knows every process of a step, wherever it went, so that an
 interrupt of bake is passed on to all of them and none outlives the step.
 
-Mechanisms, as `track()` tries them (`config.bake.process_tracking`):
+Mechanisms, as `select()` tries them (`config.bake.process_tracking`):
 
 - `cgroup`: the step runs in a cgroup v2 of its own, a child of bake's own
   cgroup when that is writable (a delegated subtree), or a systemd user scope
@@ -516,53 +516,71 @@ def _systemd_user():
 # Choosing a tracker
 # ---------------------------------------------------------------------------
 
-def track():
-    """A tracker for the next step, by `config.bake.process_tracking`.  The
-    mechanism, and why a better one is not used, is logged once per run."""
+def _subreaper():
+    """Whether bake can be a child subreaper; otherwise why not."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        value = ctypes.c_int(0)
+        if libc.prctl(PR_GET_CHILD_SUBREAPER, ctypes.byref(value), 0, 0, 0) != 0:
+            return False, os.strerror(ctypes.get_errno())
+    except (OSError, AttributeError) as err:
+        return False, str(err)
+    return True, None
+
+
+def select():
+    """How this run tracks the processes of its steps, by
+    `config.bake.process_tracking`, chosen once (the first call): ("cgroup",
+    parent), ("scope", None), ("subreaper", None) or ("group", None).  Only
+    a fallback from cgroups asked for is logged."""
+    if context.process_tracking is not None:
+        return context.process_tracking
     wanted = context.config.bake.process_tracking
     if wanted not in MECHANISMS:
         raise exceptions.BakeConfigError(
             f"config.bake.process_tracking is '{wanted}'; expected one of {', '.join(MECHANISMS)}.")
 
     reasons = []
+    choice = None
     if wanted in ("auto", "cgroup"):
         parent, why = _own_cgroup_parent()
         if parent is not None:
-            tracker = CgroupTracker(parent=parent)
-            _announce(f"cgroup:{parent}", "Flow processes are tracked in cgroups under %s.", parent)
-            return tracker
-        reasons.append(why)
-        ok, why = _systemd_user()
-        if ok:
-            tracker = CgroupTracker(scope_unit=f"bake-{os.getpid()}-{next(_steps)}")
-            _announce("scope", "Flow processes are tracked in cgroups, as systemd user scopes.")
-            return tracker
-        reasons.append(why)
-        if wanted == "cgroup":
-            raise exceptions.BakeRuntimeError(
-                "config.bake.process_tracking is 'cgroup', but bake cannot make cgroups here: "
-                + "; ".join(reasons) + ".")
-
-    if wanted in ("auto", "subreaper"):
-        try:
-            tracker = SubreaperTracker()
-        except (OSError, AttributeError) as err:
-            if wanted == "subreaper":
-                raise exceptions.BakeRuntimeError(f"bake cannot be a child subreaper here: {err}.") from err
-            reasons.append(f"no child subreaper: {err}")
+            choice = ("cgroup", parent)
         else:
-            why = f", as cgroups are unavailable: {'; '.join(reasons)}" if reasons else ""
-            _announce("subreaper", f"Flow processes are tracked as bake's children (subreaper){why}. "
-                      "A bake killed with SIGKILL can still leave them running.")
-            return tracker
+            reasons.append(why)
+            ok, why = _systemd_user()
+            if ok:
+                choice = ("scope", None)
+            else:
+                reasons.append(why)
+    if choice is None and wanted != "group":
+        ok, why = _subreaper()
+        if ok:
+            choice = ("subreaper", None)
+        elif wanted == "subreaper":
+            raise exceptions.BakeRuntimeError(f"bake cannot be a child subreaper here: {why}.")
+        else:
+            reasons.append(f"no subreaper: {why}")
+    if choice is None:
+        choice = ("group", None)
 
-    why = f" ({'; '.join(reasons)})" if reasons else ""
-    _announce("group", "Flow processes are tracked by process group%s: "
-              "those that leave it are not reached.", why)
+    if wanted == "cgroup" and choice[0] not in ("cgroup", "scope"):
+        logging.warning("cgroups unavailable (%s); falling back to %s process tracking.",
+                        "; ".join(reasons), choice[0])
+    logging.debug("Flow processes are tracked by %s%s%s", choice[0],
+                  f" under {choice[1]}" if choice[1] else "",
+                  f" ({'; '.join(reasons)})" if reasons else "")
+    context.process_tracking = choice
+    return choice
+
+
+def track():
+    """A tracker for the next step, as select() chose."""
+    kind, parent = select()
+    if kind == "cgroup":
+        return CgroupTracker(parent=parent)
+    if kind == "scope":
+        return CgroupTracker(scope_unit=f"bake-{os.getpid()}-{next(_steps)}")
+    if kind == "subreaper":
+        return SubreaperTracker()
     return GroupTracker()
-
-
-def _announce(key, message, *args):
-    if context.process_tracking != key:
-        context.process_tracking = key
-        logging.info(message, *args)

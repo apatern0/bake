@@ -218,7 +218,7 @@ class Context:
         self.envs = {}
         self.tests = []
         self.steps = {}
-        self.process_tracking = None   # the tracking mechanism last announced
+        self.process_tracking = None   # how flow processes are tracked (procs.select())
 
     def validate(self):
         """Check the declarations once every manifest has loaded.
