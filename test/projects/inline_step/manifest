@@ -42,4 +42,28 @@ class NopStep(Step):
 
 flow(name="nop_flow", run_cmd="run.sh", dir="nop_flow")
 
+
+class PyConfig:
+    def __init__(self):
+        self.flow = ""
+        self.flow_options = {}
+
+
+config.register("py", PyConfig())
+
+
+class PyStep(Step):
+    """A step whose flow is a Python script: it records the interpreter."""
+
+    name = "py"
+    default_flow = "py_flow"
+    source_files = []
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / "python.txt")]
+
+
+flow(name="py_flow", run_cmd="run.py", dir="py_flow")
+
 block(name="sample_target", top="sample", rtl_files=["../rtl/sample.v"])

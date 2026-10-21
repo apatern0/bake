@@ -77,11 +77,23 @@ flow(
 | `name` | Unique flow identifier. Used to select the flow from `config.<step>.flow`. |
 | `desc` | Human-readable description (optional). |
 | `dir` | Path to the flow directory. Defaults to `<manifest_dir>/flow` if omitted. |
-| `run_cmd` | Entry-point script name inside the flow directory. Default: `"run.py"`. |
+| `run_cmd` | Entry-point script name inside the flow directory. Default: `"run.py"`. See [the entry point](#the-entry-point). |
 | `simulators` | List of `(name, description)` tuples declaring supported simulators. Used by the `vrf` step. |
 | `corners` | List of `(name, description)` tuples declaring supported process corners. Used by the `impl` step. |
 | `simulation_frameworks` | List of `(name, description)` tuples for supported verification frameworks. |
 | `tpl_defaults` | Default values for the flow options the flow's scripts reference (see below). |
+
+### The entry point
+
+*bake* runs `run_cmd` in the step's work directory. A Python entry point (`.py`) whose shebang
+leaves the interpreter to `PATH` (`#!/usr/bin/env python3`, or no shebang) runs with *bake*'s own
+interpreter: the one *bake* is installed in, with the packages a flow imports, whichever
+`python3` comes first on `PATH`. A shebang naming an interpreter is obeyed, and any other entry
+point is executed as it is, so it needs a shebang and, when it is not a template, the executable
+bit.
+
+Keep the shebang generic rather than writing an interpreter's path into it: a flow copied into a
+project with `-p` is committed there, and a path would tie it to one machine.
 
 ## Connecting a Flow to a Step
 

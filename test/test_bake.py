@@ -391,6 +391,32 @@ def test_step_defined_in_project_manifest(bake, project):
     assert Path("work/sample_target/nop/output/nop.txt").is_file()
 
 
+def test_python_flow_runs_under_bakes_interpreter(bake, project, monkeypatch, tmp_path):
+    """A .py flow runs with bake's own interpreter, not the python3 its shebang
+    would find first on PATH (here one that fails)."""
+    project("inline_step")
+    fake = tmp_path / "fake-bin"
+    fake.mkdir()
+    (fake / "python3").write_text("#!/bin/sh\nexit 3\n")
+    (fake / "python3").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
+    assert not bake.run(["sample_target", "py"])
+    recorded = Path("work/sample_target/py/output/python.txt").read_text()
+    assert Path(recorded).resolve() == Path(sys.executable).resolve()
+
+
+def test_python_flow_naming_its_interpreter_keeps_it(bake, project, tmp_path):
+    """A .py flow whose shebang names an interpreter runs with that one."""
+    path = project("inline_step")
+    interpreter = tmp_path / "own-python"
+    interpreter.write_text("#!/bin/sh\nmkdir -p output\necho own > output/python.txt\n")
+    interpreter.chmod(0o755)
+    script = path / "py_flow" / "run.py"
+    script.write_text(f"#!{interpreter}\n" + script.read_text().split("\n", 1)[1])
+    assert not bake.run(["sample_target", "py"])
+    assert Path("work/sample_target/py/output/python.txt").read_text() == "own\n"
+
+
 def test_custom_step_incremental(bake, capfd, project):
     """A step is skipped on re-run when outputs are newer than sources."""
     project("sample_check")
