@@ -846,8 +846,14 @@ class Step(ABC):
 
         output_missing = [f for f in self.output_files if not Path(f).is_file()]
         if output_missing:
-            info("Expected output files missing for step '%s':", self.name)
-            log_first_five(output_missing)
+            count = len(output_missing)
+            info(
+                "Step '%s' has %d output file%s missing (-v lists %s).",
+                self.name, count, "" if count == 1 else "s", "it" if count == 1 else "them",
+            )
+            if log:
+                for missing in output_missing:
+                    logging.debug("   - %s", missing)
             return "output files missing"
 
         stamp = self.read_stamp()

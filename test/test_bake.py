@@ -417,6 +417,19 @@ def test_python_flow_naming_its_interpreter_keeps_it(bake, project, tmp_path):
     assert Path("work/sample_target/py/output/python.txt").read_text() == "own\n"
 
 
+def test_missing_outputs_listed_with_verbose(bake, capfd, project):
+    """A step that runs because outputs are missing says how many at INFO, and
+    lists them only with -v."""
+    project("inline_step")
+    assert not bake.run(["sample_target", "nop"])
+    out = stderr(capfd)
+    assert "Step 'nop' has 1 output file missing (-v lists it)." in out
+    assert "nop/output/nop.txt" not in out
+    assert not bake.run(["sample_target", "nop", "-c"])
+    assert not bake.run(["sample_target", "nop", "-v"])
+    assert "nop/output/nop.txt" in stderr(capfd)
+
+
 def test_custom_step_incremental(bake, capfd, project):
     """A step is skipped on re-run when outputs are newer than sources."""
     project("sample_check")
