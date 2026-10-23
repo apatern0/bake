@@ -42,10 +42,12 @@ import logging
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import signal
 import string
 import subprocess
+import sys
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -57,6 +59,17 @@ from .context import context
 
 if TYPE_CHECKING:
     from .manifest import BlockSpec, DesignSpec, EnvSpec, MacroSpec
+
+
+_ENV_PYTHON = re.compile(rb"#!\s*/usr/bin/env\s+python[0-9.]*")
+
+
+def _looks_up_python(script: Path) -> bool:
+    """Whether a Python script leaves its interpreter to PATH: it has no
+    shebang, or a #!/usr/bin/env python3 one (python, python3.12, ...)."""
+    with open(script, "rb") as handle:
+        first = handle.readline().strip()
+    return not first.startswith(b"#!") or bool(_ENV_PYTHON.fullmatch(first))
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -833,8 +846,14 @@ class Step(ABC):
 
         output_missing = [f for f in self.output_files if not Path(f).is_file()]
         if output_missing:
-            info("Expected output files missing for step '%s':", self.name)
-            log_first_five(output_missing)
+            count = len(output_missing)
+            info(
+                "Step '%s' has %d output file%s missing (-v lists %s).",
+                self.name, count, "" if count == 1 else "s", "it" if count == 1 else "them",
+            )
+            if log:
+                for missing in output_missing:
+                    logging.debug("   - %s", missing)
             return "output files missing"
 
         stamp = self.read_stamp()
@@ -1132,11 +1151,19 @@ class Step(ABC):
         run_cmd_path   = Path(run_cmd)
         run_dir        = self.workdir / run_cmd_path.parent
         run_executable = run_cmd_path.name
+        if run_cmd_path.suffix == ".py" and _looks_up_python(run_dir / run_executable):
+            # A Python flow that leaves its interpreter to PATH runs under bake's
+            # own, which has bake and the tools whose flows import them
+            # (rdl2verilog's does), rather than whichever python3 is first on
+            # PATH. A shebang naming an interpreter is obeyed.
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(run_executable)}"
+        else:
+            command = "./" + run_executable
 
         tracker = procs.track()
         logging.debug(
-            "Executing step '%s': ./%s (cwd=%s, processes tracked by %s)",
-            self.recipe_path, run_executable, run_dir, tracker.mechanism,
+            "Executing step '%s': %s (cwd=%s, processes tracked by %s)",
+            self.recipe_path, command, run_dir, tracker.mechanism,
         )
 
         handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
@@ -1148,7 +1175,7 @@ class Step(ABC):
             try:
                 # A tracker's preexec only makes system calls (open, write, close).
                 proc = subprocess.Popen(  # pylint: disable=subprocess-popen-preexec-fn
-                    tracker.command("./" + run_executable), shell=True, cwd=run_dir,
+                    tracker.command(command), shell=True, cwd=run_dir,
                     env=env, start_new_session=True, preexec_fn=tracker.preexec)
             except subprocess.SubprocessError as err:
                 # the step's process could not move into its cgroup

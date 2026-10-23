@@ -160,8 +160,7 @@ Run the `tmr` step alone to triplicate the design:
 $ bake counter tmr
 [bake] INFO     Running tmr on block counter
 [bake] INFO     Flow: 'builtin_tmr_flow' from .../bake/builtin/tmr/flow
-[bake] INFO     Expected output files missing for step 'tmr':
-[bake] INFO        - /home/user/quickstart/work/counter/tmr/output/counterTMR.v
+[bake] INFO     Step 'tmr' has 1 output file missing (-v lists it).
 [tmrg ] INFO     Running tmrg
 [bake] INFO     Step tmr completed in 00:00:01
 ```

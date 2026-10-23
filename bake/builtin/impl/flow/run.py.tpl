@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# bake runs this script with its own interpreter; the shebang only serves a run
+# by hand. It names no interpreter path: a flow copied into a project (bake -p)
+# is committed there, and a path would tie it to one machine's environment.
+#
 # Copyright 2026 Andrea Paterno'
 # SPDX-License-Identifier: Apache-2.0
 #
