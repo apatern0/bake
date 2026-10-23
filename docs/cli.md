@@ -16,13 +16,14 @@ when its outputs are missing or older than its sources.
 |---|---|
 | `-m PATH`, `--manifest-dir PATH` | Directory containing the `manifest` to load (default: `.`). |
 | `-t NAME`, `--test NAME` | Select the test to run for a `vrf` step. Required when the block has more than one test; auto-selected when it has exactly one. |
-| `-o SECTION.ATTR=VALUE`, `--options` | Override a `config` attribute for this run, e.g. `-o vrf.simulator=verilator`. Repeatable. The value takes the attribute's type: list attributes are appended to, booleans accept `true/false/1/0`, integers are converted, anything else is set as a string. Unknown sections and attributes are errors. |
+| `-o SECTION.ATTR=VALUE`, `--options` | Override a `config` attribute for this run, e.g. `-o vrf.simulator=verilator`. Repeatable. The value takes the attribute's kind: list attributes are appended to, booleans accept `true/false/yes/no/1/0`, integers and numbers are converted, anything else is set as a string; an attribute with choices takes only those. It holds from the moment its section exists, so manifests see it while they load (see [When an override takes effect](configuration.md#when-an-override-takes-effect)). Unknown sections and attributes are errors, with a suggestion for a misspelt name. |
 | `-n`, `--dry-run` | Elaborate the recipe, dependencies included, and report per step whether it is up to date or would run — without executing anything. Exits `1` when a step refuses the block/recipe combination, with the reason. |
 | `-f`, `--force` | Run every step of the requested recipe even if its outputs are up to date. Dependencies are not forced; they run only when stale. |
 | `-c`, `--clean` | Remove the work directory of the block/recipe combination (`work/<block>/<recipe>`, for `vrf` the test's, plus the simulation builds the block's tests share) and stop. The directories of the recipe's earlier steps belong to their own, shorter recipes (`tmr` for `tmr-impl`) and are left alone, as are dependencies. |
 | `-r`, `--restart` | Remove that work directory, then run the recipe. |
 | `-p`, `--populate-flow` | Copy the flow of the recipe's last step into `flow/<block>/<recipe>/` (plus the test for `vrf`) to customise it, and run nothing. That step runs the copy from then on; the recipe's earlier steps and its dependencies keep running their flows. On an existing copy, the copy is left as it is and recorded as based on the flow as it is now. See [Custom Flows](custom_flows.md#customising-a-flow-for-one-block). |
 | `-l`, `--list-libs` | List the libraries (`lib()`) and macros (`macro()`) registered by the manifests, then exit. |
+| `--list-options` | List every `config` section and attribute after loading the manifests — value, where it comes from, the kinds and values it takes, description — then exit. Combine it with `-o` to check what an override does. |
 | `-i`, `--interactive` | Ask flows to run interactively where they can (e.g. open the simulator GUI). |
 | `-v`, `--verbose` | Debug logging. Repeat for more. |
 | `--version` | Print the bake version and exit. |

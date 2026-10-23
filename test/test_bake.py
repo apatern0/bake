@@ -1330,7 +1330,7 @@ def test_option_string_and_bool_applied(bake, project):
 def test_option_bad_bool_errors(bake, capfd, project):
     project("sample")
     assert bake.run(["sample_target", "vrf", "-o", "bake.interactive=maybe"]) == 1
-    assert_in_stderr(capfd, "Expected a boolean")
+    assert_in_stderr(capfd, "config.bake.interactive takes a boolean (true or false), not 'maybe'")
 
 
 def test_option_list_appends(bake, project):
@@ -1339,6 +1339,118 @@ def test_option_list_appends(bake, project):
     assert not bake.run(["sample_target", "vrf", "-o", "vrf.options=-a", "-o", "vrf.options=-b"])
     from bake.context import context
     assert context.config.vrf.options == ["-a", "-b"]
+
+
+def _project_vars():
+    """What the options_impl stand-in flow recorded of the proj section."""
+    return Path("work/dut/impl/output/vars.txt").read_text().strip()
+
+
+def test_project_section_defaults_reach_flow(bake, project):
+    """A section registered with templates=True reaches the flow as
+    $BAKE_PROJ_*: booleans as 1/0, lists space-joined."""
+    project("project_options")
+    assert not bake.run(["dut", "impl"])
+    assert _project_vars() == "WIDTH=8 MODE=small FAST=0 TAGS= RATIO=1.5 SEEN=8"
+
+
+def test_project_section_set_from_command_line(bake, project):
+    """-o converts each value to its option's kind, the manifest sees it while
+    it loads (SEEN), a manifest assigning it afterwards keeps the command
+    line's value (FAST) and a list gets the items appended."""
+    project("project_options")
+    assert not bake.run(["dut", "impl", "-o", "proj.width=16", "-o", "proj.fast=yes",
+                         "-o", "proj.tags=a", "-o", "proj.tags=b", "-o", "proj.ratio=2"])
+    assert _project_vars() == "WIDTH=16 MODE=small FAST=1 TAGS=a b RATIO=2.0 SEEN=16"
+    from bake.context import context
+    assert context.config.proj.width == 16 and context.config.proj.fast is True
+
+
+def test_project_option_change_reruns_step(bake, capfd, project):
+    """A project option is part of the step's fingerprint."""
+    project("project_options")
+    assert not bake.run(["dut", "impl"])
+    assert not bake.run(["dut", "impl"])
+    assert_in_stderr(capfd, "up-to-date")
+    assert not bake.run(["dut", "impl", "-o", "proj.width=16"])
+    assert_not_in_stderr(capfd, "up-to-date")
+    assert _project_vars().startswith("WIDTH=16")
+
+
+@pytest.mark.parametrize("option, message", [
+    ("proj.width=12",  "Option '-o proj.width=12': config.proj.width takes one of 8, 16, not 12. "
+                       "config.proj.width: Data width in bits."),
+    ("proj.width=wide", "Option '-o proj.width=wide': config.proj.width takes an integer, not 'wide'."),
+    ("proj.widht=16",  "config.proj has no attribute 'widht' (did you mean 'width'?). Its attributes: "
+                       "fast, mode, ratio, tags, width (`bake --list-options` describes them)"),
+    ("prj.width=16",   "unknown config section 'prj' (did you mean 'proj'?)"),
+    ("vrf.flow_options=x", "config.vrf.flow_options is a dictionary, which -o cannot set"),
+    ("proj.width",     "Malformed option '-o proj.width': it has no '='"),
+    ("projwidth=16",   "Malformed option '-o projwidth=16': it names no section"),
+])
+def test_option_errors_explain(bake, capfd, project, option, message):
+    """Every override that cannot be applied stops before anything runs, with
+    a message that says what the attribute takes, without a traceback or a
+    manifest location (the command line is at fault)."""
+    project("project_options")
+    assert bake.run(["dut", "impl", "-o", option]) == 1
+    out = stderr(capfd)
+    assert message in out
+    assert "Traceback" not in out and "manifest:" not in out
+    assert not Path("work").exists()
+
+
+def test_user_section_set_once_loaded(bake, capfd, project):
+    """config.user has no schema: -o sets an attribute a manifest assigned,
+    once every manifest has loaded, and names the missing one."""
+    project("project_options")
+    assert not bake.run(["dut", "impl", "-o", "user.label=from_cli"])
+    from bake.context import context
+    assert context.config.user.label == "from_cli"
+    assert bake.run(["dut", "impl", "-o", "user.nope=1"]) == 1
+    assert_in_stderr(capfd, "config.user has no attribute 'nope'")
+
+
+def test_manifest_assignment_checked_against_option(bake, capfd, project):
+    """A manifest assigning a declared option a value of another kind is a
+    manifest error at its line."""
+    project("options_bad_type")
+    assert bake.run([]) == 1
+    assert_stderr(capfd, expect=["manifest:", "config.proj.width takes an integer, not a string ('16')",
+                                 "config.proj.width: Data width in bits."],
+                  expect_not=["Traceback"])
+
+
+def test_option_default_must_be_a_choice(bake, capfd, project):
+    project("options_bad_choice")
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "config.option(4, ...): the default is not one of its choices (8, 16)")
+
+
+def test_list_options(bake, capfd, project):
+    """--list-options shows every section's attributes with their value,
+    where it comes from, its choices and its description."""
+    project("project_options")
+    assert bake.run(["--list-options", "-o", "proj.width=16"]) == 0
+    out = stderr(capfd)
+    for expected in ("config.proj", "width", "= 16  (set by -o)", "Data width in bits; one of 8, 16",
+                     "config.vrf", "simulator", "config.impl", "flow", "(set by a manifest)",
+                     "(set by the command line)", "config.bake",
+                     "a dictionary: set its keys in a manifest"):
+        assert expected in out, expected
+
+
+def test_unknown_config_section_in_manifest(bake, project):
+    """Reading a section nobody registered names the known ones and says how
+    a project adds its own."""
+    project("sample")
+    assert not bake.run([])   # loads the built-in steps' sections
+    from bake.context import context
+    typo = "vfr"
+    with pytest.raises(AttributeError) as err:
+        getattr(context.config, typo)
+    assert "config has no section 'vfr' (did you mean 'vrf'?)" in str(err.value)
+    assert "config.register()" in str(err.value)
 
 
 def test_vrf_delays_is_a_scalar(bake, project):

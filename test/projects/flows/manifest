@@ -67,6 +67,14 @@ flow(
     dir="nothing",
 )
 
+# An impl flow whose script records a project section's template variables.
+flow(
+    name="options_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="options_impl",
+)
+
 flow(
     name="plain_run",
     run_cmd="run.sh",

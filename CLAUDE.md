@@ -90,7 +90,9 @@ Subclass `Step`, set `name`, implement `source_files` and `output_files` (and `c
 
 ### Config sections
 
-Each step registers its own config section via `config.register('stepname', StepCfg())` at module load time. Users set config in manifests via `config.vrf.simulator = "xcelium"` etc. The `BakeConfig` section (`config.bake`) controls global bake behavior.
+Each step registers its own config section via `config.register('stepname', StepCfg())` at module load time; a project registers its own the same way (`templates=True` exposes its attributes to every flow as `$BAKE_<SECTION>_<ATTR>`). Users set config in manifests via `config.vrf.simulator = "xcelium"` etc. The `BakeConfig` section (`config.bake`) controls global bake behavior. Attributes are declared in the section's `__init__`, with `config.option(default, desc, choices=, kind=)` for a description, a kind and allowed values (`Option` in `context.py`), which `-o`, manifest assignments and `bake --list-options` use.
+
+`-o` overrides are parsed before any manifest loads (`Config.set_overrides`) and applied when their section is registered (`Config.register` → `apply_overrides`; `config.bake` right after the CLI flags are set), so manifests see them; a manifest assigning an overridden attribute afterwards keeps the command line's value (`FixedSchemaAttributes.__setattr__`). List items and `config.user` attributes are applied once every manifest has loaded (`Config.finish_overrides`), which also rejects overrides of sections that never appeared. Override errors are `BakeOptionError`, reported without a manifest location.
 
 ## Logging conventions
 

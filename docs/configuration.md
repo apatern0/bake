@@ -11,6 +11,9 @@ config.bake.file_copy_method = "symlink"
 
 Assigning an attribute a section does not have is an error that names the known attributes, so
 a typo cannot pass unnoticed (`config.user` is the exception: it is free-form, see below).
+Attributes declared with a description and a kind (see [Project sections](#project-sections))
+are checked as well: assigning one a value of another kind, or one outside its choices, is an
+error at that line of the manifest.
 
 Settings take effect before any step is executed. Configuration can also be overridden at the
 command line with the `-o` flag:
@@ -19,11 +22,41 @@ command line with the `-o` flag:
 bake counter vrf -o vrf.simulator=xcelium
 ```
 
-`-o` is applied after every manifest has loaded, so the command line wins over the manifest. The
-manifest code itself runs before that and sees the manifest's own values: do not branch on
-`config` inside a manifest expecting to see an override. Put anything that depends on a setting
-in the flow (through the template variables) or in a step's `build_tpl_dict()`, which both see
-the final value.
+### When an override takes effect
+
+An override holds from the moment its attribute exists. *bake* reads the `-o` options before
+any manifest runs and applies each one as soon as its section is registered: the sections of
+`bake` and of the built-in steps exist before the project's manifests run, and a project's own
+section exists once a manifest registers it. From then on:
+
+- every manifest reads the command line's value, so a manifest can decide on it, e.g. choose
+  the files of a block with `if config.proj.width == 16:`;
+- a manifest assigning the attribute keeps the command line's value: the command line wins, as
+  the final value of a run always has. A manifest that derives a value from the attribute, say
+  `config.bake.output_dir = os.path.join(config.bake.output_dir, "fast")`, does not apply
+  either: the command line's value is the one the run uses.
+
+Two kinds of attribute keep the old timing:
+
+- items of a **list** attribute (`-o vrf.options=-a`) are appended once every manifest has
+  loaded, after the manifests' own items, so their order does not change; a manifest reading
+  the list while it loads does not see them;
+- **`config.user`** attributes, which have no schema to check against, are set once every
+  manifest has loaded, and only if a manifest assigned them.
+
+A **dictionary** attribute (`flow_options`, ...) cannot be set with `-o`: set its keys in a
+manifest. An override of a section or attribute that never appears, a value that does not
+convert to the attribute's kind and a value outside its choices all stop *bake* before
+anything runs, with a message that says what the attribute takes:
+
+```
+[bake] ERROR    Option '-o proj.width=12': config.proj.width takes one of 8, 16, not 12. config.proj.width: Data width in bits.
+[bake] ERROR    Option '-o vrf.simulater=x': config.vrf has no attribute 'simulater' (did you mean 'simulator'?). Its attributes: ...
+```
+
+`bake --list-options` lists every section with its attributes, their values, where the values
+come from (a manifest, `-o` or the command line's flags), the kinds and values they take and
+their descriptions.
 
 ## Configuration Sections
 
@@ -123,13 +156,52 @@ config.tmr.seu_set_pin      = "SN"
 ```
 
 ### `config.user`
-A free-form section for user-defined attributes. There is no fixed schema — you may add any
-attribute you like and read it back from within manifest code or from custom step implementations:
+A free-form section for values a project shares between its manifests and its own steps. There
+is no fixed schema — you may add any attribute you like and read it back from within manifest
+code or from custom step implementations:
 
 ```python
 config.user.my_project_name = "sensor_readout"
 config.user.pdk_root = "/opt/pdk/sky130A"
 ```
+
+Each manifest runs in a namespace of its own, so `config` is the only object they share: a value
+one manifest computes and another reads belongs here. A setting meant to be chosen from the
+command line belongs in a [project section](#project-sections), which documents it, checks it and
+lets the manifests see the command line's value.
+
+## Project sections
+
+A project declares its own settings the way *bake* declares the steps': a section class whose
+`__init__` defines the attributes, registered with `config.register()`. `config.option()` gives an
+attribute its default, a description and, optionally, the values it may take:
+
+```python
+class ProjConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.width = config.option(8, "Data width in bits", choices=[8, 16])
+        self.fast  = config.option(False, "Build the fast variant")
+        self.tags  = config.option([], "Tags of the build")
+
+config.register("proj", ProjConfig(), templates=True)
+```
+
+- **Kind.** The default's kind — `bool`, `int`, `float`, `str`, `list` or `dict` — is the
+  attribute's: `-o` converts its text to it (`true/false/yes/no/1/0` for a boolean), and a manifest
+  assigning another kind is an error (an integer where a number is expected, a tuple where a list
+  is, are fine). A default of `None` says nothing about the kind: pass `kind=str` (or a tuple of
+  kinds) to `config.option()`. A plain value instead of `config.option()` keeps the kind check of
+  `-o` and nothing else.
+- **Choices.** With `choices=`, any other value is an error, from `-o` or from a manifest.
+- **Template variables.** With `templates=True`, every attribute but the dictionaries reaches
+  every step's flow as `$BAKE_<SECTION>_<ATTRIBUTE>` — `$BAKE_PROJ_WIDTH` above — booleans as `1`
+  or `0`, lists space-joined. Being template variables, they are part of what a step was built
+  from: changing one reruns the steps that see it.
+- **Where to register.** Register the section in the top manifest, before the `load()` calls of
+  the manifests that read it: an override takes effect when its section is registered, and
+  reading a section that does not exist yet is an error.
+
+Set them as any other attribute: `bake counter impl -o proj.width=16 -o proj.fast=true`.
 
 ## Template Variables
 
@@ -154,6 +226,7 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_INTERACTIVE` | `1` when *bake* is invoked with `-i`, `0` otherwise |
 | `$BAKE_VERBOSITY` | Number of `-v` flags given |
 | `$BAKE_FLOW_OPT_<NAME>` | One per flow option: the flow's `tpl_defaults` overridden by `config.<step>.flow_options` |
+| `$BAKE_<SECTION>_<ATTRIBUTE>` | One per attribute of a section registered with `templates=True` (see [Project sections](#project-sections)) |
 
 ### Built-in variables (vrf step)
 

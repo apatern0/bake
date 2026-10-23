@@ -37,9 +37,9 @@ FlowSpec(
 class TmrConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.tpl_dict     = config.TemplateDictionary()
-        self.options      = []
-        self.flow         = ""
-        self.flow_options = {}
+        self.options      = config.option([], "Options of the TMR flow's run")
+        self.flow         = config.option("", "Flow of the tmr step, by name")
+        self.flow_options = config.option({}, "Options of the tmr flow ($BAKE_FLOW_OPT_*)")
 
         # Cell-library simplification. Full standard-cell Verilog models are too
         # heavy for tmrg, so library files whose path starts with one of
@@ -52,11 +52,13 @@ class TmrConfig(config.FixedSchemaAttributes):
         #   config.tmr.ff_cell_patterns  = [r"^DFF", r"^SDFF"]
         #   config.tmr.seu_reset_pin     = "RN"
         #   config.tmr.seu_set_pin       = "SN"
-        self.cell_lib_dirs      = []
-        self.ff_cell_patterns   = []
-        self.skip_cell_patterns = []
-        self.seu_reset_pin      = ""
-        self.seu_set_pin        = ""
+        self.cell_lib_dirs      = config.option(
+            [], "Cell-library directories whose files are reduced to port declarations")
+        self.ff_cell_patterns   = config.option(
+            [], "Regexes of flip-flop cells that get seu_reset/seu_set annotations")
+        self.skip_cell_patterns = config.option([], "Regexes of cells dropped altogether")
+        self.seu_reset_pin      = config.option("", "Asynchronous reset pin of the flip-flop cells")
+        self.seu_set_pin        = config.option("", "Asynchronous set pin of the flip-flop cells")
 
 
 config.register('tmr', TmrConfig())
