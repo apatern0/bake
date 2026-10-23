@@ -536,6 +536,27 @@ class RegressionData(StepData):
 RegressionData.accepts = (RegressionData,)
 
 
+@dataclass
+class SweepData(StepData):
+    """A sweep: the variants the sweep step runs, each one run of a block's
+    recipe with its own -o overrides.
+
+    `runs` holds one entry per variant: {"name", "block", "recipe",
+    "options", "variant_options"}, `options` being the sweep's common
+    overrides followed by the variant's own, `variant_options` the latter.
+    `desc` is the sweep's description (the question it answers) and
+    `options` its common overrides, for the report."""
+
+    kind: ClassVar[str] = "sweep"
+
+    runs:    list = field(default_factory=list)
+    desc:    str = ""
+    options: list = field(default_factory=list)
+
+
+SweepData.accepts = (SweepData,)
+
+
 def include_kind(owner: "DesignSpec", dep: "DesignSpec", recipe: str) -> type[StepData]:
     """The kind `dep` has once `recipe` ran on it, checked step by step and
     against what `owner` can include; raises BakeManifestError otherwise.
@@ -727,7 +748,8 @@ class Step(ABC):
     @property
     def workdir(self) -> Path:
         if context.config.bake.output_dir:
-            return Path(context.config.bake.output_dir) / self.data.block / self.recipe_path
+            # Absolute, so that the flow, which runs in it, gets paths it can use.
+            return Path(context.config.bake.output_dir).absolute() / self.data.block / self.recipe_path
 
         return Path(self.data.block_dir) / "work" / self.data.block / self.recipe_path
 

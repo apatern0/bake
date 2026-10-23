@@ -1,0 +1,101 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Sweep step: runs one block's recipe once per variant of a sweep().
+
+Every variant is a bake invocation of the recipe with the sweep's -o
+overrides and its own, in a directory of its own (config.bake.output_dir),
+so that the variants never share a work directory. The step hands its flow
+the runs ready to start; the built-in flow runs them in parallel on this
+machine and keeps a report comparing them, from the summary.json each run's
+flow writes."""
+
+import sys
+
+from bake.context import context
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import Step, SweepData
+
+
+FlowSpec(
+    name="builtin_sweep_flow",
+    desc="Runs a sweep's variants in parallel on this machine and reports them",
+    dir="flow/local",
+    tpl_defaults={
+        "jobs": 0,       # variants at a time; 0: all of them
+        "timeout": 0,    # seconds a variant may take; 0: no limit
+    },
+)
+
+
+class SweepConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = config.option(
+            None, "Flow that starts the variants, by name; the built-in local one when unset", kind=str)
+        self.flow_options = config.option({}, "Options of the sweep flow ($BAKE_FLOW_OPT_*)")
+
+
+config.register("sweep", SweepConfig())
+
+
+class SweepStep(Step):
+    """Runs a sweep: every variant is `bake <block> <recipe>` with the
+    sweep's -o options, the variant's and the command line's, in a directory
+    of its own."""
+
+    name = "sweep"
+    default_flow = "builtin_sweep_flow"
+    consumes = (SweepData,)
+
+    @property
+    def source_files(self):
+        return []
+
+    @property
+    def output_files(self):
+        return []   # a sweep always runs
+
+    def check_pre(self):
+        if not self.data.runs:
+            raise BakeManifestError(f"Sweep '{self.data.block}' has no variants.")
+
+    def build_tpl_dict(self):
+        """$BAKE_SWEEP_RUNS: one entry per variant, with `name` (the
+        variant's), `block`, `recipe`, `options` (the -o overrides of the
+        run: the sweep's, the variant's, then the command line's, which win),
+        `variant_options` (the variant's own) and `command`, the run ready to start in a directory of its own: the
+        bake invocation of the recipe (the bake installation and the project
+        of this command) with `options` and `bake.output_dir=.`, the
+        directory it starts in. $BAKE_SWEEP_DESC is the sweep's description,
+        $BAKE_SWEEP_OPTIONS its common options and $BAKE_SWEEP_PROJECT the
+        project's manifest directory, for the report."""
+        tpl_dict = super().build_tpl_dict()
+        bake = [sys.executable, "-m", "bake", "-m", context.config.bake.manifest_dir]
+        runs = []
+        for entry in self.data.runs:
+            options = list(entry["options"]) + list(context.config.bake.options)
+            command = bake + [entry["block"], entry["recipe"]]
+            for option in options + ["bake.output_dir=."]:
+                command += ["-o", option]
+            runs.append({"name": entry["name"], "block": entry["block"], "recipe": entry["recipe"],
+                         "options": options, "variant_options": list(entry["variant_options"]),
+                         "command": command})
+        tpl_dict["BAKE_SWEEP_RUNS"] = runs
+        tpl_dict["BAKE_SWEEP_DESC"] = self.data.desc
+        tpl_dict["BAKE_SWEEP_OPTIONS"] = list(self.data.options)
+        tpl_dict["BAKE_SWEEP_PROJECT"] = context.config.bake.manifest_dir
+        return tpl_dict
