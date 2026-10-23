@@ -1,6 +1,8 @@
 #!/bin/bash
 # Writes the outputs of an impl step and a summary.json from the project's
-# options; fails when the fail option is set.
+# options; fails when the fail option is set. In a sweep, it keeps the sweep's
+# report as it stood when the run started, in report_seen.md.
+cp ../../../../report.md report_seen.md 2>/dev/null || true
 sleep ${BAKE_PROJ_SLEEP}
 mkdir -p output
 touch output/${BAKE_TOP}.v output/${BAKE_TOP}.sdf output/${BAKE_TOP}_tc.lib
