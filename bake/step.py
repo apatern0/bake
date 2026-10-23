@@ -915,7 +915,9 @@ class Step(ABC):
         """Template variables available to every flow.
 
         Combines config.bake.tpl_dict, the step's own config.<step>.tpl_dict,
-        the block/recipe identity, and the flow options: the flow's
+        the attributes of the sections registered with templates=True
+        ($BAKE_<SECTION>_<ATTRIBUTE>), the block/recipe identity, and the
+        flow options: the flow's
         tpl_defaults overlaid with config.<step>.flow_options, exposed as
         $BAKE_FLOW_OPT_<NAME> (name upper-cased).  A dict option expands to
         one variable per key, $BAKE_FLOW_OPT_<NAME>_<KEY>, and an override
@@ -927,6 +929,13 @@ class Step(ABC):
         """
         tpl_dict = dict(context.config.bake.tpl_dict)
         tpl_dict.update(getattr(self.config, "tpl_dict", None) or {})
+        for key, value in context.config.template_vars().items():
+            if key in tpl_dict:
+                raise exceptions.BakeConfigError(
+                    f"Template variable {key} comes both from a section registered with "
+                    f"templates=True and from a tpl_dict: rename one of them."
+                )
+            tpl_dict[key] = value
 
         tpl_dict["BAKE_INTERACTIVE"] = int(context.config.bake.interactive)
         tpl_dict["BAKE_VERBOSITY"]   = context.config.bake.verbosity
