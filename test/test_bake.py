@@ -963,6 +963,10 @@ def test_sweep_reports_running_variants(bake, project):
     bake.run(["widths", "sweep"])
     seen = Path("work/widths/sweep/runs/w8/dut/impl/report_seen.md").read_text()
     assert "| w8 | `proj.width=8` | running |" in seen
+    # Run again with another input: the earlier summary is not the running one's
+    bake.run(["widths", "sweep", "-o", "proj.sleep=1"])
+    seen = Path("work/widths/sweep/runs/w8/dut/impl/report_seen.md").read_text()
+    assert "| w8 | `proj.width=8` | running | — |" in seen.splitlines()
 
 
 def test_sweep_reruns_only_changed_variants(bake, project):

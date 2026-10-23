@@ -68,9 +68,15 @@ def summary_path(run):
 
 
 def summary_of(run):
-    """The run's summary.json, or None when its flow wrote none (yet)."""
+    """The run's summary.json, or None when its flow wrote none (yet). A
+    variant that has not finished shows none: what is there is from an
+    earlier sweep; nor does a stopped one, unless its flow wrote it since."""
+    if run["status"] in ("pending", "running"):
+        return None
     path = summary_path(run)
     if path is None:
+        return None
+    if run["status"] in ("stopped", "timeout") and path.stat().st_mtime < run.get("started_at", 0):
         return None
     try:
         with open(path, encoding="utf-8") as f:
@@ -86,6 +92,7 @@ def execute(run, timeout, started_hook):
     if _stopping.is_set():
         return {"status": "stopped", "seconds": 0.0}
     run["dir"].mkdir(parents=True, exist_ok=True)
+    run["started_at"] = time.time()
     start = time.monotonic()
     with open(run["dir"] / "run.log", "w", encoding="utf-8") as log:
         log.write(shlex.join(run["command"]) + "\n\n")
