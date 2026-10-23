@@ -23,7 +23,6 @@ import logging
 import argparse
 import difflib
 import os
-import re
 import sys
 from pathlib import Path
 import traceback
@@ -63,70 +62,30 @@ def complete_config(prefix, parsed_args, **kw_args):
 # -o option overrides
 # ---------------------------------------------------------------------------
 
-_TRUE_WORDS  = ("1", "true", "yes", "on")
-_FALSE_WORDS = ("0", "false", "no", "off")
+def _origin_note(origin: str) -> str:
+    return {"default": "", "set": "  (set by a manifest)", "-o": "  (set by -o)",
+            "flag": "  (set by the command line)"}.get(origin, "")
 
 
-def _coerce_option_value(current, value: str):
-    """Convert a -o value to the type of the attribute it replaces."""
-    if isinstance(current, bool):
-        if value.lower() in _TRUE_WORDS:
-            return True
-        if value.lower() in _FALSE_WORDS:
-            return False
-        raise exceptions.BakeConfigError(
-            f"Expected a boolean (true/false), got '{value}'."
-        )
-    if isinstance(current, int):
-        try:
-            return int(value)
-        except ValueError as err:
-            raise exceptions.BakeConfigError(f"Expected an integer, got '{value}'.") from err
-    return value
-
-
-def apply_option_overrides(options):
-    """Apply `-o section.attribute=value` overrides to the loaded config.
-
-    A list attribute gets the value appended; a bool or int attribute gets
-    the value converted; anything else is set as a string.  Unknown sections
-    and attributes are errors: a silently ignored typo is worse than a stop.
-    """
-    for o in options:
-        m = re.match(r'^([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)=(.*)$', o)
-        if not m:
-            raise exceptions.BakeConfigError(
-                f"Malformed option '{o}': expected the form section.attribute=value "
-                f"(e.g. -o vrf.simulator=icarus)."
-            )
-        section, attribute, value = m.groups()
-
-        try:
-            section_obj = getattr(context.config, section)
-        except exceptions.BakeConfigError as err:
-            raise exceptions.BakeConfigError(
-                f"Option '{o}': unknown config section '{section}'. "
-                f"Known sections: {', '.join(context.config._section_names())}."
-            ) from err
-
-        if attribute.startswith("_") or not hasattr(section_obj, attribute):
-            known = [a for a in dir(section_obj) if not a.startswith("_") and not callable(getattr(section_obj, a))]
-            raise exceptions.BakeConfigError(
-                f"Option '{o}': config.{section} has no attribute '{attribute}'. "
-                f"Known attributes: {', '.join(known)}."
-            )
-
-        current = getattr(section_obj, attribute)
-        if isinstance(current, list):
-            current.append(value)
-            logging.debug("Config option applied: %s.%s += %r", section, attribute, value)
-        else:
-            try:
-                new_value = _coerce_option_value(current, value)
-            except exceptions.BakeConfigError as err:
-                raise exceptions.BakeConfigError(f"Option '{o}': {err}") from err
-            setattr(section_obj, attribute, new_value)
-            logging.debug("Config option applied: %s.%s = %r", section, attribute, new_value)
+def log_options():
+    """List every config section and attribute: its value, where the value
+    comes from, the kinds and values it takes, and its description."""
+    logging.info("Configuration (set an attribute with -o section.attribute=value):")
+    for name, rows in context.config.describe():
+        logging.info("config.%s%s", name, "" if rows else "  (no attributes)")
+        for attr, value, opt, origin in rows:
+            logging.info("  %-22s = %r%s", attr, value, _origin_note(origin))
+            details = []
+            if opt is not None and opt.desc:
+                details.append(opt.desc)
+            if opt is not None and opt.choices is not None:
+                details.append("one of " + ", ".join(str(c) for c in opt.choices))
+            elif isinstance(value, list):
+                details.append("a list: -o adds one item")
+            elif isinstance(value, dict):
+                details.append("a dictionary: set its keys in a manifest")
+            if details:
+                logging.info("  %-22s   %s", "", "; ".join(details))
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +133,11 @@ def report_manifest_error(err: BaseException, verbose: bool) -> None:
     on (a bad argument, a bake error, a Python error in the manifest
     itself) get the traceback only with -v; anything else is a problem in
     bake and always shows it."""
+    if isinstance(err, exceptions.BakeOptionError):
+        # The command line's fault, wherever the manifest stood when its
+        # section was registered.
+        logging.error("%s", err)
+        return
     where, raised_in_manifest = _manifest_location(err)
     if isinstance(err, pydantic.ValidationError):
         messages, expected = _validation_messages(err), True
@@ -367,6 +331,9 @@ def main():
              "based on the flow as it is now.")
     parser.add_argument("-l", "--list-libs", dest="listlibs", action="store_true",
         help="List all known libraries after evaluating manifests.")
+    parser.add_argument("--list-options", dest="listoptions", action="store_true",
+        help="List every config attribute after evaluating manifests: its value, what it takes "
+             "and its description.")
     parser.add_argument("--version", action="version", version=f"bake {step.bake_version()}")
 
     argcomplete.autocomplete(argument_parser=parser, always_complete_options=False)
@@ -388,16 +355,23 @@ def main():
     # process, e.g. the test suite), then record the command-line options.
     loader.reset_loaded()
     context.reset()
-    context.config.bake.verbosity = args.verbose
-    context.config.bake.interactive = args.interactive
-    context.config.bake.manifest_dir = file_utils.absolute_path(args.manifestpath)
-    context.config.bake.options = list(args.options)
-    context.config.bake.test = args.test
-    context.config.bake.force = args.force
-    context.config.bake.clean = args.clean
-    context.config.bake.restart = args.restart
-    context.config.bake.populate = args.populate
-    context.config.bake.dry_run = args.dry_run
+    for attr, value in (
+        ("verbosity", args.verbose), ("interactive", args.interactive),
+        ("manifest_dir", file_utils.absolute_path(args.manifestpath)),
+        ("options", list(args.options)), ("test", args.test), ("force", args.force),
+        ("clean", args.clean), ("restart", args.restart), ("populate", args.populate),
+        ("dry_run", args.dry_run),
+    ):
+        context.config.bake._bake_set_from_flag(attr, value)  # pylint: disable=protected-access
+
+    # The -o overrides take effect as their sections are registered, so the
+    # manifests see them while they load; config.bake exists already.
+    try:
+        context.config.set_overrides(args.options)
+        context.config.apply_overrides("bake")
+    except exceptions.BakeConfigError as e:
+        logging.error("%s", e)
+        sys.exit(1)
 
     # Load builtin manifests
     builtin_dir = Path(__file__).resolve().parent / 'builtin'
@@ -411,6 +385,10 @@ def main():
         try:
             logging.debug("Loading builtin step directory: %s", entry.name)
             loader.load(str(entry))
+        except exceptions.BakeOptionError as e:
+            # An override of the section the step registers.
+            logging.error("%s", e)
+            sys.exit(1)
         except Exception as e:  # pylint: disable=broad-exception-caught
             # A broken builtin is a broken installation: nothing sensible
             # can run without the step it defines.
@@ -428,6 +406,7 @@ def main():
     try:
         loader.load(args.manifestpath)
         context.validate()
+        context.config.finish_overrides()
     except Exception as e:  # pylint: disable=broad-exception-caught
         report_manifest_error(e, verbose=bool(args.verbose))
         sys.exit(1)
@@ -442,6 +421,10 @@ def main():
 
     if args.listlibs:
         context.log_libs()
+        sys.exit(0)
+
+    if args.listoptions:
+        log_options()
         sys.exit(0)
 
     if not args.target_recipe:
@@ -459,7 +442,6 @@ def main():
     block, recipe = args.target_recipe
 
     try:
-        apply_option_overrides(args.options)
         run(block, recipe)
     except exceptions.BakeStepExecutionError as e:
         logging.error("Error during bake operation: %s", str(e))

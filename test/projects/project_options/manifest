@@ -1,0 +1,46 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A project's own config section: options with a description, a kind and
+# choices, set with -o and seen by the manifest while it loads, and exposed
+# to the flows as $BAKE_PROJ_*.
+
+from bake import load, block
+
+
+class ProjConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.width = config.option(8, "Data width in bits", choices=[8, 16])
+        self.mode = config.option("small", "RTL variant")
+        self.fast = config.option(False, "Build the fast variant")
+        self.tags = config.option([], "Tags of the build")
+        self.ratio = config.option(1.5, "Aspect ratio")
+
+
+config.register("proj", ProjConfig(), templates=True)
+
+# A manifest assigning an attribute the command line sets keeps the
+# command line's value.
+config.proj.fast = False
+
+load("../flows")
+config.impl.flow = "options_impl"
+# What this manifest sees while it loads.
+config.bake.tpl_dict["BAKE_SEEN_WIDTH"] = str(config.proj.width)
+
+# config.user is free-form: -o sets what a manifest assigned, once loaded.
+config.user.label = "from_manifest"
+
+block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])
