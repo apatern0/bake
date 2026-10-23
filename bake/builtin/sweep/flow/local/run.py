@@ -28,7 +28,9 @@ writes in its work directory (runs/<variant>/<block>/<recipe>/); it is
 rewritten whenever a variant finishes, so it also says how far the sweep
 is. results.csv has one row per variant. sweep.pid holds the process to
 stop the sweep with (SIGTERM or SIGINT stops every run). The exit code is
-nonzero when a variant did not pass.
+nonzero when a variant did not pass. A variant whose flow finished without
+every output its step expects (a run stopped before the end of its flow on
+purpose) is "partial": reported, but not a failure of the sweep.
 """
 
 import concurrent.futures
@@ -46,6 +48,9 @@ import threading
 import time
 
 GRACE_SECONDS = 30   # after a timeout or a stop, for a run to stop its flow
+# What bake logs when the flow finished but the step lacks outputs it
+# expects: a run stopped before the end of its flow on purpose, say.
+MISSING_OUTPUTS = "did not produce all required files"
 
 _lock = threading.Lock()
 _procs: dict = {}    # running variant -> Popen
@@ -91,6 +96,9 @@ def execute(run, timeout):
             try:
                 code = proc.wait(timeout=timeout)
                 status = "stopped" if _stopping.is_set() else ("passed" if code == 0 else "failed")
+                if status == "failed" and MISSING_OUTPUTS in (run["dir"] / "run.log").read_text(
+                        encoding="utf-8", errors="replace"):
+                    status = "partial"
             except subprocess.TimeoutExpired:
                 stop(proc)
                 status = "timeout"
@@ -190,6 +198,9 @@ def write_report(V, runs, started, commit):
             items.insert(0, f"Error: {summary['error']}")
         elif r["status"] in ("failed", "timeout") and not summary:
             items.insert(0, f"{r['status'].capitalize()} without a summary: see `{r['dir'] / 'run.log'}`")
+        if r["status"] == "partial":
+            items.insert(0, "Partial: the flow finished, but the step lacks outputs it expects "
+                            "(a run stopped before the end of its flow, say)")
         if items:
             notes += [f"### {r['name']}", ""] + [f"- {cell(i)}" for i in items] + [""]
     if notes:
@@ -270,9 +281,13 @@ def main():
             logging.info("[%d/%d] %-7s %s (%.0f s)", finished, len(runs), run["status"], run["name"],
                          run["seconds"])
 
-    failed = [r for r in runs if r["status"] != "passed"]
-    logging.info("Sweep %s: %d variants, %d passed, %d not; report: %s",
-                 V["BAKE_BLOCK"], len(runs), len(runs) - len(failed), len(failed), report)
+    failed = [r for r in runs if r["status"] not in ("passed", "partial")]
+    partial = [r for r in runs if r["status"] == "partial"]
+    logging.info("Sweep %s: %d variants, %d passed, %d partial, %d not; report: %s",
+                 V["BAKE_BLOCK"], len(runs), len(runs) - len(failed) - len(partial), len(partial),
+                 len(failed), report)
+    for r in partial:
+        logging.warning("partial %s: the step lacks outputs it expects (%s)", r["name"], r["dir"] / "run.log")
     for r in failed:
         logging.error("%s %s: %s", r["status"], r["name"], r["dir"] / "run.log")
     Path("sweep.pid").unlink(missing_ok=True)

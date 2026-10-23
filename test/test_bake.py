@@ -952,7 +952,7 @@ def test_sweep_runs_variants_and_reports(bake, capfd, project):
     rows = list(csv.reader(open(sweep_dir / "results.csv", encoding="utf-8")))
     assert rows[0][:5] == ["variant", "status", "stage", "seconds", "area"]
     assert [r[1] for r in rows[1:]] == ["passed", "passed", "failed"]
-    assert_stderr(capfd, expect=["3 variants, 2 passed, 1 not", "failed w32"])
+    assert_stderr(capfd, expect=["3 variants, 2 passed, 0 partial, 1 not", "failed w32"])
     assert not Path(sweep_dir / "sweep.pid").exists()
 
 
@@ -982,6 +982,19 @@ def test_sweep_without_summary(bake, project):
     report = Path("work/widths/sweep/report.md").read_text()
     assert "| Variant | Options | Status | Stage |  |" in report
     assert "| w8 | `width=8` | passed | — |  |" in report
+
+
+def test_sweep_partial_variant(bake, capfd, project):
+    """A variant whose flow finishes without every output the step expects
+    is partial: reported, but the sweep passes."""
+    manifest = project("sweep") / "manifest"
+    manifest.write_text(manifest.read_text() + 'sweep(name="part", target="dut", recipe="impl", '
+                        'variants={"none": ["impl.flow=plain_run"]})\n')
+    assert not bake.run(["part", "sweep"])
+    report = Path("work/part/sweep/report.md").read_text()
+    assert "| none | `impl.flow=plain_run` | partial |" in report
+    assert "Partial: the flow finished, but the step lacks outputs it expects" in report
+    assert_in_stderr(capfd, "1 variants, 0 passed, 1 partial, 0 not")
 
 
 def test_sweep_timeout_stops_a_variant(bake, project):

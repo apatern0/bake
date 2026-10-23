@@ -254,7 +254,9 @@ so running the sweep again runs only the variants whose inputs changed.
 The default flow, `builtin_sweep_flow`, runs the variants in parallel on the machine *bake* runs
 on, each in `work/<sweep>/sweep/runs/<variant>/` with its output in `run.log`. It keeps
 `report.md` and `results.csv` next to them, rewritten whenever a variant finishes, so the report
-also says how far the sweep is, and fails the step if a variant did not pass. `sweep.pid` holds
+also says how far the sweep is, and fails the step if a variant did not pass. A variant whose
+flow finished without every output its step expects — a run stopped before the end of its flow
+on purpose, say — is *partial*: reported as such, but not a failure of the sweep. `sweep.pid` holds
 the process that stops the sweep: `kill $(cat work/<sweep>/sweep/sweep.pid)` (or Ctrl-C) stops
 every running variant.
 
