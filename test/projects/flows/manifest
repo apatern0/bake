@@ -83,6 +83,14 @@ flow(
     dir="width_impl",
 )
 
+# An impl flow that writes a summary.json from the project's options, for sweeps.
+flow(
+    name="summary_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="summary_impl",
+)
+
 flow(
     name="plain_run",
     run_cmd="run.sh",

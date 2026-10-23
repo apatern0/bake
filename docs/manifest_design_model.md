@@ -213,6 +213,68 @@ block(name="pixel", top="pixel", rtl_files=["pixel.v"], includes=["frontend"])
     including a `lib()`. A testbench may still name it in `vrf_libs=` to simulate with its
     netlist.
 
+## Sweeps
+
+A sweep runs one block's recipe once per variant, each variant a set of `-o` overrides, and
+reports the variants side by side: what a choice still open costs, before the choice is made.
+It is declared with `sweep()`, a block of its own kind, and run by the `sweep` step:
+
+```python
+from bake import sweep
+
+sweep(name="pitch", desc="Which pixel pitch fits the core?",
+      target="core", recipe="impl",
+      options=["signoff=true"],                              # an -o for every variant
+      variants={"p100": ["pixel_pitch=100"],
+                "p120": ["pixel_pitch=120"],
+                "p150": ["pixel_pitch=150"]})
+```
+
+```
+bake pitch sweep
+```
+
+| Argument | Description |
+|----------|-------------|
+| `target` | The block whose recipe the variants run |
+| `recipe` | What each variant runs: `impl`, `tmr-impl`, `vrf`, ... |
+| `options` | `-o` overrides for every variant: `option=value` for an option of the project, `section.attribute=value` for a section's attribute |
+| `variants` | `{name: [overrides]}`; a variant's name names its run directory, and one override may be given as a string |
+| `desc` | The question the sweep answers, at the top of its report |
+
+The choices a sweep varies are settings that decide what is built — the project's options
+(see [Project options](configuration.md#project-options)), which the manifests see while they
+load, or any step's settings. Every variant is a *bake* invocation of the recipe —
+`bake <target> <recipe>` with the sweep's options, the variant's, then those of the sweep's own
+command line — in a directory of its own (`config.bake.output_dir`). The directories are kept,
+so running the sweep again runs only the variants whose inputs changed.
+
+### On this machine
+
+The default flow, `builtin_sweep_flow`, runs the variants in parallel on the machine *bake* runs
+on, each in `work/<sweep>/sweep/runs/<variant>/` with its output in `run.log`. It keeps
+`report.md` and `results.csv` next to them, rewritten whenever a variant finishes, so the report
+also says how far the sweep is, and fails the step if a variant did not pass. `sweep.pid` holds
+the process that stops the sweep: `kill $(cat work/<sweep>/sweep/sweep.pid)` (or Ctrl-C) stops
+every running variant.
+
+`report.md` is laid out to be pasted into a pull request: the question, the commit, the
+options; a table with one row per variant, its status and the metrics its run reported; notes
+per variant; a conclusion left for you to write; and how to inspect each variant — its work
+directory, its log, the command that reruns it, and whatever its flow says to look at. The
+metrics, notes and inspection steps come from the `summary.json` each run's flow writes (see
+[Reporting a Run](custom_flows.md#reporting-a-run-summaryjson)); a run whose flow writes none
+gets a row with its status. Flow options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `jobs` | `0` | Variants at a time; `0`: all of them |
+| `timeout` | `0` | Seconds a variant may take before it is stopped; `0`: no limit |
+
+```python
+config.sweep.flow_options["jobs"] = 2
+```
+
 ## Libraries
 The `lib()` function declares a cell library: standard cells, IO cells, or a PDK's technology
 files — what blocks are mapped onto rather than what they contain. A library bundles both a
