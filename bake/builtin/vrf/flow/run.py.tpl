@@ -292,6 +292,17 @@ def check_log_criteria(pass_regex, fail_regex):
     return 0
 
 
+def write_summary(status, seed=None, error=""):
+    """summary.json of the run (see Reporting a Run in the docs): what a
+    sweep of a vrf recipe tabulates."""
+    summary = {"status": status, "stage": "simulation", "error": error,
+               "metrics": [] if seed is None else [{"name": "seed", "label": "Seed", "value": seed}],
+               "inspect": [{"what": "simulator output", "command": "less " + SIM_LOG}]}
+    with open("summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+        f.write("\n")
+
+
 # A severity count of the UVM report summary. UVM prints it as "%s :%5d",
 # so from 10000 up no space is left between the colon and the count.
 UVM_SEVERITY_COUNT = re.compile(r"^\s*(UVM_ERROR|UVM_FATAL)\s*:\s*(\d+)\s*$")
@@ -541,6 +552,7 @@ def main():
     if gui and BAKE_SIM_SIMULATOR == "vcs" and retval == 0:
         run_command("./simv* -gui=sx", capture=False)
 
+    write_summary("passed" if retval == 0 else "failed", seed)
     sys.exit(retval)
 
 
@@ -552,4 +564,5 @@ if __name__ == "__main__":
     except Exception as e:
         for line in str(e).split("\n"):
             logging.error(line)
+        write_summary("failed", error=str(e).split("\n")[0])
         sys.exit(1)

@@ -26,6 +26,7 @@ be run by hand. Tests that need an EDA tool skip themselves when it is
 missing.
 """
 
+import csv
 import importlib.metadata
 import json
 import os
@@ -852,6 +853,119 @@ def test_regression_declaration_errors(bake, capfd, project, declaration, messag
     manifest = project("regression") / "manifest"
     manifest.write_text(manifest.read_text() + declaration + "\n")
     assert bake.run(["r", "regression"])
+    assert_in_stderr(capfd, message)
+
+
+# ===========================================================================
+# Tests — sweep step
+# ===========================================================================
+
+def test_sweep_runs_variants_and_reports(bake, capfd, project):
+    """Every variant runs the recipe in runs/<variant>/ with the sweep's
+    options then its own; report.md tabulates the runs' summary.json and
+    says how to inspect each; a failing variant fails the sweep."""
+    project("sweep")
+    assert bake.run(["widths", "sweep"]) == 1
+    sweep_dir = Path("work/widths/sweep")
+    assert Path(sweep_dir / "runs/w8/dut/impl/output/dut.v").is_file()
+    report = (sweep_dir / "report.md").read_text()
+    for expected in ("# Sweep widths", "Which data width fits?", "- **Runs:** `dut impl`, 3 variants, 3 finished",
+                     "- **Options of every variant:** `proj.fail=false`",
+                     "| Variant | Options | Status | Stage | Area | Density |",
+                     "| w8 | `proj.width=8` | passed | route | 80 um2 | 8.5% |",
+                     "| w32 | `proj.width=32`, `proj.fail=true` | failed | route | 320 um2 | 32.5% |",
+                     "### w16", "- width 16", "## Conclusion", "## Inspect",
+                     "- **w16**: work directory `runs/w16/dut/impl`, log `runs/w16/run.log`",
+                     "  - rerun: `bake -m $P dut impl -o proj.fail=false -o proj.width=16 -o bake.output_dir=runs/w16`",
+                     "  - netlist: `cd runs/w16/dut/impl && cat output/dut.v`, then `read it`"):
+        assert expected in report, expected
+    rows = list(csv.reader(open(sweep_dir / "results.csv", encoding="utf-8")))
+    assert rows[0][:5] == ["variant", "status", "stage", "seconds", "area"]
+    assert [r[1] for r in rows[1:]] == ["passed", "passed", "failed"]
+    assert_stderr(capfd, expect=["3 variants, 2 passed, 1 not", "failed w32"])
+    assert not Path(sweep_dir / "sweep.pid").exists()
+
+
+def test_sweep_reruns_only_changed_variants(bake, project):
+    """The run directories are kept: a variant whose inputs did not change is
+    up to date when the sweep runs again."""
+    project("sweep")
+    bake.run(["widths", "sweep"])
+    bake.run(["widths", "sweep"])
+    assert "up-to-date" in Path("work/widths/sweep/runs/w8/run.log").read_text()
+
+
+def test_sweep_command_line_options_win(bake, project):
+    """The sweep's command line's -o options come after the variants' own."""
+    project("sweep")
+    assert not bake.run(["widths", "sweep", "-o", "proj.fail=false"])
+    assert "| w32 | `proj.width=32`, `proj.fail=true` | passed |" in Path("work/widths/sweep/report.md").read_text()
+
+
+def test_sweep_without_summary(bake, project):
+    """A run whose flow writes no summary.json still has its status, and a
+    failing one points at its log."""
+    manifest = project("sweep") / "manifest"
+    manifest.write_text(manifest.read_text().replace('config.impl.flow = "summary_impl"',
+                                                     'config.impl.flow = "dummy_impl"'))
+    assert not bake.run(["widths", "sweep"])
+    report = Path("work/widths/sweep/report.md").read_text()
+    assert "| Variant | Options | Status | Stage |  |" in report
+    assert "| w8 | `proj.width=8` | passed | — |  |" in report
+
+
+def test_sweep_timeout_stops_a_variant(bake, project):
+    """A variant running past the flow's timeout is stopped and reported."""
+    manifest = project("sweep") / "manifest"
+    manifest.write_text(manifest.read_text() + 'config.sweep.flow_options = {"timeout": 1}\n'
+                        'sweep(name="slow", target="dut", recipe="impl", '
+                        'variants={"quick": [], "sleepy": ["proj.sleep=20"]})\n')
+    start = time.monotonic()
+    assert bake.run(["slow", "sweep"]) == 1
+    assert time.monotonic() - start < 15
+    report = Path("work/slow/sweep/report.md").read_text()
+    assert "| quick | — | passed |" in report and "| sleepy | `proj.sleep=20` | timeout |" in report
+    assert "Timeout without a summary: see `" in report
+
+
+def test_sweep_of_a_vrf_recipe(bake, project, monkeypatch, tmp_path):
+    """A sweep runs a vrf recipe too (the test chosen with bake.test); the
+    built-in vrf flow's summary.json, in the test's directory, gives the
+    seed and how to read the simulator's output."""
+    _regression_project(project, monkeypatch, tmp_path)
+    manifest = Path("manifest")
+    manifest.write_text(manifest.read_text() + 'from bake import sweep\n'
+                        'sweep(name="seeds", target="dut", recipe="vrf", options=["bake.test=good"], '
+                        'variants={"s1": ["vrf.seed=1"], "s2": ["vrf.seed=2"]})\n')
+    assert not bake.run(["seeds", "sweep"])
+    assert json.loads(Path("work/seeds/sweep/runs/s1/dut/vrf/good/summary.json").read_text())["status"] == "passed"
+    report = Path("work/seeds/sweep/report.md").read_text()
+    assert "| Variant | Options | Status | Stage | Seed |" in report
+    assert "| s2 | `vrf.seed=2` | passed | simulation | 2 |" in report
+    assert "  - simulator output: `cd runs/s1/dut/vrf/good && less bake_sim.log`" in report
+
+
+@pytest.mark.parametrize("declaration, message", [
+    ('sweep(name="s", recipe="impl", variants={"a": []})', "target= names the block"),
+    ('sweep(name="s", target="dut", variants={"a": []})', "recipe= names what each variant runs"),
+    ('sweep(name="s", target="dut", recipe="impl")', "variants= is empty"),
+    ('sweep(name="s", target="dut", recipe="impl", variants=["a"])', "variants= takes a dict"),
+    ('sweep(name="s", target="dut", recipe="impl", variants={"a b": []})', "variant 'a b' needs a name"),
+    ('sweep(name="s", target="dut", recipe="impl", variants={"a": ["width=1"]})',
+     "variant 'a': 'width=1' is not of the form section.attribute=value"),
+    ('sweep(name="s", target="dut", recipe="impl", options="x", variants={"a": []})',
+     "options=: 'x' is not of the form"),
+    ('sweep(name="s", target="dut", recipe="impl", includes=["dut"], variants={"a": []})', "a sweep includes nothing"),
+    ('sweep(name="s", target="nodut", recipe="impl", variants={"a": []})', "target 'nodut' is not a block"),
+    ('sweep(name="s", target="dut", recipe="lint", variants={"a": []})', "names unknown step 'lint'"),
+    ('sweep(name="s", target="widths", recipe="impl", variants={"a": []})', "target 'widths' is a sweep()"),
+])
+def test_sweep_declaration_errors(bake, capfd, project, declaration, message):
+    """What a sweep() must declare, checked when its manifest loads or when
+    it runs."""
+    manifest = project("sweep") / "manifest"
+    manifest.write_text(manifest.read_text() + declaration + "\n")
+    assert bake.run(["s", "sweep"])
     assert_in_stderr(capfd, message)
 
 
