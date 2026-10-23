@@ -886,6 +886,15 @@ def test_sweep_runs_variants_and_reports(bake, capfd, project):
     assert not Path(sweep_dir / "sweep.pid").exists()
 
 
+def test_sweep_reports_running_variants(bake, project):
+    """The report is rewritten as each variant starts, so it shows the
+    variants running."""
+    project("sweep")
+    bake.run(["widths", "sweep"])
+    seen = Path("work/widths/sweep/runs/w8/dut/impl/report_seen.md").read_text()
+    assert "| w8 | `proj.width=8` | running |" in seen
+
+
 def test_sweep_reruns_only_changed_variants(bake, project):
     """The run directories are kept: a variant whose inputs did not change is
     up to date when the sweep runs again."""
@@ -910,8 +919,9 @@ def test_sweep_without_summary(bake, project):
                                                      'config.impl.flow = "dummy_impl"'))
     assert not bake.run(["widths", "sweep"])
     report = Path("work/widths/sweep/report.md").read_text()
-    assert "| Variant | Options | Status | Stage |  |" in report
-    assert "| w8 | `proj.width=8` | passed | — |  |" in report
+    lines = report.splitlines()
+    assert "| Variant | Options | Status | Stage |" in lines and "|---|---|---|---|" in lines
+    assert "| w8 | `proj.width=8` | passed | — |" in lines
 
 
 def test_sweep_partial_variant(bake, capfd, project):

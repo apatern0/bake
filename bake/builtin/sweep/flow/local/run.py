@@ -80,8 +80,9 @@ def summary_of(run):
     return summary if isinstance(summary, dict) else None
 
 
-def execute(run, timeout):
-    """Run one variant; the result is its status and duration."""
+def execute(run, timeout, started_hook):
+    """Run one variant; the result is its status and duration.
+    started_hook() runs once the variant is running."""
     if _stopping.is_set():
         return {"status": "stopped", "seconds": 0.0}
     run["dir"].mkdir(parents=True, exist_ok=True)
@@ -93,6 +94,7 @@ def execute(run, timeout):
             with _lock:
                 _procs[run["name"]] = proc
             run["status"] = "running"
+            started_hook()
             try:
                 code = proc.wait(timeout=timeout)
                 status = "stopped" if _stopping.is_set() else ("passed" if code == 0 else "failed")
@@ -152,6 +154,11 @@ def metric_text(metric):
     return f"{value} {unit}".strip() if unit and unit != "%" else f"{value}{unit}"
 
 
+def row(cells):
+    """A Markdown table row of cells."""
+    return "| " + " | ".join(cells) + " |"
+
+
 def options_text(options):
     return ", ".join(f"`{o}`" for o in options) if options else "—"
 
@@ -179,16 +186,15 @@ def write_report(V, runs, started, commit):
         "",
         "## Results",
         "",
-        "| Variant | Options | Status | Stage | " + " | ".join(cell(labels[c]) for c in columns) + " |",
-        "|---|---|---|---|" + "---|" * len(columns),
+        row(["Variant", "Options", "Status", "Stage", *(cell(labels[c]) for c in columns)]),
+        "|" + "---|" * (4 + len(columns)),
     ]
     for r in runs:
         summary = summaries[r["name"]] or {}
         values = {m["name"]: metric_text(m) for m in summary.get("metrics", [])
                   if isinstance(m, dict) and m.get("name")}
-        lines.append(f"| {cell(r['name'])} | {cell(options_text(r['variant_options']))} | {r['status']} | "
-                     f"{cell(summary.get('stage', '—'))} | "
-                     + " | ".join(cell(values.get(c, "—")) for c in columns) + " |")
+        lines.append(row([cell(r["name"]), cell(options_text(r["variant_options"])), r["status"],
+                          cell(summary.get("stage", "—")), *(cell(values.get(c, "—")) for c in columns)]))
 
     notes = []
     for r in runs:
@@ -269,15 +275,18 @@ def main():
     logging.info("Stop it with: kill %d", os.getpid())
     write_report(V, runs, started, commit)
 
+    def report_now():
+        with _lock:
+            write_report(V, runs, started, commit)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = {pool.submit(execute, run, timeout): run for run in runs}
+        futures = {pool.submit(execute, run, timeout, report_now): run for run in runs}
         finished = 0
         for future in concurrent.futures.as_completed(futures):
             run = futures[future]
             run.update(future.result())
             finished += 1
-            with _lock:
-                write_report(V, runs, started, commit)
+            report_now()
             logging.info("[%d/%d] %-7s %s (%.0f s)", finished, len(runs), run["status"], run["name"],
                          run["seconds"])
 
