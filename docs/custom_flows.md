@@ -285,6 +285,14 @@ sys.exit(subprocess.run(cmd).returncode)
 The file is a plain `{"BAKE_XYZ": value}` object. A variable that is a list in *bake* (file
 lists, options, defines) is a JSON list there and space-joined in `.tpl` files.
 
+## Processes and Interrupts
+
+A flow does not pass interrupts on to the tools it starts: *bake* sends them to every process
+of the step, wherever it went, and ends those still running when the flow's script exits (see
+[Interrupting bake](cli.md#interrupting-bake)). A flow that wants to clean up when interrupted
+traps the signal, and has `config.bake.kill_grace` seconds, after its script exits, for the
+processes it leaves to stop.
+
 ## Writing a Regression Flow
 
 The [regression](manifest_verif_model.md#regressions) step leaves its flow one job: being the

@@ -33,6 +33,7 @@ import pydantic
 
 from . import loader
 from . import manifest
+from . import procs
 from . import step
 from . import exceptions
 from . import completion_cache
@@ -284,6 +285,14 @@ def _dry_run(recipe):
     logging.info("Dry run — nothing executed.")
 
 
+def _will_run(recipe):
+    """Whether a step of the recipe or of its dependencies is to run (-f
+    applies to the recipe's own steps)."""
+    if context.config.bake.force and recipe.steps:
+        return True
+    return any(s.stale_reason() for r in [*recipe.all_dependencies(), recipe] for s in r.steps)
+
+
 def run(block, recipe_str):
     """Run a block/recipe combination: its dependencies first, then its own steps."""
 
@@ -311,6 +320,9 @@ def run(block, recipe_str):
         # Nothing to build for a clean; dependencies are left alone.
         _run_steps(recipe, force=False)
         return
+
+    if _will_run(recipe):
+        procs.select()   # now, so that a fallback is reported before anything runs
 
     for dep in recipe.all_dependencies():
         _run_steps(dep, force=False, owner=block)

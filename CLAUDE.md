@@ -66,6 +66,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 | `bake/context.py` | Singleton `Context` (registries: `flows`, `libs`, `blocks`, `envs`, `tests`, `steps`) and `Config` (per-step config sections, `BakeConfig`) |
 | `bake/loader.py` | `exec`s manifest files; changes `cwd` to the manifest directory during loading so relative paths resolve correctly; deduplicates via a global `loaded` list |
 | `bake/step.py` | `StepData` and its kinds (`RtlData`, `LibData`, `RegressionData`), `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), flow selection and `-p` copies (`flowdir`, `populate`, `report_flow`) |
+| `bake/procs.py` | The processes of a running step (`track()`: a cgroup, bake as their subreaper, or the process group, per `config.bake.process_tracking`); `execute_flow_step()` passes interrupts on to all of them and ends those its script leaves |
 | `bake/cli.py` | Argument parsing, builtin manifest loading, dispatch to `run()` in cli itself |
 | `bake/exceptions.py` | Seven custom exception classes (`BakeRuntimeError`, `BakeManifestError`, `BakeConfigError`, etc.) |
 | `bake/file_utils.py` | Path resolution and file existence utilities |
