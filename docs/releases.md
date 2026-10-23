@@ -45,6 +45,24 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-10-23)
+
+
+### Features
+
+* **regression:** run tests many times with regression() and a regression step ([6254dde](https://github.com/apatern0/bake/commit/6254dde4051edfa6235f9c0f10585e6fed9ec17d))
+* **step:** choose process tracking up front, and only report a fallback ([cfe3c8d](https://github.com/apatern0/bake/commit/cfe3c8d04c306ff3e6662dd596ab99405f1504d7))
+* **step:** own every process a step's flow starts ([35d507b](https://github.com/apatern0/bake/commit/35d507b40ed35593f0bfc5074634aa23a62b6b7f))
+
+
+### Bug Fixes
+
+* **regression:** stop starting runs once a regression is interrupted ([6b1bde0](https://github.com/apatern0/bake/commit/6b1bde02f267bf89a826b97a0c131617ff70ce0d))
+* **step:** find a step's scope when its script has already exited ([7e25bd5](https://github.com/apatern0/bake/commit/7e25bd5ee5b6ba2e3cc75db1ea7a73fe42207023))
+* **step:** report missing outputs in one line, and list them with -v ([f42f18e](https://github.com/apatern0/bake/commit/f42f18e2cfb3dda17fced38d8bf8a2e3ce22f534))
+* **step:** run a Python flow with bake's own interpreter ([e118e1d](https://github.com/apatern0/bake/commit/e118e1d57efde46ac494851b62c1f047f6f1ee8d))
+* **vrf:** let the Xcelium GUI's Reinvoke rebuild changed sources ([f22ee2a](https://github.com/apatern0/bake/commit/f22ee2a57b99db5252c8fb038649d6770f8a44ef))
+
 ## [2.0.0](https://github.com/apatern0/bake/compare/v1.0.0...v2.0.0) (2026-09-29)
 
 **Breaking changes.** Manifests and custom steps may need these changes; the entries below say
