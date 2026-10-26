@@ -15,9 +15,6 @@
 
 # An option whose default is not one of its choices: rejected.
 
-class ProjConfig(config.FixedSchemaAttributes):
-    def __init__(self):
-        self.width = config.option(4, "Data width in bits", choices=[8, 16])
+from bake import option, project
 
-
-config.register("proj", ProjConfig())
+project("demo", width=option(4, "Data width in bits", choices=[8, 16]))

@@ -99,8 +99,8 @@ Key rules:
 - `config` is available in every manifest's scope, so `config.register()` can be called at module level.
 - A config class deriving from `config.FixedSchemaAttributes` rejects assignments to attributes
   its `__init__` did not define (the builtin steps do this); a plain class accepts anything.
-  Attributes declared with `config.option()` are also checked for their kind and choices; see
-  [Project sections](configuration.md#project-sections).
+  Attributes declared with `config.option()` are also checked for their kind and choices, as
+  [project options](configuration.md#project-options) are.
 - Steps **must not** access `context` registries (`context.libs`, `context.blocks`, etc.) at
   runtime. Read everything from `self.data` and `self.config` only.
 

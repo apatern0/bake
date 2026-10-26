@@ -13,26 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A project's own config section: options with a description, a kind and
-# choices, set with -o and seen by the manifest while it loads, and exposed
-# to the flows as $BAKE_PROJ_*.
+# A project's options: with a description, a kind and choices, set with -o,
+# seen by the manifest while it loads, and exposed to the flows as
+# $BAKE_PROJ_*.
 
-from bake import load, block
+from bake import block, load, option, project
 
+project(
+    "demo",
+    width=option(8, "Data width in bits", choices=[8, 16]),
+    mode=option("small", "RTL variant"),
+    fast=option(False, "Build the fast variant"),
+    tags=option([], "Tags of the build"),
+    ratio=option(1.5, "Aspect ratio"),
+)
 
-class ProjConfig(config.FixedSchemaAttributes):
-    def __init__(self):
-        self.width = config.option(8, "Data width in bits", choices=[8, 16])
-        self.mode = config.option("small", "RTL variant")
-        self.fast = config.option(False, "Build the fast variant")
-        self.tags = config.option([], "Tags of the build")
-        self.ratio = config.option(1.5, "Aspect ratio")
-
-
-config.register("proj", ProjConfig(), templates=True)
-
-# A manifest assigning an attribute the command line sets keeps the
-# command line's value.
+# A manifest assigning an option the command line sets keeps the command
+# line's value.
 config.proj.fast = False
 
 load("../flows")
@@ -40,7 +37,8 @@ config.impl.flow = "options_impl"
 # What this manifest sees while it loads.
 config.bake.tpl_dict["BAKE_SEEN_WIDTH"] = str(config.proj.width)
 
-# config.user is free-form: -o sets what a manifest assigned, once loaded.
+# config.user is free-form: -o sets what a manifest assigned, once loaded
+# (deprecated).
 config.user.label = "from_manifest"
 
 block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])

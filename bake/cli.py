@@ -64,28 +64,53 @@ def complete_config(prefix, parsed_args, **kw_args):
 
 def _origin_note(origin: str) -> str:
     return {"default": "", "set": "  (set by a manifest)", "-o": "  (set by -o)",
-            "flag": "  (set by the command line)"}.get(origin, "")
+            "flag": "  (set by the command line)", "load()": "  (set by load())"}.get(origin, "")
 
 
-def log_options():
-    """List every config section and attribute: its value, where the value
-    comes from, the kinds and values it takes, and its description."""
+def _log_option_rows(rows) -> None:
+    for attr, value, opt, origin in rows:
+        logging.info("  %-22s = %r%s", attr, value, _origin_note(origin))
+        details = []
+        if opt is not None and opt.desc:
+            details.append(opt.desc)
+        if opt is not None and opt.choices is not None:
+            details.append("one of " + ", ".join(str(c) for c in opt.choices))
+        elif isinstance(value, list):
+            details.append("a list: -o adds one item")
+        elif isinstance(value, dict):
+            details.append("a dictionary: set its keys in a manifest")
+        if details:
+            logging.info("  %-22s   %s", "", "; ".join(details))
+
+
+def _hidden_note(counts: dict, what: str) -> None:
+    """The line saying what the other projects have that is not listed."""
+    if counts:
+        parts = [f"{n} in {name}" for name, n in counts.items()]
+        logging.info("More %s: %s (bake --all lists them).", what, ", ".join(parts))
+
+
+def log_options(show_all=False):
+    """List the top project's options (every project's with show_all), then
+    every config section and attribute: its value, where the value comes
+    from, the kinds and values it takes, and its description."""
+    hidden = {}
+    for project in context.projects.values():
+        if project.options is None:
+            continue
+        rows = context.config.describe_section(project.options)
+        if not (project.top or show_all):
+            hidden[project.name] = len(rows)
+            continue
+        how = "-o option=value" if project.top else "the load() that loads it"
+        logging.info("Options of %s (set one with %s):%s", project.label, how,
+                     "" if rows else "  (none)")
+        _log_option_rows(rows)
+    _hidden_note(hidden, "project options")
     logging.info("Configuration (set an attribute with -o section.attribute=value):")
     for name, rows in context.config.describe():
         logging.info("config.%s%s", name, "" if rows else "  (no attributes)")
-        for attr, value, opt, origin in rows:
-            logging.info("  %-22s = %r%s", attr, value, _origin_note(origin))
-            details = []
-            if opt is not None and opt.desc:
-                details.append(opt.desc)
-            if opt is not None and opt.choices is not None:
-                details.append("one of " + ", ".join(str(c) for c in opt.choices))
-            elif isinstance(value, list):
-                details.append("a list: -o adds one item")
-            elif isinstance(value, dict):
-                details.append("a dictionary: set its keys in a manifest")
-            if details:
-                logging.info("  %-22s   %s", "", "; ".join(details))
+        _log_option_rows(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -168,17 +193,59 @@ def _dependency_state(dep_recipe) -> str:
     return f"stale ({reason})" if reason else "up to date"
 
 
-def log_blocks_and_tests():
+def _by_project(designs: dict, show_all: bool) -> tuple:
+    """({project: [design]} to list, {project: count} left out): the top
+    project's designs, or every project's with show_all (or when the top
+    project has none), projects in the order they are declared."""
+    groups: dict = {}
+    for d in designs.values():
+        groups.setdefault(d.project, []).append(d)
+    order = [p for p in context.projects if p in groups] + [p for p in groups if p not in context.projects]
+    groups = {p: groups[p] for p in order}
+    top = context.top_project
+    top_name = top.name if top is not None else ""
+    if show_all or not groups.get(top_name):
+        return groups, {}
+    return {top_name: groups[top_name]}, {p: len(g) for p, g in groups.items() if p != top_name}
+
+
+def log_blocks_and_tests(show_all=False):
     """List the blocks a recipe can be run on, with their kind when it is not
     RTL, their tests, and the state of the dependencies their recipe-form
-    includes require."""
+    includes require: the top project's, or every project's with
+    show_all."""
     blocks = {n: b for n, b in context.blocks.items() if not b.is_empty}
     if not blocks:
         logging.info("No blocks are registered.")
         return
 
-    logging.info("Available blocks and associated tests:")
-    for name, b in blocks.items():
+    shown, hidden = _by_project(blocks, show_all)
+    for project, designs in shown.items():
+        logging.info("Available blocks and associated tests%s:", f" of {project}" if project else "")
+        _log_blocks(designs)
+    _hidden_note(hidden, "blocks")
+
+
+def log_macros(show_all=False):
+    """List the libraries, and the macros of the top project (every
+    project's with show_all)."""
+    logging.info("Available libraries (PDK):")
+    for name in context.libs:
+        logging.info("- %s", name)
+    macros = {n: b for n, b in context.blocks.items() if b.manifest_function == "macro"}
+    shown, hidden = _by_project(macros, show_all)
+    if not shown:
+        logging.info("Available macros:")
+    for project, designs in shown.items():
+        logging.info("Available macros%s:", f" of {project}" if project else "")
+        for b in designs:
+            logging.info("- %s", b.name)
+    _hidden_note(hidden, "macros")
+
+
+def _log_blocks(designs) -> None:
+    for b in designs:
+        name = b.name
         kind = b.data_type.kind
         needs = [] if kind == "rtl" else [kind]
         for dep_name, dep_recipe_str in b.includes.items():
@@ -311,8 +378,9 @@ def main():
     parser.add_argument("-t", "--test", dest="test", metavar="testname", type=str,
         help="Selects a test for the given block.").completer = complete_test
     parser.add_argument("-o", "--options", dest="options", type=str, default=[], action="append",
-        metavar="section.attribute=value",
-        help="Override a config attribute for this run (e.g. -o vrf.simulator=icarus). Repeatable."
+        metavar="[section.]attribute=value",
+        help="Set an option of the project (e.g. -o width=16), or a config attribute "
+             "(e.g. -o vrf.simulator=icarus), for this run. Repeatable."
     ).completer = complete_config
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
         help="Elaborate the recipe and report what would run (dependencies included) without executing anything.")
@@ -332,8 +400,11 @@ def main():
     parser.add_argument("-l", "--list-libs", dest="listlibs", action="store_true",
         help="List all known libraries after evaluating manifests.")
     parser.add_argument("--list-options", dest="listoptions", action="store_true",
-        help="List every config attribute after evaluating manifests: its value, what it takes "
-             "and its description.")
+        help="List the project's options and every config attribute after evaluating manifests: "
+             "its value, what it takes and its description.")
+    parser.add_argument("-a", "--all", dest="all", action="store_true",
+        help="List the blocks of every project the manifests load, not only the top one's "
+             "(with -l, their macros; with --list-options, their options).")
     parser.add_argument("--version", action="version", version=f"bake {step.bake_version()}")
 
     argcomplete.autocomplete(argument_parser=parser, always_complete_options=False)
@@ -404,7 +475,7 @@ def main():
 
     logging.debug("Loading user manifest from: %s", args.manifestpath)
     try:
-        loader.load(args.manifestpath)
+        loader.load_top(args.manifestpath)
         context.validate()
         context.config.finish_overrides()
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -420,16 +491,16 @@ def main():
     completion_cache.store_to_file()
 
     if args.listlibs:
-        context.log_libs()
+        log_macros(args.all)
         sys.exit(0)
 
     if args.listoptions:
-        log_options()
+        log_options(args.all)
         sys.exit(0)
 
     if not args.target_recipe:
         logging.info("No block specified.")
-        log_blocks_and_tests()
+        log_blocks_and_tests(args.all)
         context.log_steps()
         sys.exit(0)
 

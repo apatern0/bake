@@ -91,7 +91,9 @@ def store_to_file():
         if not b.is_empty:
             cache[cwd]["targets_tests"][name] = b.available_tests
 
-    cache[cwd]["config_keys"] = context.config.get_options_str_list()
+    top = context.top_project
+    options = top.options._bake_attributes() if top is not None and top.options is not None else []  # pylint: disable=protected-access
+    cache[cwd]["config_keys"] = options + context.config.get_options_str_list()
     cache[cwd]["steps"] = list(context.steps.keys())
 
     for stale in [d for d in cache if not Path(d).is_dir()]:

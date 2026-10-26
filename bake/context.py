@@ -101,22 +101,22 @@ class Option:
             kinds = tuple(kind) if isinstance(kind, (tuple, list)) else (kind,)
         if any(k not in _KINDS for k in kinds):
             raise BakeConfigError(
-                f"config.option({default!r}, ...): kind must be one or more of "
+                f"option({default!r}, ...): kind must be one or more of "
                 f"{_join(k.__name__ for k in _KINDS)}."
             )
         self.kinds = kinds
         self.choices = None if choices is None else list(choices)
         if self.choices is not None:
             if not self.choices:
-                raise BakeConfigError(f"config.option({default!r}, ...): choices is empty.")
+                raise BakeConfigError(f"option({default!r}, ...): choices is empty.")
             if {list, dict} & set(self.kinds):
                 raise BakeConfigError(
-                    f"config.option({default!r}, ...): choices apply to a single value, "
+                    f"option({default!r}, ...): choices apply to a single value, "
                     f"not to a list or a dictionary."
                 )
             if default is not None and default not in self.choices:
                 raise BakeConfigError(
-                    f"config.option({default!r}, ...): the default is not one of its "
+                    f"option({default!r}, ...): the default is not one of its "
                     f"choices ({_join(self.choices)})."
                 )
 
@@ -254,7 +254,8 @@ class FixedSchemaAttributes:
 
     def _bake_set_from_cli(self, key, raw, what) -> None:
         """Set attribute key from the command-line text raw, converted to its
-        kind and checked; manifests cannot change it afterwards."""
+        kind and checked, or, for a list, add the texts of raw (a list) to
+        it; manifests cannot change it afterwards."""
         name = f"config.{self._bake_name()}.{key}"
         kinds = self._bake_kinds(key)
         if dict in kinds:
@@ -262,16 +263,28 @@ class FixedSchemaAttributes:
                 f"{what}: {name} is a dictionary, which -o cannot set. Set its keys in a "
                 f"manifest instead, e.g. {name}[\"name\"] = value."
             )
-        value = _convert(raw, kinds)
+        if list in kinds:
+            value = list(getattr(self, key) or []) + list(raw)
+        else:
+            value = _convert(raw, kinds)
         if value is _NOT_CONVERTED:
             raise BakeOptionError(
                 f"{what}: {name} takes {_kind_name(kinds)}, not '{raw}'.{self._bake_about(key)}"
             )
         self._bake_check(key, value, what, BakeOptionError)
+        self._bake_lock(key, value, "-o")
+
+    def _bake_set_given(self, key, value, what) -> None:
+        """Set attribute key to a value load() gives a project, checked;
+        the project's manifests cannot change it afterwards."""
+        self._bake_check(key, value, what, BakeManifestError)
+        self._bake_lock(key, value, "load()")
+
+    def _bake_lock(self, key, value, origin) -> None:
         object.__setattr__(self, key, value)
         self._bake_book("_bake_cli")[key] = value
-        self._bake_book("_bake_origin")[key] = "-o"
-        logging.debug("Config option applied: %s = %r", name, value)
+        self._bake_book("_bake_origin")[key] = origin
+        logging.debug("Config option applied (%s): config.%s.%s = %r", origin, self._bake_name(), key, value)
 
     def _bake_set_from_flag(self, key, value) -> None:
         """Set attribute key from a command-line flag (-v, -t, -f, ...): an
@@ -363,17 +376,52 @@ class BakeConfig(FixedSchemaAttributes):
 
 class UserConfig:
     """Free-form attributes a project shares between its manifests and its
-    own steps; no schema, set from the command line only once loaded."""
+    own steps; no schema. -o sets them only once loaded, and is deprecated
+    for them: a setting chosen on the command line is a project option."""
 
 
-# What -o names: section.attribute=value
-_OVERRIDE = re.compile(r'^([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)=(.*)$', re.DOTALL)
-# A section exposed to the flows: its name goes into $BAKE_<SECTION>_<ATTR>
-_TEMPLATE_SECTION = re.compile(r'^[a-z][a-z0-9_]*$')
+class ProjectOptions(FixedSchemaAttributes):
+    """The options of a project, declared all at once by project(): what
+    config.proj is in the project's manifests. A plain value declares an
+    option without a description."""
+
+    _bake_section = "proj"
+
+    def __init__(self, options: dict):
+        for key, value in options.items():
+            if key.startswith("_"):
+                raise BakeConfigError(f"project(): option '{key}' starts with '_'; name it without.")
+            setattr(self, key, value if isinstance(value, Option) else Option(value))
+
+
+class Project:
+    """A project: the manifest that calls project() and the manifests it
+    loads, down to those that call project() themselves. Its options are
+    config.proj in its manifests and $BAKE_PROJ_<OPTION> in the flows of
+    its blocks; the command line sets the top project's (-o name=value),
+    load() those of the projects it loads."""
+
+    __slots__ = ("name", "manifest", "options", "top")
+
+    def __init__(self, name: str, manifest: str, top: bool = False):
+        self.name = name            # "" for a top manifest that calls no project()
+        self.manifest = manifest    # the manifest that starts it
+        self.options = None         # a ProjectOptions once project() is called
+        self.top = top
+
+    @property
+    def label(self) -> str:
+        return f"project {self.name}" if self.name else "the top project"
+
+
+# What -o names: section.attribute=value, or option=value for an option of
+# the top project
+_OVERRIDE = re.compile(r'^(?:([A-Za-z0-9_]+)\.)?([A-Za-z0-9_]+)=(.*)$', re.DOTALL)
 
 
 class Override:
-    """One -o section.attribute=value of the command line."""
+    """One -o [section.]attribute=value of the command line; without a
+    section, an option of the top project."""
 
     __slots__ = ("section", "attribute", "value", "text")
 
@@ -381,11 +429,10 @@ class Override:
         m = _OVERRIDE.match(text)
         if not m:
             hint = ("it has no '='" if "=" not in text else
-                    "it names no section: write section.attribute" if "." not in text.split("=", 1)[0] else
                     "the section and the attribute take letters, digits and _ only")
             raise BakeOptionError(
-                f"Malformed option '-o {text}': {hint}. -o takes section.attribute=value, "
-                f"e.g. -o vrf.simulator=icarus."
+                f"Malformed option '-o {text}': {hint}. -o takes option=value for an option of "
+                f"the project, section.attribute=value otherwise, e.g. -o vrf.simulator=icarus."
             )
         self.section, self.attribute, self.value = m.groups()
         self.text = text
@@ -400,14 +447,18 @@ class Config:
 
     bake and user are always present. Step-specific sections (impl, vrf, tmr, ...)
     are registered dynamically when step modules are discovered via build_registry();
-    a project registers its own sections the same way.
+    a step a project loads registers its own the same way. A project's
+    options are not a section here: config.proj is the options of the
+    manifest's own project (loader.ManifestConfig).
 
     The command line's -o overrides are given before any manifest loads
     (set_overrides). Each one takes effect as soon as its section exists,
     when it is registered, so manifests see it while they load; a manifest
     assigning the attribute afterwards keeps the command line's value. List
     attributes get their items appended once every manifest has loaded,
-    after the manifests' own (finish_overrides).
+    after the manifests' own (finish_overrides). An override without a
+    section takes effect when the top project declares its options
+    (apply_project_overrides), lists included.
     """
 
     bake = BakeConfig()   # replaced by a fresh instance on every reset_sections()
@@ -431,30 +482,20 @@ class Config:
     def _overrides(self) -> list:
         return self._bake_state("_bake_overrides", [])
 
-    @property
-    def _template_sections(self) -> list:
-        return self._bake_state("_bake_templates", [])
-
-    def register(self, name: str, section, templates: bool = False) -> None:
+    def register(self, name: str, section) -> None:
         """Register a config section by name. Idempotent.
 
-        The command line's overrides of the section take effect at once.
-        With templates=True every attribute of the section reaches every
-        step's flow as $BAKE_<NAME>_<ATTRIBUTE> (upper case): a project's
-        own settings, e.g. config.register("si3", Si3Config(), templates=True)
-        gives $BAKE_SI3_PIXEL_PITCH."""
+        The command line's overrides of the section take effect at once."""
         if name in vars(self):
             return
-        if templates and not _TEMPLATE_SECTION.match(name):
+        if name == "proj":
             raise BakeConfigError(
-                f"config.register('{name}', ..., templates=True): a section that reaches the "
-                f"flows needs a name of lower-case letters, digits and _, starting with a letter."
+                "config.register('proj', ...): config.proj is the project's options, which "
+                "project() declares; give the section another name."
             )
         if isinstance(section, FixedSchemaAttributes):
             object.__setattr__(section, "_bake_section", name)
         object.__setattr__(self, name, section)
-        if templates:
-            self._template_sections.append(name)
         logging.debug("Registered config section '%s' (%s)", name, type(section).__name__)
         self.apply_overrides(name)
 
@@ -483,24 +524,78 @@ class Config:
                 continue
             section._bake_set_from_cli(o.attribute, o.value, o.label)
 
+    def _project_overrides(self) -> list:
+        return [o for o in self._overrides if o.section is None]
+
+    def apply_project_overrides(self, options: ProjectOptions, project: Project) -> None:
+        """Apply the overrides without a section to the top project's
+        options, as project() declares them: manifests see every one, list
+        items included (added to the default, in order)."""
+        known = options._bake_attributes()
+        lists: dict = {}
+        for o in self._project_overrides():
+            if o.attribute not in known:
+                raise BakeOptionError(
+                    f"{o.label}: {project.label} has no option '{o.attribute}'"
+                    f"{self._suggest_option(o.attribute, known)}. "
+                    + (f"Its options: {_join(known)} (`bake --list-options` describes them)."
+                       if known else "It declares none.")
+                )
+            if list in options._bake_kinds(o.attribute):
+                lists.setdefault(o.attribute, []).append(o)
+            else:
+                options._bake_set_from_cli(o.attribute, o.value, o.label)
+        for attr, given in lists.items():
+            options._bake_set_from_cli(attr, [o.value for o in given], given[0].label)
+        object.__setattr__(self, "_bake_project_applied", True)
+
+    def _suggest_option(self, name, options) -> str:
+        """' (did you mean ...?)' for an option name: one of the project's,
+        or a section's attribute when the section was left out."""
+        close = _suggest(name, options)
+        if close:
+            return close
+        attributes = [f"{s}.{a}" for s in self._section_names()
+                      for a in self._attributes_of(getattr(self, s)) if a == name]
+        return f" (did you mean {' or '.join(attributes)}?)" if attributes else ""
+
     def finish_overrides(self) -> None:
         """Once every manifest has loaded: stop on an override of a section
-        that never appeared, append list items, and set the attributes of
-        sections without a schema (user, or a step's plain object)."""
+        that never appeared, or of the project when it declares no options,
+        append list items, and set the attributes of sections without a
+        schema (user, or a step's plain object)."""
         sections = self._section_names()
+        for o in self._project_overrides():
+            if not vars(self).get("_bake_project_applied"):
+                raise BakeOptionError(
+                    f"{o.label}: the project declares no options{self._suggest_option(o.attribute, [])}. "
+                    f"project() in the top manifest declares them; -o section.attribute=value "
+                    f"sets a section's attribute."
+                )
         for o in self._overrides:
-            if o.section not in sections:
+            if o.section == "proj" and o.section not in sections:
+                raise BakeOptionError(
+                    f"{o.label}: the project's options take no section: -o {o.attribute}={o.value}."
+                )
+            if o.section is not None and o.section not in sections:
                 raise BakeOptionError(
                     f"{o.label}: unknown config section '{o.section}'"
                     f"{_suggest(o.section, sections)}. Sections: {_join(sections)} "
                     f"(`bake --list-options` lists their attributes)."
                 )
         for o in self._overrides:
+            if o.section is None:
+                continue
             section = getattr(self, o.section)
             if isinstance(section, FixedSchemaAttributes):
                 if list in section._bake_kinds(o.attribute):
                     section._bake_append_from_cli(o.attribute, o.value)
                 continue
+            if o.section == "user":
+                logging.warning(
+                    "%s: setting config.user from the command line is deprecated and will stop "
+                    "working in a future major release; declare the setting as an option of the "
+                    "project with project() and set it with -o %s=...", o.label, o.attribute)
             self._set_schemaless(section, o)
 
     @staticmethod
@@ -533,20 +628,6 @@ class Config:
             )
         setattr(section, o.attribute, value)
 
-    def template_vars(self) -> dict:
-        """$BAKE_<SECTION>_<ATTRIBUTE> of the sections registered with
-        templates=True: booleans as 1/0, lists as lists, dictionaries left
-        out (their keys are the section's own business)."""
-        out = {}
-        for name in self._template_sections:
-            section = getattr(self, name)
-            for attr in self._attributes_of(section):
-                value = getattr(section, attr)
-                if isinstance(value, dict):
-                    continue
-                out[f"BAKE_{name.upper()}_{attr.upper()}"] = int(value) if isinstance(value, bool) else value
-        return out
-
     @staticmethod
     def _attributes_of(section) -> list:
         if isinstance(section, FixedSchemaAttributes):
@@ -554,24 +635,26 @@ class Config:
         return [a for a in dir(section) if not a.startswith("_") and not callable(getattr(section, a))]
 
     def describe(self) -> list:
-        """What `bake --options` lists, section by section: (section,
+        """What `bake --list-options` lists, section by section: (section,
         [(attribute, value, Option or None, origin)])."""
-        out = []
-        for name in self._section_names():
-            section = getattr(self, name)
-            rows = []
-            for attr in self._attributes_of(section):
-                value = getattr(section, attr)
-                if isinstance(value, TemplateDictionary):
-                    continue
-                if isinstance(section, FixedSchemaAttributes):
-                    opt = section._bake_option(attr)
-                    origin = section._bake_book("_bake_origin").get(attr, "default")
-                else:
-                    opt, origin = None, "set"
-                rows.append((attr, value, opt, origin))
-            out.append((name, rows))
-        return out
+        return [(name, self.describe_section(getattr(self, name))) for name in self._section_names()]
+
+    @classmethod
+    def describe_section(cls, section) -> list:
+        """[(attribute, value, Option or None, origin)] of one section, or of
+        a project's options."""
+        rows = []
+        for attr in cls._attributes_of(section):
+            value = getattr(section, attr)
+            if isinstance(value, TemplateDictionary):
+                continue
+            if isinstance(section, FixedSchemaAttributes):
+                opt = section._bake_option(attr)
+                origin = section._bake_book("_bake_origin").get(attr, "default")
+            else:
+                opt, origin = None, "set"
+            rows.append((attr, value, opt, origin))
+        return rows
 
     def reset_sections(self) -> None:
         """Drop every dynamically registered section (impl, vrf, tmr, ...) and
@@ -591,7 +674,8 @@ class Config:
         sections = self._section_names()
         raise BakeConfigAttributeError(
             f"config has no section '{key}'{_suggest(key, sections)}. Sections: {_join(sections)}. "
-            f"A project's own section exists once a manifest registers it with config.register()."
+            f"A step's section exists once its manifest registers it with config.register(); "
+            f"a project's options are config.proj, which project() declares."
         )
 
     def _section_names(self):
@@ -650,7 +734,28 @@ class Context:
         self.envs = {}
         self.tests = []
         self.steps = {}
+        self.projects = {}  # Project by name, the top one first ("" when it calls no project())
         self.process_tracking = None   # how flow processes are tracked (procs.select())
+
+    @property
+    def top_project(self) -> "Project | None":
+        """The project of the manifest bake runs (-m), once it is loading."""
+        return next((p for p in self.projects.values() if p.top), None)
+
+    def project_vars(self, name: str) -> dict:
+        """$BAKE_PROJ_<OPTION> of project `name`'s options: booleans as 1/0,
+        lists as lists, dictionaries left out (their keys are the project's
+        own business). Empty without options."""
+        project = self.projects.get(name)
+        if project is None or project.options is None:
+            return {}
+        out = {}
+        for attr in project.options._bake_attributes():  # pylint: disable=protected-access
+            value = getattr(project.options, attr)
+            if isinstance(value, dict):
+                continue
+            out[f"BAKE_PROJ_{attr.upper()}"] = int(value) if isinstance(value, bool) else value
+        return out
 
     def validate(self):
         """Check the declarations once every manifest has loaded.
@@ -787,16 +892,6 @@ class Context:
             logging.info("Available tests:")
             for t in self.tests:
                 logging.info("- %s", t.name)
-
-
-    def log_libs(self):
-        logging.info("Available libraries (PDK):")
-        for name in self.libs:
-            logging.info("- %s", name)
-        logging.info("Available macros:")
-        for name, b in self.blocks.items():
-            if b.manifest_function == "macro":
-                logging.info("- %s", name)
 
 
     def log_targets(self):

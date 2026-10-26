@@ -37,7 +37,7 @@ from pathlib import Path
 import re
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from . import loader
 from . import file_utils
@@ -46,8 +46,29 @@ from .exceptions import BakeManifestError
 from .step import LibData, RegressionData, RtlData, StepData
 
 
-def load(path):
-    loader.load(path)
+def load(path, /, **options):
+    """Load the manifest in directory `path`. Its blocks belong to this
+    manifest's project, unless it calls project() itself: `options` are
+    then the values of that project's options, e.g.
+    load("sub/svlib", tech="lf11")."""
+    loader.load(path, options)
+
+
+def project(name, /, **options):
+    """Declare a project: its name, and its options with their defaults,
+    all at once, first thing in its top manifest:
+
+        project("si3",
+                pixel_pitch=option(100, "Pixel pitch in um", choices=[100, 120, 150]),
+                fast=False)
+
+    config.proj is these options in the project's manifests (and in those
+    they load, but for a manifest that declares a project of its own), and
+    $BAKE_PROJ_<OPTION> in the flows of its blocks. The top project's are
+    set on the command line (-o pixel_pitch=120), a loaded project's by the
+    load() that loads it. A plain value declares an option without a
+    description."""
+    loader.declare_project(name, options)
 
 
 # Argument normalisation shared by the specs. Manifest authors write a
@@ -201,6 +222,8 @@ class DesignSpec(BaseModel):
     desc: str = ""
     includes: dict = Field(default_factory=dict)   # {block_name: recipe_str}
     dir: str = ""
+    # The project of the manifest that declares it (context.Project).
+    _project: Any = PrivateAttr(default=None)
 
     @field_validator("includes", mode="before")
     @classmethod
@@ -239,6 +262,12 @@ class DesignSpec(BaseModel):
         """Declares nothing to run a recipe on (such a block is not listed)."""
         return False
 
+    @property
+    def project(self) -> str:
+        """The name of the project that declares the design ("" for an
+        unnamed top project)."""
+        return self._project.name if self._project is not None else ""
+
     def _resolve(self) -> None:
         """Check the kind's own fields and make its paths absolute; the cwd
         is the manifest's directory."""
@@ -251,6 +280,10 @@ class DesignSpec(BaseModel):
         if self.name in context.blocks:
             raise BakeManifestError(f"Redefinition of block {self.name} detected")
         self.dir = str(Path.cwd())
+        scope = loader.current()
+        if scope is not None:
+            scope.use(f"declares block '{self.name}'")
+            self._project = scope.project
         self._resolve()
         # Includes are checked once every manifest has loaded (context.validate())
         # and resolved when a recipe is elaborated, so a block may include one

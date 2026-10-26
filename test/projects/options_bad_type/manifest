@@ -15,10 +15,7 @@
 
 # A manifest assigning a declared option a value of another kind: rejected.
 
-class ProjConfig(config.FixedSchemaAttributes):
-    def __init__(self):
-        self.width = config.option(8, "Data width in bits", choices=[8, 16])
+from bake import option, project
 
-
-config.register("proj", ProjConfig())
+project("demo", width=option(8, "Data width in bits", choices=[8, 16]))
 config.proj.width = "16"
