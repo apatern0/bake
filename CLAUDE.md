@@ -40,13 +40,15 @@ bake <block> <recipe> -n     # dry run: report what would run, dependencies incl
 bake -l                      # list all known libraries
 bake -v                      # verbose / debug output
 bake -o step.attr=value     # override a config attribute from the CLI
+bake -o option=value        # set an option of the project (project())
+bake -a                      # list every project's blocks, not only the top one's
 ```
 
 ## Architecture
 
 ### Core concepts
 
-- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `block()`, `macro()`, `test()`, `env()`, `regression()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`; a `Step` subclass defined in it registers itself.
+- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `project()`, `block()`, `macro()`, `test()`, `env()`, `regression()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`; a `Step` subclass defined in it registers itself.
 - **Block** (`BlockSpec`) — a design unit with RTL files, a top module, and optional timing/netlist libraries.
 - **Test** (`TestSpec`) / **Env** (`EnvSpec`) — a simulation environment associated with a block. Tests carry verification files; envs are reusable base environments that tests include via `includes=`.
 - **Flow** (`FlowSpec`) — a directory of scripts (`.tpl` templated) that one step executes. Steps use flows; a flow is not a recipe.
@@ -64,7 +66,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 |--------|------|
 | `bake/manifest.py` | Pydantic specs (`FlowSpec`, `LibSpec`, `DesignSpec`/`BlockSpec`/`MacroSpec`/`RegressionSpec`, `EnvSpec`, `TestSpec`) registered into `context` at parse time |
 | `bake/context.py` | Singleton `Context` (registries: `flows`, `libs`, `blocks`, `envs`, `tests`, `steps`) and `Config` (per-step config sections, `BakeConfig`) |
-| `bake/loader.py` | `exec`s manifest files; changes `cwd` to the manifest directory during loading so relative paths resolve correctly; deduplicates via a global `loaded` list |
+| `bake/loader.py` | `exec`s manifest files; changes `cwd` to the manifest directory during loading so relative paths resolve correctly; deduplicates via the global `loaded` registry, which also records each manifest's project (`_Scope`); `project()` and the per-manifest `config` (`ManifestConfig`) |
 | `bake/step.py` | `StepData` and its kinds (`RtlData`, `LibData`, `RegressionData`), `Step` ABC, `Recipe`, timestamp-based `run_required()`, template expansion (`copy_and_template`), flow selection and `-p` copies (`flowdir`, `populate`, `report_flow`) |
 | `bake/procs.py` | The processes of a running step (`track()`: a cgroup, bake as their subreaper, or the process group, per `config.bake.process_tracking`); `execute_flow_step()` passes interrupts on to all of them and ends those its script leaves |
 | `bake/cli.py` | Argument parsing, builtin manifest loading, dispatch to `run()` in cli itself |
@@ -75,7 +77,7 @@ bake -o step.attr=value     # override a config attribute from the CLI
 
 ### Data flow
 
-1. CLI calls `loader.load()` on the user's manifest directory (and all builtins first).
+1. CLI calls `loader.load_top()` on the user's manifest directory (and `loader.load()` on all builtins first).
 2. `exec`'ing each manifest populates `context` with `BlockSpec`, `TestSpec`, `FlowSpec`, etc.
 3. CLI `run()` builds `step.Recipe(block, recipe)` and calls `elaborate()`.
 4. `Recipe.elaborate()` creates a `StepData` from the block/test (elaborating dependency recipes for recipe-form includes and recording them in `recipe.dependencies`), instantiates each `Step` in chain order, runs `check_pre()`, and threads `output_data` forward.
@@ -91,7 +93,13 @@ Subclass `Step`, set `name`, implement `source_files` and `output_files` (and `c
 
 ### Config sections
 
-Each step registers its own config section via `config.register('stepname', StepCfg())` at module load time. Users set config in manifests via `config.vrf.simulator = "xcelium"` etc. The `BakeConfig` section (`config.bake`) controls global bake behavior.
+Each step registers its own config section via `config.register('stepname', StepCfg())` at module load time. Users set config in manifests via `config.vrf.simulator = "xcelium"` etc. The `BakeConfig` section (`config.bake`) controls global bake behavior. Attributes are declared in the section's `__init__`, with `config.option(default, desc, choices=, kind=)` for a description, a kind and allowed values (`Option` in `context.py`), which `-o`, manifest assignments and `bake --list-options` use.
+
+### Projects
+
+`project(name, **options)` (in `manifest.py`, logic in `loader.declare_project`) declares a project and its options at once (`ProjectOptions`, a `FixedSchemaAttributes` built from the keyword arguments; `context.Project`, registered in `context.projects`, the top one first). The loader keeps a `_Scope` per manifest (`loader.loaded`, keyed by path; `loader.current()` while it executes): the project it belongs to, inherited from the manifest that loads it until one calls `project()`, and what it did first that needs the project (`load()`, a block, reading `config.proj`), so that a later `project()` is refused. Each manifest gets its own `config`, a `loader.ManifestConfig` that forwards everything to `context.config` but `proj`, its scope's project's options. `cli` loads the user's manifest with `loader.load_top()` (the top project, `""` until named); `load(path, **options)` gives a loaded project its option values (`_bake_set_given`), and a manifest loaded again is checked for the same project and options. A `DesignSpec` records its project (`.project`), `StepData.create()` copies the name into `StepData.project`, and `Step.build_tpl_dict()` adds `context.project_vars()` (`$BAKE_PROJ_<OPTION>`). The listings (`bake`, `-l`, `--list-options`) show the top project's and count the others' unless `-a/--all`.
+
+`-o` overrides are parsed before any manifest loads (`Config.set_overrides`) and applied when their section is registered (`Config.register` → `apply_overrides`; `config.bake` right after the CLI flags are set), so manifests see them; a manifest assigning an overridden attribute afterwards keeps the command line's value (`FixedSchemaAttributes.__setattr__`). An override without a section (`-o width=16`) is an option of the top project, applied by its `project()` call (`Config.apply_project_overrides`), list items included. Section list items and `config.user` attributes (deprecated, with a warning) are applied once every manifest has loaded (`Config.finish_overrides`), which also rejects overrides of sections that never appeared and project overrides when the top project declares no options. Override errors are `BakeOptionError`, reported without a manifest location.
 
 ## Logging conventions
 

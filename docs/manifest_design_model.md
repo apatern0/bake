@@ -257,4 +257,7 @@ load("libs/sky130/manifest")  # relative path, resolved from this manifest's dir
 ```
 
 The loaded manifest is executed in the same *bake* context, so all blocks, libs, flows, and
-config changes it makes are visible to the including manifest.
+config changes it makes are visible to the including manifest. It belongs to the including
+manifest's project, unless it declares one of its own with `project()`; `load()` then sets that
+project's options, e.g. `load("ip", tech="lf11")` (see
+[Projects that load projects](configuration.md#projects-that-load-projects)).

@@ -1,0 +1,44 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A project's options: with a description, a kind and choices, set with -o,
+# seen by the manifest while it loads, and exposed to the flows as
+# $BAKE_PROJ_*.
+
+from bake import block, load, option, project
+
+project(
+    "demo",
+    width=option(8, "Data width in bits", choices=[8, 16]),
+    mode=option("small", "RTL variant"),
+    fast=option(False, "Build the fast variant"),
+    tags=option([], "Tags of the build"),
+    ratio=option(1.5, "Aspect ratio"),
+)
+
+# A manifest assigning an option the command line sets keeps the command
+# line's value.
+config.proj.fast = False
+
+load("../flows")
+config.impl.flow = "options_impl"
+# What this manifest sees while it loads.
+config.bake.tpl_dict["BAKE_SEEN_WIDTH"] = str(config.proj.width)
+
+# config.user is free-form: -o sets what a manifest assigned, once loaded
+# (deprecated).
+config.user.label = "from_manifest"
+
+block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])

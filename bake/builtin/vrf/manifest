@@ -50,15 +50,19 @@ FlowSpec(
 class VrfConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.tpl_dict     = config.TemplateDictionary()
-        self.options      = []
-        self.runtime_options = []   # for running the simulation only, e.g. plusargs
-        self.defines      = []
-        self.delays       = ""   # delay corner for SDF back-annotation: typ, min or max
-        self.seed         = ""   # simulation seed; empty picks a random one (always logged)
-        self.run_dir      = ""   # where the test runs instead of work/<block>/<recipe>/<test>
-        self.simulator    = ""
-        self.flow         = None
-        self.flow_options = {}
+        self.options      = config.option([], "Simulator options for compiling and running")
+        self.runtime_options = config.option(
+            [], "Simulator options for running the simulation only, e.g. plusargs")
+        self.defines      = config.option([], "Preprocessor defines of the simulation")
+        self.delays       = config.option(
+            "", "Delay corner for SDF back-annotation: typ, min or max; empty for typ")
+        self.seed         = config.option(
+            "", "Simulation seed; empty picks a random one (always logged)", kind=(str, int))
+        self.run_dir      = config.option(
+            "", "Where the test runs instead of work/<block>/<recipe>/<test>")
+        self.simulator    = config.option("", "Simulator the vrf flow runs, e.g. xcelium or icarus")
+        self.flow         = config.option(None, "Flow of the vrf step, by name", kind=str)
+        self.flow_options = config.option({}, "Options of the vrf flow ($BAKE_FLOW_OPT_*)")
 
 
 config.register('vrf', VrfConfig())

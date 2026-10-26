@@ -33,11 +33,11 @@ from bake.manifest import FlowSpec
 
 class ImplConfig(config.FixedSchemaAttributes):
     def __init__(self):
-        self.ldb_dir      = ""
+        self.ldb_dir      = config.option("", "Where the flow writes the implemented block's abstracts")
         self.tpl_dict     = config.TemplateDictionary()
-        self.options      = []
-        self.flow         = ""
-        self.flow_options = {}
+        self.options      = config.option([], "Options of the implementation flow's run")
+        self.flow         = config.option("", "Flow of the impl step, by name")
+        self.flow_options = config.option({}, "Options of the impl flow ($BAKE_FLOW_OPT_*)")
 
 
 config.register('impl', ImplConfig())

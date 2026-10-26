@@ -7,7 +7,10 @@ bake [BLOCK RECIPE] [options]
 With no positional arguments, `bake` loads the manifest in the current directory and lists the
 blocks it found (with their [kind](custom_steps.md#data-kinds) when it is not RTL), the tests
 attached to each, the state of the dependencies their includes require, and the available
-steps with the kinds they take and give (`impl  (rtl -> lib)`). With a block and a recipe it runs the recipe's steps in order
+steps with the kinds they take and give (`impl  (rtl -> lib)`). The blocks listed are the top
+project's; those of the [projects it loads](configuration.md#projects-that-load-projects) are
+counted, and `--all` lists them too, project by project. Any listed or not, a block runs the
+same way. With a block and a recipe it runs the recipe's steps in order
 on that block, skipping steps whose outputs are already up to date. A block that includes
 another block after a recipe (`includes={"sub": "impl"}`) depends on it: `sub impl` is run first
 when its outputs are missing or older than its sources.
@@ -16,13 +19,15 @@ when its outputs are missing or older than its sources.
 |---|---|
 | `-m PATH`, `--manifest-dir PATH` | Directory containing the `manifest` to load (default: `.`). |
 | `-t NAME`, `--test NAME` | Select the test to run for a `vrf` step. Required when the block has more than one test; auto-selected when it has exactly one. |
-| `-o SECTION.ATTR=VALUE`, `--options` | Override a `config` attribute for this run, e.g. `-o vrf.simulator=verilator`. Repeatable. The value takes the attribute's type: list attributes are appended to, booleans accept `true/false/1/0`, integers are converted, anything else is set as a string. Unknown sections and attributes are errors. |
+| `-o OPTION=VALUE`, `-o SECTION.ATTR=VALUE`, `--options` | Set an option of the project (`-o width=16`, see [Project options](configuration.md#project-options)), or override a `config` attribute (`-o vrf.simulator=verilator`), for this run. Repeatable. The value takes the option's or attribute's kind: lists are appended to, booleans accept `true/false/yes/no/1/0`, integers and numbers are converted, anything else is set as a string; one with choices takes only those. A project option holds from `project()` on, a section's attribute from the moment its section exists, so manifests see them while they load (see [When an override takes effect](configuration.md#when-an-override-takes-effect)). Unknown options, sections and attributes are errors, with a suggestion for a misspelt name. |
 | `-n`, `--dry-run` | Elaborate the recipe, dependencies included, and report per step whether it is up to date or would run — without executing anything. Exits `1` when a step refuses the block/recipe combination, with the reason. |
 | `-f`, `--force` | Run every step of the requested recipe even if its outputs are up to date. Dependencies are not forced; they run only when stale. |
 | `-c`, `--clean` | Remove the work directory of the block/recipe combination (`work/<block>/<recipe>`, for `vrf` the test's, plus the simulation builds the block's tests share) and stop. The directories of the recipe's earlier steps belong to their own, shorter recipes (`tmr` for `tmr-impl`) and are left alone, as are dependencies. |
 | `-r`, `--restart` | Remove that work directory, then run the recipe. |
 | `-p`, `--populate-flow` | Copy the flow of the recipe's last step into `flow/<block>/<recipe>/` (plus the test for `vrf`) to customise it, and run nothing. That step runs the copy from then on; the recipe's earlier steps and its dependencies keep running their flows. On an existing copy, the copy is left as it is and recorded as based on the flow as it is now. See [Custom Flows](custom_flows.md#customising-a-flow-for-one-block). |
-| `-l`, `--list-libs` | List the libraries (`lib()`) and macros (`macro()`) registered by the manifests, then exit. |
+| `-l`, `--list-libs` | List the libraries (`lib()`) and the top project's macros (`macro()`) registered by the manifests, then exit. |
+| `--list-options` | List the top project's options and every `config` section and attribute after loading the manifests — value, where it comes from, the kinds and values it takes, description — then exit. Combine it with `-o` to check what an override does. |
+| `-a`, `--all` | List the blocks of every project the manifests load, not only the top project's; with `-l`, their macros, and with `--list-options`, their options. |
 | `-i`, `--interactive` | Ask flows to run interactively where they can (e.g. open the simulator GUI). |
 | `-v`, `--verbose` | Debug logging. Repeat for more. |
 | `--version` | Print the bake version and exit. |

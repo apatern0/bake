@@ -19,11 +19,13 @@ from bake.exceptions import BakeRuntimeError
 #    Deriving from config.FixedSchemaAttributes makes the attributes
 #    __init__ defines the only ones: a typo in a manifest
 #    (config.mystep.optoins = ...) is then an error instead of a no-op.
+#    config.option() describes an attribute for `bake --list-options` and
+#    checks the kind (and choices) of what -o and the manifests give it.
 class MyStepConfig(config.FixedSchemaAttributes):
     def __init__(self):
-        self.flow         = ""
-        self.flow_options = {}
-        self.options      = []
+        self.flow         = config.option("", "Flow of the mystep step, by name")
+        self.flow_options = config.option({}, "Options of the mystep flow ($BAKE_FLOW_OPT_*)")
+        self.options      = config.option([], "Options of the tool's run")
 
 config.register('mystep', MyStepConfig())
 
@@ -97,6 +99,8 @@ Key rules:
 - `config` is available in every manifest's scope, so `config.register()` can be called at module level.
 - A config class deriving from `config.FixedSchemaAttributes` rejects assignments to attributes
   its `__init__` did not define (the builtin steps do this); a plain class accepts anything.
+  Attributes declared with `config.option()` are also checked for their kind and choices, as
+  [project options](configuration.md#project-options) are.
 - Steps **must not** access `context` registries (`context.libs`, `context.blocks`, etc.) at
   runtime. Read everything from `self.data` and `self.config` only.
 

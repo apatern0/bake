@@ -910,7 +910,7 @@ def _cmdline(proc_dir):
     ('regression(name="r", tests=["good"])', "tests= needs target="),
     ('regression(name="r", target="dut", tests={"good": 0})', "runs 0 times"),
     ('regression(name="r", target="dut", tests={"good": []})', "empty list of seeds"),
-    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form section.attribute=value"),
+    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form [section.]attribute=value"),
     ('regression(name="r", includes=["dut"])', "cannot include 'dut', which is rtl"),
     ('regression(name="r", target="dut", tests=["nope"])', "block 'dut' has no test 'nope'"),
     ('regression(name="r", target="nodut", tests=["good"])', "target 'nodut' is not a block"),
@@ -924,6 +924,16 @@ def test_regression_declaration_errors(bake, capfd, project, declaration, messag
     manifest.write_text(manifest.read_text() + declaration + "\n")
     assert bake.run(["r", "regression"])
     assert_in_stderr(capfd, message)
+
+
+def test_regression_takes_project_options(bake, project):
+    """regression(options=) takes an option of the project, as -o does."""
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text().replace(
+        "from bake import block, flow, regression, test\n",
+        "from bake import block, flow, project, regression, test\n\nproject(\"r\", width=8)\n")
+        + 'regression(name="wide", target="dut", tests="good", options="width=16")\n')
+    assert bake.run([]) == 0
 
 
 # ===========================================================================
@@ -1034,13 +1044,14 @@ def test_second_interrupt_kills_the_flow(project, monkeypatch, tmp_path):
 
 
 def test_process_tracking_values(bake, capfd, project, monkeypatch, tmp_path):
-    """An unknown mechanism is an error. Where bake cannot make the cgroups
-    asked for, it says so, with why, before running anything, and falls back
-    to the subreaper; it does not look when no flow is to run."""
+    """An unknown mechanism is an error (one of -o's choices). Where bake
+    cannot make the cgroups asked for, it says so, with why, before running
+    anything, and falls back to the subreaper; it does not look when no flow
+    is to run."""
     from bake import procs
     _leaky_project(project, monkeypatch, tmp_path, "exit")
     assert bake.run(["t", "leak", "-o", "bake.process_tracking=jail"]) == 1
-    assert_in_stderr(capfd, "expected one of auto, cgroup, subreaper, group")
+    assert_in_stderr(capfd, "takes one of auto, cgroup, subreaper, group, not 'jail'")
 
     monkeypatch.setattr(procs, "_own_cgroup_parent", lambda: (None, "no cgroup here"))
     monkeypatch.setattr(procs, "_systemd_user", lambda: (False, "no systemd either"))
@@ -1615,7 +1626,7 @@ def test_option_string_and_bool_applied(bake, project):
 def test_option_bad_bool_errors(bake, capfd, project):
     project("sample")
     assert bake.run(["sample_target", "vrf", "-o", "bake.interactive=maybe"]) == 1
-    assert_in_stderr(capfd, "Expected a boolean")
+    assert_in_stderr(capfd, "config.bake.interactive takes a boolean (true or false), not 'maybe'")
 
 
 def test_option_list_appends(bake, project):
@@ -1624,6 +1635,281 @@ def test_option_list_appends(bake, project):
     assert not bake.run(["sample_target", "vrf", "-o", "vrf.options=-a", "-o", "vrf.options=-b"])
     from bake.context import context
     assert context.config.vrf.options == ["-a", "-b"]
+
+
+def _project_vars():
+    """What the options_impl stand-in flow recorded of the project's options."""
+    return Path("work/dut/impl/output/vars.txt").read_text().strip()
+
+
+def test_project_options_reach_flow(bake, project):
+    """A project's options reach its blocks' flows as $BAKE_PROJ_*: booleans
+    as 1/0, lists space-joined."""
+    project("project_options")
+    assert not bake.run(["dut", "impl"])
+    assert _project_vars() == "WIDTH=8 MODE=small FAST=0 TAGS= RATIO=1.5 SEEN=8"
+
+
+def test_project_options_set_from_command_line(bake, project):
+    """-o without a section sets an option of the project, converted to its
+    kind: the manifest sees it while it loads (SEEN), a manifest assigning
+    it afterwards keeps the command line's value (FAST) and a list gets
+    the items added to its default."""
+    project("project_options")
+    assert not bake.run(["dut", "impl", "-o", "width=16", "-o", "fast=yes",
+                         "-o", "tags=a", "-o", "tags=b", "-o", "ratio=2"])
+    assert _project_vars() == "WIDTH=16 MODE=small FAST=1 TAGS=a b RATIO=2.0 SEEN=16"
+    from bake.context import context
+    options = context.projects["demo"].options
+    assert options.width == 16 and options.fast is True and options.tags == ["a", "b"]
+
+
+def test_project_option_change_reruns_step(bake, capfd, project):
+    """A project option is part of the step's fingerprint."""
+    project("project_options")
+    assert not bake.run(["dut", "impl"])
+    assert not bake.run(["dut", "impl"])
+    assert_in_stderr(capfd, "up-to-date")
+    assert not bake.run(["dut", "impl", "-o", "width=16"])
+    assert_not_in_stderr(capfd, "up-to-date")
+    assert _project_vars().startswith("WIDTH=16")
+
+
+@pytest.mark.parametrize("option, message", [
+    ("width=12",       "Option '-o width=12': config.proj.width takes one of 8, 16, not 12. "
+                       "config.proj.width: Data width in bits."),
+    ("width=wide",     "Option '-o width=wide': config.proj.width takes an integer, not 'wide'."),
+    ("widht=16",       "project demo has no option 'widht' (did you mean 'width'?). Its options: "
+                       "fast, mode, ratio, tags, width (`bake --list-options` describes them)"),
+    ("simulator=x",    "project demo has no option 'simulator' (did you mean vrf.simulator?)"),
+    ("proj.width=16",  "Option '-o proj.width=16': the project's options take no section: -o width=16."),
+    ("prj.width=16",   "unknown config section 'prj'"),
+    ("vrf.simulater=x", "config.vrf has no attribute 'simulater' (did you mean 'simulator'?)"),
+    ("vrf.flow_options=x", "config.vrf.flow_options is a dictionary, which -o cannot set"),
+    ("width",          "Malformed option '-o width': it has no '='"),
+    ("a.b.c=1",        "Malformed option '-o a.b.c=1': the section and the attribute take letters, "
+                       "digits and _ only"),
+])
+def test_option_errors_explain(bake, capfd, project, option, message):
+    """Every override that cannot be applied stops before anything runs, with
+    a message that says what the attribute takes, without a traceback or a
+    manifest location (the command line is at fault)."""
+    project("project_options")
+    assert bake.run(["dut", "impl", "-o", option]) == 1
+    out = stderr(capfd)
+    assert message in out
+    assert "Traceback" not in out and "manifest:" not in out
+    assert not Path("work").exists()
+
+
+def test_option_without_project(bake, capfd, project):
+    """-o without a section needs the project to declare options."""
+    project("sample")
+    assert bake.run(["-o", "simulator=icarus"]) == 1
+    assert_in_stderr(capfd, "Option '-o simulator=icarus': the project declares no options "
+                            "(did you mean vrf.simulator?). project() in the top manifest declares them")
+
+
+def test_user_section_set_once_loaded(bake, capfd, project):
+    """config.user has no schema: -o sets an attribute a manifest assigned,
+    once every manifest has loaded, with a deprecation warning, and names
+    the missing one."""
+    project("project_options")
+    assert not bake.run(["dut", "impl", "-o", "user.label=from_cli"])
+    assert_in_stderr(capfd, "setting config.user from the command line is deprecated")
+    from bake.context import context
+    assert context.config.user.label == "from_cli"
+    assert bake.run(["dut", "impl", "-o", "user.nope=1"]) == 1
+    assert_in_stderr(capfd, "config.user has no attribute 'nope'")
+
+
+def test_manifest_assignment_checked_against_option(bake, capfd, project):
+    """A manifest assigning a declared option a value of another kind is a
+    manifest error at its line."""
+    project("options_bad_type")
+    assert bake.run([]) == 1
+    assert_stderr(capfd, expect=["manifest:21:", "config.proj.width takes an integer, not a string ('16')",
+                                 "config.proj.width: Data width in bits."],
+                  expect_not=["Traceback"])
+
+
+def test_option_default_must_be_a_choice(bake, capfd, project):
+    project("options_bad_choice")
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "manifest:20: option(4, ...): the default is not one of its choices (8, 16)")
+
+
+def test_list_options(bake, capfd, project):
+    """--list-options shows the project's options, then every section's
+    attributes, with their value, where it comes from, its choices and its
+    description."""
+    project("project_options")
+    assert bake.run(["--list-options", "-o", "width=16"]) == 0
+    out = stderr(capfd)
+    for expected in ("Options of project demo (set one with -o option=value):", "width",
+                     "= 16  (set by -o)", "Data width in bits; one of 8, 16",
+                     "config.vrf", "simulator", "config.impl", "flow", "(set by a manifest)",
+                     "(set by the command line)", "config.bake",
+                     "a dictionary: set its keys in a manifest"):
+        assert expected in out, expected
+    assert out.index("Options of project demo") < out.index("config.bake")
+    assert "config.proj" not in out
+
+
+def test_unknown_config_section_in_manifest(bake, project):
+    """Reading a section nobody registered names the known ones and says how
+    one comes to exist."""
+    project("sample")
+    assert not bake.run([])   # loads the built-in steps' sections
+    from bake.context import context
+    typo = "vfr"
+    with pytest.raises(AttributeError) as err:
+        getattr(context.config, typo)
+    assert "config has no section 'vfr' (did you mean 'vrf'?)" in str(err.value)
+    assert "config.register()" in str(err.value) and "project()" in str(err.value)
+
+
+def _width_of(block):
+    """What the width_impl stand-in flow recorded for block, whose work
+    directory is next to its manifest."""
+    where = {"ip_dut": "ip", "shared_dut": "shared"}.get(block, ".")
+    return Path(f"{where}/work/{block}/impl/output/vars.txt").read_text().strip()
+
+
+def test_subproject_options_are_its_own(bake, project):
+    """A manifest that calls project() starts a project of its own: its
+    manifests see its options, which its load() sets, its blocks' flows see
+    them as $BAKE_PROJ_*, and a manifest without project() belongs to the
+    project that loads it."""
+    project("subprojects")
+    for block in ("top_dut", "ip_dut", "shared_dut"):
+        assert not bake.run([block, "impl"])
+    assert _width_of("top_dut") == "top_dut WIDTH=8"
+    assert _width_of("ip_dut") == "ip_dut WIDTH=16"
+    assert _width_of("shared_dut") == "shared_dut WIDTH=8"
+    from bake.context import context
+    assert list(context.projects) == ["top", "ip"]
+    assert context.config.user.ip_width_seen == 16 and context.config.user.shared_width_seen == 8
+    assert {b: context.blocks[b].project for b in ("top_dut", "ip_dut", "shared_dut")} == {
+        "top_dut": "top", "ip_dut": "ip", "shared_dut": "top"}
+    origin = context.projects["ip"].options._bake_book("_bake_origin")
+    assert origin == {"width": "load()", "fast": "default"}
+
+
+def test_subproject_options_follow_their_load(bake, capfd, project):
+    """The command line sets the top project's options only; a loaded
+    project's come from its load()."""
+    project("subprojects")
+    assert not bake.run(["ip_dut", "impl", "-o", "width=16"])
+    assert _width_of("ip_dut") == "ip_dut WIDTH=32"
+    assert bake.run(["ip_dut", "impl", "-o", "fast=true"]) == 1
+    assert_in_stderr(capfd, "project top has no option 'fast'. Its options: width")
+
+
+def test_subproject_runs_alone(bake, project):
+    """A project that others load is the top project when bake runs it: the
+    command line sets its options."""
+    project("subprojects/ip")
+    assert bake.run(["--list-options", "-o", "width=6"]) == 0
+    from bake.context import context
+    assert context.top_project.name == "ip" and context.projects["ip"].options.width == 6
+    assert context.config.user.ip_width_seen == 6
+
+
+def test_blocks_listed_by_project(bake, capfd, project):
+    """bake lists the top project's blocks and says how many the others
+    have; --all lists every project's, the top one first."""
+    project("subprojects")
+    assert bake.run([]) == 0
+    out = stderr(capfd)
+    assert "Available blocks and associated tests of top:" in out
+    assert "- top_dut" in out and "- shared_dut" in out and "- ip_dut" not in out
+    assert "More blocks: 1 in ip (bake --all lists them)." in out
+    assert bake.run(["--all"]) == 0
+    out = stderr(capfd)
+    assert out.index("tests of top:") < out.index("- top_dut") < out.index("tests of ip:") < out.index("- ip_dut")
+    assert "More blocks" not in out
+    assert bake.run(["--list-options"]) == 0
+    out = stderr(capfd)
+    assert "Options of project top (set one with -o option=value):" in out
+    assert "Options of project ip" not in out
+    assert "More project options: 2 in ip (bake --all lists them)." in out
+    assert bake.run(["--list-options", "--all"]) == 0
+    out = stderr(capfd)
+    assert "Options of project ip (set one with the load() that loads it):" in out
+    assert "= 16  (set by load())" in out
+
+
+def _manifests(path: Path, files: dict) -> None:
+    """Write manifest files ({directory: text}) under path and change into it."""
+    for rel, text in files.items():
+        manifest = path / rel / "manifest"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(text)
+    os.chdir(path)
+
+
+_P = "from bake import block, load, option, project\n"
+
+
+@pytest.mark.parametrize("files, message", [
+    ({".": _P + "load('a')\nproject('p')\n", "a": ""},
+     "manifest:3: project() comes before anything that belongs to the project, but this manifest "
+     "loads 'a' at manifest:2. Move project() above it."),
+    ({".": _P + "project('p', w=1)\nload('a')\n", "a": _P + "x = config.proj.w\nproject('a')\n"},
+     "a/manifest:3: project() comes before anything that belongs to the project, but this manifest "
+     "reads config.proj at a/manifest:2."),
+    ({".": _P + "block(name='b', top='b')\nproject('p')\n"},
+     "this manifest declares block 'b' at manifest:2"),
+    ({".": _P + "project('p')\nproject('q')\n"},
+     "manifest:3: project() is called twice in this manifest; the first call is at manifest:2."),
+    ({".": _P + "project('p')\nload('a')\n", "a": _P + "project('p')\n"},
+     "a/manifest:2: project('p'): manifest declares a project of that name already"),
+    ({".": _P + "project('1p')\n"},
+     "project('1p'): a project's name is a letter followed by letters, digits, _ and -."),
+    ({".": _P + "project('p', W=1, w=2)\n"},
+     "project('p'): options W, w differ in case only"),
+    ({".": _P + "project('p', _w=1)\n"},
+     "project(): option '_w' starts with '_'"),
+    ({".": _P + "project('p')\nload('a', w=1)\n", "a": ""},
+     "manifest:3: load('a', w=1): a/manifest calls no project(), so it has no options to set."),
+    ({".": _P + "project('p')\nload('a', widht=1)\n", "a": _P + "project('a', width=4)\n"},
+     "load() at manifest:3 sets option 'widht' of project a, which has no such option "
+     "(did you mean 'width'?). Its options: width."),
+    ({".": _P + "project('p')\nload('a', width='x')\n", "a": _P + "project('a', width=4)\n"},
+     "load() at manifest:3: config.proj.width takes an integer, not a string ('x')."),
+    ({".": _P + "project('p')\nload('a', width=1)\nload('a', width=2)\n", "a": _P + "project('a', width=4)\n"},
+     "manifest:4: load('a', width=2) gives project a other options than its first load, "
+     "load('a', width=1) at manifest:3: a project is loaded once, with one set of options."),
+    ({".": _P + "project('p')\nload('a')\nload('s')\n", "a": _P + "project('a')\nload('../s')\n", "s": ""},
+     "manifest:4: load('s'): s/manifest calls no project(), so its blocks belong to the project that "
+     "loads it, but project p loads it here and project a at a/manifest:3."),
+    ({".": "x = config.proj\n"},
+     "manifest:1: config.proj: the top project declares no options."),
+    ({".": _P + "project('p')\nconfig.proj = 1\n"},
+     "manifest:3: config.proj is the project's options, which project() declares"),
+    ({".": "config.register('proj', config.FixedSchemaAttributes())\n"},
+     "config.register('proj', ...): config.proj is the project's options"),
+])
+def test_project_errors_explain(bake, capfd, tmp_path, files, message):
+    """A project declared or loaded the wrong way stops bake at the line at
+    fault, with what to do instead."""
+    _manifests(tmp_path / "proj", files)
+    assert bake.run([]) == 1
+    out = stderr(capfd)
+    assert message in out
+    assert "Traceback" not in out
+
+
+def test_project_loaded_twice_alike(bake, tmp_path):
+    """A manifest without project() may be loaded twice by one project, and
+    a project twice with the same options."""
+    _manifests(tmp_path / "proj", {
+        ".": _P + "project('p')\nload('shared')\nload('a', w=1)\nload('a', w=1)\nload('shared')\n",
+        "a": _P + "project('a', w=0)\n",
+        "shared": "",
+    })
+    assert bake.run([]) == 0
 
 
 def test_vrf_delays_is_a_scalar(bake, project):

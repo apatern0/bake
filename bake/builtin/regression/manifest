@@ -45,8 +45,9 @@ FlowSpec(
 class RegressionConfig(config.FixedSchemaAttributes):
     def __init__(self):
         self.tpl_dict     = config.TemplateDictionary()
-        self.flow         = None
-        self.flow_options = {}
+        self.flow         = config.option(
+            None, "Flow that starts the runs, by name; the built-in local one when unset", kind=str)
+        self.flow_options = config.option({}, "Options of the regression flow ($BAKE_FLOW_OPT_*)")
 
 
 config.register("regression", RegressionConfig())

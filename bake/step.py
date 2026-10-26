@@ -240,6 +240,10 @@ class StepData:
         Block name, directory of the manifest that defined it, and the name of
         the test the recipe runs with ("" when none is needed).
 
+    project
+        Name of the block's project, whose options the flows see as
+        $BAKE_PROJ_* ("" for an unnamed top project).
+
     top
         The design's top unit: a module for RTL and netlists.
 
@@ -263,6 +267,7 @@ class StepData:
     block:     str = ""
     block_dir: str = ""
     test:      str = ""
+    project:   str = ""
     top:       str = ""
 
     # ── Mutable test-derived working state ───────────────────────────────────
@@ -430,6 +435,8 @@ class StepData:
             dependencies = []
 
         obj = block.to_data() if block else StepData()
+        if block:
+            obj.project = block.project
         if env:
             obj._set_test(env)
             obj._process_env_includes(env)
@@ -934,7 +941,8 @@ class Step(ABC):
         """Template variables available to every flow.
 
         Combines config.bake.tpl_dict, the step's own config.<step>.tpl_dict,
-        the block/recipe identity, and the flow options: the flow's
+        the options of the block's project ($BAKE_PROJ_<OPTION>), the
+        block/recipe identity, and the flow options: the flow's
         tpl_defaults overlaid with config.<step>.flow_options, exposed as
         $BAKE_FLOW_OPT_<NAME> (name upper-cased).  A dict option expands to
         one variable per key, $BAKE_FLOW_OPT_<NAME>_<KEY>, and an override
@@ -946,6 +954,13 @@ class Step(ABC):
         """
         tpl_dict = dict(context.config.bake.tpl_dict)
         tpl_dict.update(getattr(self.config, "tpl_dict", None) or {})
+        for key, value in context.project_vars(self.data.project).items():
+            if key in tpl_dict:
+                raise exceptions.BakeConfigError(
+                    f"Template variable {key} comes both from an option of the project and "
+                    f"from a tpl_dict: rename one of them."
+                )
+            tpl_dict[key] = value
 
         tpl_dict["BAKE_INTERACTIVE"] = int(context.config.bake.interactive)
         tpl_dict["BAKE_VERBOSITY"]   = context.config.bake.verbosity

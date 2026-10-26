@@ -42,6 +42,10 @@ class BakeConfigAttributeError(BakeConfigError, AttributeError):
     """A config section or attribute that does not exist. Also an
     AttributeError, so hasattr()/getattr(..., default) work on config."""
 
+class BakeOptionError(BakeConfigError):
+    """A command-line -o override that cannot be applied: malformed, for an
+    unknown section or attribute, or a value the attribute does not take."""
+
 class BakeUserRuntimeError(BakeRuntimeError):
     """Exception that can be raised from user manifest code for error handling."""
 

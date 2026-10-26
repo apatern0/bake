@@ -67,6 +67,22 @@ flow(
     dir="nothing",
 )
 
+# An impl flow whose script records the project's options ($BAKE_PROJ_*).
+flow(
+    name="options_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="options_impl",
+)
+
+# An impl flow whose script records the block and its project's width.
+flow(
+    name="width_impl",
+    corners=[("TC", "Typical Case")],
+    run_cmd="run.sh",
+    dir="width_impl",
+)
+
 flow(
     name="plain_run",
     run_cmd="run.sh",
