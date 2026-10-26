@@ -176,7 +176,7 @@ bake counter_nightly regression
 | `target` | The block whose tests run |
 | `tests` | `{test: runs}`, with random seeds, or `{test: [seeds]}`; a test name or a list of names runs once each |
 | `recipe` | What each run executes, ending with `vrf` (default `"vrf"`; `"tmr-vrf"`, say) |
-| `options` | `-o` overrides for every run, `section.attribute=value` |
+| `options` | `-o` overrides for every run: `option=value` for an option of the project, `section.attribute=value` for a section's attribute |
 | `includes` | Other regressions, whose runs are added, with this regression's `options` after their own |
 
 Every run is a *bake* invocation of its recipe on its test — `bake <target> <recipe> -t <test>`

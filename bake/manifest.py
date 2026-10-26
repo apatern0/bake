@@ -422,8 +422,8 @@ class MacroSpec(DesignSpec, AbstractsSpec):
                 f"{len(self.liberty_files)} liberty corners")
 
 
-# A command-line override, as -o takes it: section.attribute=value
-_OPTION = re.compile(r"^[A-Za-z0-9_]+\.[A-Za-z0-9_]+=.*$")
+# A command-line override, as -o takes it: [section.]attribute=value
+_OPTION = re.compile(r"^(?:[A-Za-z0-9_]+\.)?[A-Za-z0-9_]+=.*$")
 
 
 class RegressionSpec(DesignSpec):
@@ -472,8 +472,8 @@ class RegressionSpec(DesignSpec):
         for option in self.options:
             if not _OPTION.match(option):
                 raise BakeManifestError(
-                    f"{owner}: option '{option}' is not of the form section.attribute=value, "
-                    f"as -o takes it (e.g. vrf.runtime_options=+VERBOSE)."
+                    f"{owner}: option '{option}' is not of the form [section.]attribute=value, "
+                    f"as -o takes it (e.g. width=16 or vrf.runtime_options=+VERBOSE)."
                 )
 
     def to_data(self):

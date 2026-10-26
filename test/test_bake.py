@@ -910,7 +910,7 @@ def _cmdline(proc_dir):
     ('regression(name="r", tests=["good"])', "tests= needs target="),
     ('regression(name="r", target="dut", tests={"good": 0})', "runs 0 times"),
     ('regression(name="r", target="dut", tests={"good": []})', "empty list of seeds"),
-    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form section.attribute=value"),
+    ('regression(name="r", target="dut", tests="good", options="+X")', "is not of the form [section.]attribute=value"),
     ('regression(name="r", includes=["dut"])', "cannot include 'dut', which is rtl"),
     ('regression(name="r", target="dut", tests=["nope"])', "block 'dut' has no test 'nope'"),
     ('regression(name="r", target="nodut", tests=["good"])', "target 'nodut' is not a block"),
@@ -924,6 +924,16 @@ def test_regression_declaration_errors(bake, capfd, project, declaration, messag
     manifest.write_text(manifest.read_text() + declaration + "\n")
     assert bake.run(["r", "regression"])
     assert_in_stderr(capfd, message)
+
+
+def test_regression_takes_project_options(bake, project):
+    """regression(options=) takes an option of the project, as -o does."""
+    manifest = project("regression") / "manifest"
+    manifest.write_text(manifest.read_text().replace(
+        "from bake import block, flow, regression, test\n",
+        "from bake import block, flow, project, regression, test\n\nproject(\"r\", width=8)\n")
+        + 'regression(name="wide", target="dut", tests="good", options="width=16")\n')
+    assert bake.run([]) == 0
 
 
 # ===========================================================================
