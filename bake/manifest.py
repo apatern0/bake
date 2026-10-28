@@ -43,7 +43,7 @@ from . import loader
 from . import file_utils
 from .context import context
 from .exceptions import BakeManifestError
-from .step import LibData, RegressionData, RtlData, StepData
+from .step import LibData, RegressionData, RtlData, StepData, SweepData
 
 
 def load(path, /, **options):
@@ -507,6 +507,93 @@ class RegressionSpec(DesignSpec):
         return f"target={self.target or '<none>'}, {len(self.tests)} tests, {len(self.includes)} includes"
 
 
+# A variant's name is the name of its run directory.
+_VARIANT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+class SweepSpec(DesignSpec):
+    """A sweep: one block's recipe run once per variant, each variant a set of
+    -o overrides, in a directory of its own, to compare the variants.
+    `bake <name> sweep` runs it and keeps a report of the runs."""
+    manifest_function: ClassVar[str] = "sweep"
+
+    target: str = ""                                                 # the block the recipe runs on
+    recipe: str = ""                                                 # what each variant runs, e.g. impl
+    options: list[str] = Field(default_factory=list)                 # -o overrides of every variant
+    variants: dict[str, list[str]] = Field(default_factory=dict)     # {name: [-o overrides]}
+
+    _lists = field_validator("options", mode="before")(_as_list)
+
+    @field_validator("variants", mode="before")
+    @classmethod
+    def coerce_variants(cls, v):
+        # Convenience: a variant given as one option string.
+        if not isinstance(v, dict):
+            raise BakeManifestError(
+                "sweep(): variants= takes a dict of variant names to their -o options, "
+                "e.g. variants={\"fast\": [\"fast=true\"], \"slow\": []}."
+            )
+        return {name: [opts] if isinstance(opts, str) else opts for name, opts in v.items()}
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.variants
+
+    @property
+    def data_type(self) -> type[StepData]:
+        return SweepData
+
+    def _resolve(self) -> None:
+        owner = f"Sweep '{self.name}'"
+        if self.includes:
+            raise BakeManifestError(f"{owner}: a sweep includes nothing; list its variants in variants=.")
+        if not self.target:
+            raise BakeManifestError(f"{owner}: target= names the block whose recipe the variants run.")
+        if not self.recipe:
+            raise BakeManifestError(f"{owner}: recipe= names what each variant runs, e.g. recipe=\"impl\".")
+        if not self.variants:
+            raise BakeManifestError(f"{owner}: variants= is empty; give it at least one variant.")
+        for name in self.variants:
+            if not _VARIANT.match(name):
+                raise BakeManifestError(
+                    f"{owner}: variant '{name}' needs a name of letters, digits, '_', '.' and '-', "
+                    f"starting with a letter or a digit: it names the variant's run directory."
+                )
+        for where, options in [("options=", self.options)] + [
+                (f"variant '{name}'", opts) for name, opts in self.variants.items()]:
+            for option in options:
+                if not isinstance(option, str) or not _OPTION.match(option):
+                    raise BakeManifestError(
+                        f"{owner}: {where}: '{option}' is not of the form [section.]attribute=value, "
+                        f"as -o takes it (e.g. width=16 or vrf.seed=1)."
+                    )
+
+    def to_data(self):
+        """The runs, checked against what the manifests declare: called when a
+        recipe is elaborated, once every manifest has loaded."""
+        owner = f"Sweep '{self.name}'"
+        steps = self.recipe.split("-")
+        unknown = [s for s in steps if s not in context.steps]
+        if unknown:
+            raise BakeManifestError(f"{owner}: recipe '{self.recipe}' names unknown step '{unknown[0]}'.")
+        if self.target not in context.blocks:
+            raise BakeManifestError(f"{owner}: target '{self.target}' is not a block.")
+        target = context.blocks[self.target]
+        if isinstance(target, (SweepSpec, RegressionSpec)):
+            raise BakeManifestError(
+                f"{owner}: target '{self.target}' is a {target.manifest_function}(); a sweep runs a "
+                f"block's recipe."
+            )
+        runs = [{"name": name, "block": self.target, "recipe": self.recipe,
+                 "options": list(self.options) + list(options), "variant_options": list(options)}
+                for name, options in self.variants.items()]
+        return SweepData(block=self.name, block_dir=self.dir, runs=runs, desc=self.desc,
+                         options=list(self.options))
+
+    def _summary(self) -> str:
+        return f"target={self.target}, recipe={self.recipe}, {len(self.variants)} variants"
+
+
 class EnvSpec(BaseModel):
     model_config = ConfigDict(validate_default=True, extra="forbid")
     manifest_function: ClassVar[str] = "env"
@@ -620,6 +707,7 @@ lib   = LibSpec    # PDK cell libraries
 block = BlockSpec  # user design blocks, in RTL
 macro = MacroSpec  # implemented blocks (hard macros)
 regression = RegressionSpec  # tests run many times, with their seeds
+sweep = SweepSpec  # a block's recipe run once per variant of its options
 
 
 def target(**kwargs):

@@ -186,6 +186,15 @@ Settings for the [regression](manifest_verif_model.md#regressions) step.
 | `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`: `jobs` and `timeout` for the built-in flow (see [Regressions](manifest_verif_model.md#regressions)). |
 | `tpl_dict` | `{}` | Extra template variables injected into `regression`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
 
+### `config.sweep`
+Settings for the [sweep](manifest_design_model.md#sweeps) step.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `flow` | `None` | Name of the flow to use. When empty, the built-in flow (`builtin_sweep_flow`) runs the sweep on this machine and reports it; a project's own flow runs it on another engine (see [Writing a Sweep Flow](custom_flows.md#writing-a-sweep-flow)). |
+| `flow_options` | `{}` | Flow options, exposed to the flow's templates as `$BAKE_FLOW_OPT_<NAME>`: `jobs` and `timeout` for the built-in flow (see [Sweeps](manifest_design_model.md#sweeps)). |
+| `tpl_dict` | `{}` | Extra template variables injected into `sweep`-step `.tpl` files only. Same key constraints as `config.bake.tpl_dict`. |
+
 ### `config.impl`
 Settings for the implementation (synthesis and place-and-route) step.
 
@@ -315,6 +324,15 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | Variable | Description |
 |----------|-------------|
 | `$BAKE_REGRESSION_RUNS` | One entry per run of the regression: `block`, `test`, `recipe`, `run` (numbered from 1 within its test), `name` (`<block>/<test>/<run>`, unique in the regression), `seed` (`null`: *bake* draws one), `options` (the run's `-o` overrides: its seed, the regression's options, then the command line's) and `command`, the run ready to start in a directory of its own (the *bake* invocation of the test with `options` and `vrf.run_dir=.`). A list of objects: read it from `bake_vars.json`. See [Writing a Regression Flow](custom_flows.md#writing-a-regression-flow). |
+
+### Built-in variables (sweep step)
+
+| Variable | Description |
+|----------|-------------|
+| `$BAKE_SWEEP_RUNS` | One entry per variant: `name`, `block`, `recipe`, `options` (the run's `-o` overrides: the sweep's, the variant's, then the command line's), `variant_options` (the variant's own) and `command`, the run ready to start in a directory of its own (the *bake* invocation of the recipe with `options` and `bake.output_dir=.`). A list of objects: read it from `bake_vars.json`. See [Writing a Sweep Flow](custom_flows.md#writing-a-sweep-flow). |
+| `$BAKE_SWEEP_DESC` | The sweep's `desc`: the question it answers |
+| `$BAKE_SWEEP_OPTIONS` | The sweep's `options`, common to every variant |
+| `$BAKE_SWEEP_PROJECT` | The project's manifest directory |
 
 ### Built-in variables (impl step)
 

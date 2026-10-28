@@ -305,6 +305,46 @@ of the step, wherever it went, and ends those still running when the flow's scri
 traps the signal, and has `config.bake.kill_grace` seconds, after its script exits, for the
 processes it leaves to stop.
 
+## Reporting a Run: `summary.json`
+
+A flow may describe how its run went in `summary.json`, in the step's work directory. A
+[sweep](manifest_design_model.md#sweeps) tabulates what its variants' runs wrote there; any other
+tool can read it the same way. Every key is optional:
+
+```json
+{"status": "completed",
+ "stage": "signoff",
+ "error": "",
+ "metrics": [{"name": "density", "label": "Density", "value": 92.7, "unit": "%"},
+             {"name": "wns", "label": "Setup WNS", "value": -1.12, "unit": "ns"}],
+ "notes": ["worst path: data_i[3] -> data_o[6]"],
+ "inspect": [{"what": "database", "command": "my_tool -gui", "then": "load db/final"}]}
+```
+
+| Key | Description |
+|-----|-------------|
+| `status` | How the run ended, in the flow's words |
+| `stage` | How far the run got: its last stage, or the stage that failed |
+| `error` | The first error worth reading, for a run that failed |
+| `metrics` | The numbers to compare runs by, in the order to show them: `name` (the column's key), `label`, `value`, `unit` |
+| `notes` | Anything else worth a line: the worst path, a warning |
+| `inspect` | How to look into the run: `what`, a `command` to run in the work directory, and `then`, what to do once it runs |
+
+Write it as the run goes, so that a run that fails still reports how far it got. The built-in
+vrf flow writes one in the test's directory: whether the test passed, the seed, and the
+simulator output to read.
+
+## Writing a Sweep Flow
+
+The [sweep](manifest_design_model.md#sweeps) step hands its flow every variant ready to start, in
+`BAKE_SWEEP_RUNS` (see [Configuration](configuration.md#built-in-variables-sweep-step)), and the
+flow starts each variant's `command` in a directory of its own (the command ends with
+`-o bake.output_dir=.`, so that directory holds the variant's work directories), and exits
+nonzero when one fails. Keep the directories between runs, so that a variant whose inputs did
+not change is up to date. The built-in flow, `bake/builtin/sweep/flow/local/run.py`, is the
+example to start from for another engine: it also shows how the report is built from each run's
+`summary.json`, at `<directory>/<block>/<recipe>/summary.json`.
+
 ## Writing a Regression Flow
 
 The [regression](manifest_verif_model.md#regressions) step leaves its flow one job: being the

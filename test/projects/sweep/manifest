@@ -1,0 +1,37 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A sweep() of one block's impl over variants of the project's options; the
+# summary_impl stand-in flow writes each run's summary.json, and fails the
+# variant that sets fail.
+
+from bake import block, load, option, project, sweep
+
+project(
+    "sweep",
+    width=option(8, "Data width in bits", choices=[8, 16, 32]),
+    fail=option(False, "Make the flow fail"),
+    sleep=option(0, "Seconds the flow sleeps first"),
+)
+
+load("../flows")
+config.impl.flow = "summary_impl"
+
+block(name="dut", top="dut", rtl_files=["../rtl/dut.v"])
+
+sweep(name="widths", desc="Which data width fits?", target="dut", recipe="impl",
+      options=["fail=false"],
+      variants={"w8": ["width=8"], "w16": "width=16",
+                "w32": ["width=32", "fail=true"]})
