@@ -26,6 +26,8 @@ The test suite runs without any EDA tool installed: tests that need `tmrg`, `yos
   of **steps**, a step runs a **flow**. See `docs/glossary.md`.
 - Steps must not read `context` registries at run time — only `self.data` and `self.config`.
 - Log messages at `INFO` must make sense to someone who does not know the code.
+- A change to the command line, the manifest API or what a flow receives updates `docs/` and,
+  where it names them, the skill in `skills/bake/SKILL.md`.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
 `feat(vrf): ...`, `fix(impl): ...`, `docs: ...`, with a `!` or `BREAKING CHANGE:` footer when

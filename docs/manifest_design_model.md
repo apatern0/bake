@@ -312,12 +312,12 @@ Which fields are used depends on the step:
 ## Loading Additional Manifests
 
 Large projects often split their manifest across multiple files. Use `load()` to include another
-manifest file from within a manifest:
+manifest from within a manifest, by the directory it is in:
 
 ```python
 from bake import load
 
-load("libs/sky130/manifest")  # relative path, resolved from this manifest's directory
+load("libs/sky130")  # executes libs/sky130/manifest; relative to this manifest's directory
 ```
 
 The loaded manifest is executed in the same *bake* context, so all blocks, libs, flows, and
