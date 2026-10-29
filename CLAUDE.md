@@ -6,6 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 bake is a Python-based ASIC build and verification framework. It automates design flows (TMR insertion, simulation, synthesis, place-and-route) driven by `manifest` files — plain Python files that declare design intent and configuration. The CLI entry point is `bake`.
 
+`CONTRIBUTING.md` holds the rules for changes (tests, vocabulary, commit messages, built-in steps, licence headers); the rest of this file adds to it.
+
+## Design rules
+
+- **No plugins.** A tool extends bake with a manifest that projects `load()`: its `Step` subclass, its config section and its `flow()`, laid out like a built-in step, so it is executed again after every `context.reset()`. What a project's manifests import (a spec shorthand such as rdl2verilog's `rdl()`, a `StepData` subclass) goes in an ordinary importable module. There is no `use()` and no entry-point discovery; do not propose them.
+- **Open-source tools only.** A built-in flow runs with open-source tools; supporting a commercial simulator inside an open flow (the vrf flow's options for several simulators) is fine, a flow whose only engine is a commercial tool is not. Such a flow lives in a repository of its own that projects `load()` (for example a flow kit of a foundry's tools or a regression manager). Tests, fakes, documentation examples and pull request descriptions name no proprietary tool: fake an open one (a fake `iverilog` writing `a.out`, as `test/projects/criteria` does), and do not link private flow repositories from the documentation.
+- **Validity that depends on the recipe goes in `Step.check_pre()`**, not on the block: the same block can be baked with recipes that accept different includes.
+- **Documentation goes with the change**: a change to the manifest API, the CLI, a config attribute or what a flow receives updates `docs/` in the same pull request. Link a tool to the repository it comes from, not to a fork or a mirror.
+
+## Before a pull request
+
+CI runs, on Python 3.10 to 3.13: `python -m pytest --cov=bake --cov-fail-under=85`, `python -m pylint -E bake/`, `ruff check bake/ test/` and `python -m mypy bake/`. Run them all.
+
+- Tests that run a regression or a sweep start bake again in a subprocess (`sys.executable -m bake`), which must import this checkout's bake: an editable install, or `PYTHONPATH=$PWD`.
+- bake has no pre-commit configuration. When a hook installed by an enclosing project (bake as a submodule) refuses to commit without one, commit with `PRE_COMMIT_ALLOW_NO_CONFIG=1`.
+- A pull request title is a plain sentence ("Run a block's recipe once per variant"), not a Conventional Commits line: the merge commit ends with it, and release-please would list the change twice. The *PR title* check rejects one. Do not edit `docs/releases.md` by hand.
+
 ## Installation
 
 ```bash
