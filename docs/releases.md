@@ -45,6 +45,38 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-10-29)
+
+
+### Features
+
+* **config:** declare a project and its options with project() ([74e6234](https://github.com/apatern0/bake/commit/74e623469e116463d9d5318afac750dc3ea488f8))
+* **config:** let manifests see -o overrides and describe every option ([8f6ca38](https://github.com/apatern0/bake/commit/8f6ca381ced023c6a0b87dbe0e5b91baf019c1c8))
+* **regression:** run tests many times with regression() and a regression step ([6254dde](https://github.com/apatern0/bake/commit/6254dde4051edfa6235f9c0f10585e6fed9ec17d))
+* **step:** choose process tracking up front, and only report a fallback ([cfe3c8d](https://github.com/apatern0/bake/commit/cfe3c8d04c306ff3e6662dd596ab99405f1504d7))
+* **step:** own every process a step's flow starts ([35d507b](https://github.com/apatern0/bake/commit/35d507b40ed35593f0bfc5074634aa23a62b6b7f))
+* **sweep:** report a variant that finished without its outputs as partial ([80a7111](https://github.com/apatern0/bake/commit/80a711183dc76f13b0d0a38a822e539abd9558d2))
+* **sweep:** run a block's recipe once per variant and report the variants ([4e0e85a](https://github.com/apatern0/bake/commit/4e0e85a1d8ac6cf5a379719a7a11651424a2f68d))
+
+
+### Bug Fixes
+
+* **regression:** stop starting runs once a regression is interrupted ([6b1bde0](https://github.com/apatern0/bake/commit/6b1bde02f267bf89a826b97a0c131617ff70ce0d))
+* **regression:** take an option of the project in options=, as -o does ([992943c](https://github.com/apatern0/bake/commit/992943cfb5b7fa4789ccd8043898b014c8a53e5f))
+* **step:** find a step's scope when its script has already exited ([7e25bd5](https://github.com/apatern0/bake/commit/7e25bd5ee5b6ba2e3cc75db1ea7a73fe42207023))
+* **step:** report missing outputs in one line, and list them with -v ([f42f18e](https://github.com/apatern0/bake/commit/f42f18e2cfb3dda17fced38d8bf8a2e3ce22f534))
+* **step:** run a Python flow with bake's own interpreter ([e118e1d](https://github.com/apatern0/bake/commit/e118e1d57efde46ac494851b62c1f047f6f1ee8d))
+* **sweep:** show no earlier sweep's results on an unfinished variant ([291b635](https://github.com/apatern0/bake/commit/291b6359df0d83e0ddcb3cbf54a130fb02852adf))
+* **sweep:** show running variants and drop the empty metric column ([1110a51](https://github.com/apatern0/bake/commit/1110a5131c2cb85aef1b68054aec867c14c311a9))
+* **vrf:** let the Xcelium GUI's Reinvoke rebuild changed sources ([f22ee2a](https://github.com/apatern0/bake/commit/f22ee2a57b99db5252c8fb038649d6770f8a44ef))
+
+
+### Documentation
+
+* give Claude Code bake's design rules and pre-review checks ([d0bfd7f](https://github.com/apatern0/bake/commit/d0bfd7f5695113fc5edbfcd3bcc9129f6cec4bbf))
+* **manifest:** load() a project by its directory ([6af56bd](https://github.com/apatern0/bake/commit/6af56bd5e5ea7702bba3d580439c111ed5d6c56d))
+* ship a Claude Code skill for writing and running bake projects ([1805a2e](https://github.com/apatern0/bake/commit/1805a2e0a67ede369c2ad37af9ed7c2a18b1cfac))
+
 ## [2.0.0](https://github.com/apatern0/bake/compare/v1.0.0...v2.0.0) (2026-09-29)
 
 **Breaking changes.** Manifests and custom steps may need these changes; the entries below say
