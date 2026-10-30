@@ -1,0 +1,48 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Cell roles of the libraries a block uses (lib(cells=...)), handed to its
+# flows: `cells` and `more` are standard-cell libraries, `pads` an I/O pad
+# library. `top` uses all three: a role's cells come from every library, in
+# the order the block names them, each cell once.
+
+from bake import load, block, lib
+
+load("../flows")
+config.impl.flow = "dummy_impl"
+
+lib(name="cells", liberty_files={"TC": "../rtl/base.v"}, cells={
+    "site": "core",
+    "filler": ["FILL4", "FILL1"],
+    "tie_hi": ("TIEH", "Z"),
+    "tie_lo": [("TIEL", "ZN")],
+    "clock_buffer": ["CKBUF2", "CKBUF1"],
+})
+lib(name="more", liberty_files={"TC": "../rtl/leaf.v"}, cells={
+    "filler": ["FILL1", "FILL8"],
+    "clock_gate": "ICG1",
+})
+lib(name="pads", cells={
+    "io_site": "pad",
+    "io_corner_site": "corner",
+    "io_corner": "CORNER",
+    "io_filler": ["PFILL10", "PFILL1"],
+    "io_ring_break": "BREAK",
+    "io_power": "PVDD",
+    "io_ground": "PVSS",
+})
+
+block(name="top", top="sample", rtl_files=["../rtl/sample.v"], libs=["cells", "more", "pads"])
+block(name="plain", top="sample", rtl_files=["../rtl/sample.v"])
