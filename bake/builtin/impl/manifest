@@ -202,9 +202,11 @@ def _macro_netlists(macros) -> list:
 #
 # The flow is PDK-agnostic: it consumes whatever libraries the manifest
 # registers (Liberty per corner and LEF) through $BAKE_LIB_LIBERTY_FILES_*
-# and $BAKE_LIB_PHYSICAL, and takes the technology-dependent settings of
-# place-and-route from flow options. bake ships no PDK; example/pdk/sky130/
-# manifest shows how to register one and which options a PDK has to provide.
+# and $BAKE_LIB_PHYSICAL, the cells they declare for its own use (the site,
+# the clock buffers and the tie cells: lib(cells=...), $BAKE_CELLS_*), and
+# takes the other technology-dependent settings of place-and-route from flow
+# options. bake ships no PDK; example/pdk/sky130/manifest shows how to
+# register one and which options a PDK has to provide.
 # ---------------------------------------------------------------------------
 
 FlowSpec(
@@ -225,9 +227,10 @@ FlowSpec(
         "macro_channel":    "4 4",  # microns between hard macros (x y)
         # Technology-specific: a PDK manifest sets these in
         # config.impl.flow_options (see example/pdk/sky130/manifest).
-        "site":           "",       # placement site name from the tech LEF
         "pin_hor_layers": "",       # metal layer(s) for horizontal pins
         "pin_ver_layers": "",       # metal layer(s) for vertical pins
+        # Empty: from the cell roles of the block's libraries (lib(cells=...))
+        "site":           "",       # placement site name from the tech LEF
         "cts_buffers":    "",       # clock buffer cell(s) for CTS
         "tie_cells": {"HI": "", "LO": ""},   # tie-high/low cell as (cell, output pin)
         "signal_layer":   "",       # layer for signal wire RC estimation (optional)

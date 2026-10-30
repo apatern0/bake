@@ -143,7 +143,13 @@ def _validation_messages(err: pydantic.ValidationError) -> list:
         arg = ".".join(str(x) for x in e["loc"]) or "<arguments>"
         if e["type"] == "extra_forbidden":
             msg = f"unknown argument '{arg}'"
-            close = difflib.get_close_matches(arg, fields, n=1)
+            # A key of a nested model (lib(cells={...})) is matched against
+            # that model's fields
+            known, key = fields, str(e["loc"][-1])
+            nested = spec.model_fields.get(str(e["loc"][0])) if spec and len(e["loc"]) > 1 else None
+            if nested and isinstance(nested.annotation, type) and issubclass(nested.annotation, pydantic.BaseModel):
+                known = list(nested.annotation.model_fields)
+            close = difflib.get_close_matches(key, known, n=1)
             if close:
                 msg += f" (did you mean '{close[0]}'?)"
         else:

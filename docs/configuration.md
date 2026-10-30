@@ -208,7 +208,10 @@ Settings for the implementation (synthesis and place-and-route) step.
 
 The built-in `yosys-openroad` flow takes these options (`config.impl.flow_options`). The
 first group has technology-neutral defaults; the second is technology-specific and empty by
-default — a PDK manifest provides them, as `example/pdk/sky130/manifest` does for sky130:
+default — a PDK manifest provides them, as `example/pdk/sky130/manifest` does for sky130. The
+site, the clock buffers and the tie cells, when their options are empty, come from the
+[cell roles](manifest_design_model.md#cell-roles) of the block's libraries (`site`,
+`clock_buffer`, `tie_hi`/`tie_lo`), which is how the sky130 example declares them:
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -218,10 +221,10 @@ default — a PDK manifest provides them, as `example/pdk/sky130/manifest` does 
 | `place_density` | `0.6` | Target density for global placement |
 | `macro_halo` | `"2 2"` | Space kept free around hard macros, in microns (x y) |
 | `macro_channel` | `"4 4"` | Space kept between hard macros, in microns (x y) |
-| `site` | — | Placement site from the technology LEF (sky130: `unithd`) |
+| `site` | — | Placement site from the technology LEF; empty: the first `site` role |
 | `pin_hor_layers`, `pin_ver_layers` | — | Metal layers for horizontal and vertical I/O pins (sky130: `met3`, `met2`) |
-| `cts_buffers` | — | Clock buffer cell(s) for clock tree synthesis (sky130: `sky130_fd_sc_hd__clkbuf_4`) |
-| `tie_cells` | `{"HI": "", "LO": ""}` | Tie-high and tie-low cells as `(cell, output pin)` (sky130: `{"HI": ("sky130_fd_sc_hd__conb_1", "HI"), "LO": ("sky130_fd_sc_hd__conb_1", "LO")}`); without them constants stay as plain assignments |
+| `cts_buffers` | — | Clock buffer cell(s) for clock tree synthesis; empty: the `clock_buffer` role |
+| `tie_cells` | `{"HI": "", "LO": ""}` | Tie-high and tie-low cells as `(cell, output pin)`; empty: the first `tie_hi`/`tie_lo` role. Without any, constants stay as plain assignments |
 | `signal_layer`, `clock_layer` | — | Layers for wire RC estimation (`set_wire_rc`); when set, the SDF includes estimated interconnect delays |
 
 Clock tree synthesis needs a clock: declare an SDC with `create_clock` in the block's
@@ -295,6 +298,8 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_VERBOSITY` | Number of `-v` flags given |
 | `$BAKE_FLOW_OPT_<NAME>` | One per flow option: the flow's `tpl_defaults` overridden by `config.<step>.flow_options` |
 | `$BAKE_PROJ_<OPTION>` | One per option of the block's project, but for dictionaries (see [Project options](#project-options)) |
+| `$BAKE_CELLS_<ROLE>` | One per [cell role](manifest_design_model.md#cell-roles): the role's cells (for a site role, its sites) from the block's libraries, in the order of `libs=`, each once (list; empty when no library fills the role) |
+| `$BAKE_CELL_DATA` | The same as `{role: [{"name", "lib", and "pin" for a tie}]}`, for scripts reading `bake_vars.json` |
 
 ### Built-in variables (vrf step)
 
