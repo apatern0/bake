@@ -81,6 +81,8 @@ block(name="core", top="core", rtl_files=["rtl/core.sv"], rtl_incdirs=["rtl"],
       libs=["stdcells"])                # or config.bake.default_libs for every block
 macro(name="fe", top="fe", netlist_files=["fe.v"], liberty_files={"TT": "fe_tt.lib"},
       layout_info="fe.lef")             # an implemented block (hard macro); included, never in libs=
+lib(name="stdcells", liberty_files={"TT": "tt.lib"}, layout_info="cells.lef",
+    cells={"site": "core", "filler": ["FILL4", "FILL1"], "tie_hi": ("TIEH", "Z")})  # roles: cells flows insert
 env(name="core_env", target="core", vrf_top="tb", vrf_files=["tb.sv"], default_sim="icarus")
 test(name="core_smoke", includes=["core_env"],
      vrf_runtime_options={"icarus": ["+HITS=10"]})   # simulation-only options share one build
@@ -124,6 +126,7 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
 | compare settings | `sweep()` over project options or attributes, `bake <sweep> sweep`; `report.md` pastes into a pull request | `manifest_design_model.md#sweeps` |
 | change a flow for one block | `-p`, edit the copy, commit it with `.bake_flow.json`; after "Flow ... has changed", merge, then `-p` again to record it | `custom_flows.md#customising-a-flow-for-one-block` |
 | give a flow a knob | `tpl_defaults` in `flow()`, `config.<step>.flow_options[...]` in the project, `$BAKE_FLOW_OPT_<NAME>` in the template | `custom_flows.md#flow-specific-options` |
+| tell flows which cells to insert (fillers, ties, clock tree, pad ring) | `lib(cells={role: cells})`; flows read `$BAKE_CELLS_<ROLE>` / `$BAKE_CELL_DATA` | `manifest_design_model.md#cell-roles` |
 | read variables from a Python flow | `json.load(open(os.environ["BAKE_VARS"]))` rather than pasting `$BAKE_*` into strings | `#reading-the-variables-from-a-script-bake_varsjson` |
 | report results from a flow | write `summary.json` in the work directory as the run goes | `#reporting-a-run-summaryjson` |
 | run regressions or sweeps elsewhere | a flow of your own: start each `command` of `BAKE_REGRESSION_RUNS` / `BAKE_SWEEP_RUNS` in its own directory, exit nonzero on a failure | `#writing-a-regression-flow` |

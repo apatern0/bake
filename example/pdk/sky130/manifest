@@ -32,10 +32,11 @@
 # that runs impl names the one it wants in libs=[...].
 #
 # The built-in yosys-openroad flow reads the TT/FF/SS corners registered here,
-# and takes the technology-specific place-and-route settings (placement site,
-# pin layers, clock buffer, RC layers) from config.impl.flow_options, which
-# this manifest fills in for sky130_fd_sc_hd below. A project can still
-# override any of them after load().
+# the cells sky130_fd_sc_hd declares for the flows' own use (placement site,
+# clock buffer, tie cells: lib(cells=...)), and the other technology-specific
+# place-and-route settings (pin layers, RC layers) from
+# config.impl.flow_options, which this manifest fills in below. A project can
+# still override any of them after load().
 
 import logging
 import os
@@ -63,16 +64,27 @@ if not (pdk_dir / "libs.ref").is_dir():
 # Place-and-route settings for the yosys-openroad flow. setdefault so that a
 # project manifest which sets its own values before load() keeps them.
 for option, value in {
-    "site":           "unithd",
     "pin_hor_layers": "met3",
     "pin_ver_layers": "met2",
-    "cts_buffers":    "sky130_fd_sc_hd__clkbuf_4",
-    "tie_cells":      {"HI": ("sky130_fd_sc_hd__conb_1", "HI"),
-                       "LO": ("sky130_fd_sc_hd__conb_1", "LO")},
     "signal_layer":   "met2",
     "clock_layer":    "met5",
 }.items():
     config.impl.flow_options.setdefault(option, value)
+
+# What the cells of sky130_fd_sc_hd are for, to the flows that pick cells
+# themselves (the others get none here; declare theirs the same way)
+HD = "sky130_fd_sc_hd__"
+CELL_ROLES = {
+    "sky130_fd_sc_hd": {
+        "site":          "unithd",
+        "filler":        [HD + "fill_8", HD + "fill_4", HD + "fill_2", HD + "fill_1"],
+        "tap":           HD + "tapvpwrvgnd_1",
+        "tie_hi":        (HD + "conb_1", "HI"),
+        "tie_lo":        (HD + "conb_1", "LO"),
+        "antenna_diode": HD + "diode_2",
+        "clock_buffer":  HD + "clkbuf_4",
+    },
+}
 
 for lib_dir in sorted((pdk_dir / "libs.ref").glob("sky130_fd_sc_*")):
     name = lib_dir.name
@@ -103,4 +115,5 @@ for lib_dir in sorted((pdk_dir / "libs.ref").glob("sky130_fd_sc_*")):
         netlist_incdirs=[str(verilog_dir)],
         liberty_files=liberty,
         layout_info=" ".join(str(f) for f in (tech_lef, cell_lef) if f.is_file()),
+        cells=CELL_ROLES.get(name, {}),
     )

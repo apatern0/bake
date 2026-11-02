@@ -160,6 +160,62 @@ class AbstractsSpec(BaseModel):
                 file_utils.resolve_file_list(corner_files)
 
 
+def _as_ties(value):
+    """Tie cells as [(cell, output pin)], with a single pair accepted."""
+    if isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, str) for v in value):
+        return [value]
+    return value
+
+
+class CellRoles(BaseModel):
+    """What a cell library's cells are for, as far as a flow picks cells on
+    its own: the cells it inserts (fillers, ties, the clock tree, the pad
+    ring) rather than the ones a design instantiates. Cell names, in the
+    order the library prefers them (fillers widest first). A role a library
+    leaves empty is one it does not fill; a block's libraries together
+    should cover what its flow needs."""
+    model_config = ConfigDict(validate_default=True, extra="forbid")
+
+    # Standard cells
+    site:           str = ""                                 # placement site of the core rows
+    filler:         list[str] = Field(default_factory=list)  # fill the gaps between cells
+    decap:          list[str] = Field(default_factory=list)  # decoupling-capacitance fillers
+    tap:            list[str] = Field(default_factory=list)  # well taps
+    endcap:         list[str] = Field(default_factory=list)  # row ends
+    tie_hi:         list[tuple[str, str]] = Field(default_factory=list)  # (cell, output pin)
+    tie_lo:         list[tuple[str, str]] = Field(default_factory=list)  # (cell, output pin)
+    antenna_diode:  list[str] = Field(default_factory=list)  # antenna repair
+    clock_buffer:   list[str] = Field(default_factory=list)  # clock tree
+    clock_inverter: list[str] = Field(default_factory=list)  # clock tree
+    clock_gate:     list[str] = Field(default_factory=list)  # integrated clock gates
+    delay:          list[str] = Field(default_factory=list)  # hold fixing
+    dont_use:       list[str] = Field(default_factory=list)  # never picked by a tool
+    # I/O pads: the signal pads are instantiated by the design, these are not
+    io_site:        str = ""                                 # site of the pad ring
+    io_corner_site: str = ""                                 # site of the ring's corners
+    io_corner:      list[str] = Field(default_factory=list)  # corner cells
+    io_filler:      list[str] = Field(default_factory=list)  # pad fillers, widest first
+    io_ring_break:  list[str] = Field(default_factory=list)  # cut the pad ring's supply rails
+    io_power:       list[str] = Field(default_factory=list)  # supply pads, power
+    io_ground:      list[str] = Field(default_factory=list)  # supply pads, ground
+    bond_pad:       list[str] = Field(default_factory=list)  # bond pads apart from the pad cells
+
+    _lists = field_validator(
+        "filler", "decap", "tap", "endcap", "antenna_diode", "clock_buffer", "clock_inverter",
+        "clock_gate", "delay", "dont_use", "io_corner", "io_filler", "io_ring_break",
+        "io_power", "io_ground", "bond_pad", mode="before")(_as_list)
+    _ties = field_validator("tie_hi", "tie_lo", mode="before")(_as_ties)
+
+    @classmethod
+    def names(cls) -> list:
+        """Every role, in declaration order."""
+        return list(cls.model_fields.keys())
+
+    def roles(self) -> dict:
+        """{role: value} of the roles the library fills."""
+        return {name: value for name, value in self if value}
+
+
 class LibSpec(AbstractsSpec):
     """A cell library (standard cells, IO cells, a PDK's technology files):
     what blocks are mapped onto, named by libs=, vrf_libs= and
@@ -169,6 +225,8 @@ class LibSpec(AbstractsSpec):
 
     name: str = ""
     desc: str = ""
+    # What its cells are for, to the flows that pick cells themselves
+    cells: CellRoles = Field(default_factory=CellRoles)
 
     def model_post_init(self, __context: Any) -> None:
         if self.name in context.libs:

@@ -56,8 +56,20 @@ def as_list(value):
 TOP            = V["BAKE_TOP"]
 LIB_LIBERTY_TT = V["BAKE_LIB_LIBERTY_FILES_TT"]
 LIB_PHYSICAL   = V["BAKE_LIB_PHYSICAL"]
-TIE_CELL_HI    = as_list(V["BAKE_FLOW_OPT_TIE_CELLS_HI"])   # [cell, pin] or []
-TIE_CELL_LO    = as_list(V["BAKE_FLOW_OPT_TIE_CELLS_LO"])
+
+
+def tie_cell(option, role):
+    """[cell, pin] of a tie: the flow option, else the first tie of the
+    role among the block's libraries' cells (lib(cells=...)); [] for none."""
+    cell = as_list(V[option])
+    if cell:
+        return cell
+    ties = V["BAKE_CELL_DATA"][role]
+    return [ties[0]["name"], ties[0]["pin"]] if ties else []
+
+
+TIE_CELL_HI    = tie_cell("BAKE_FLOW_OPT_TIE_CELLS_HI", "tie_hi")   # [cell, pin] or []
+TIE_CELL_LO    = tie_cell("BAKE_FLOW_OPT_TIE_CELLS_LO", "tie_lo")
 MACRO_LIBERTY_TT = V["BAKE_MACRO_LIBERTY_FILES_TT"]
 
 os.makedirs("output", exist_ok=True)
@@ -67,8 +79,8 @@ with open("scripts/macros.ys", "w") as macro_script:
     for lib_file in MACRO_LIBERTY_TT:
         macro_script.write(f"read_liberty -lib {lib_file}\n")
 
-# Translate the tie_cells flow option into Yosys's hilomap call; the synthesis
-# script sources the file, so no cells means no mapping.
+# Translate the tie cells into Yosys's hilomap call; the synthesis script
+# sources the file, so no cells means no mapping.
 with open("scripts/tie_cells.ys", "w") as tie_script:
     hilomap = []
     if TIE_CELL_HI:

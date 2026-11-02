@@ -289,6 +289,39 @@ def test_lib_listed(bake, capfd, project):
     assert_in_stderr(capfd, "mylib")
 
 
+def test_lib_cell_roles_reach_the_flow(bake, project):
+    """The cell roles of a block's libraries (lib(cells=...)) reach its
+    flows: a role's cells from every library, in the order the block names
+    the libraries, each cell once; a tie keeps its output pin; a role no
+    library fills is defined and empty."""
+    project("lib_cells")
+    assert not bake.run(["top", "impl"])
+    tpl = json.loads(Path("work/top/impl/bake_vars.json").read_text())
+    assert tpl["BAKE_CELLS_SITE"] == ["core"]
+    assert tpl["BAKE_CELLS_FILLER"] == ["FILL4", "FILL1", "FILL8"]
+    assert tpl["BAKE_CELLS_CLOCK_BUFFER"] == ["CKBUF2", "CKBUF1"]
+    assert tpl["BAKE_CELLS_TIE_HI"] == ["TIEH"]
+    assert tpl["BAKE_CELL_DATA"]["tie_lo"] == [{"name": "TIEL", "lib": "cells", "pin": "ZN"}]
+    assert tpl["BAKE_CELL_DATA"]["clock_gate"] == [{"name": "ICG1", "lib": "more"}]
+    assert tpl["BAKE_CELLS_IO_SITE"] == ["pad"]
+    assert tpl["BAKE_CELLS_IO_FILLER"] == ["PFILL10", "PFILL1"]
+    assert tpl["BAKE_CELLS_IO_RING_BREAK"] == ["BREAK"]
+    assert tpl["BAKE_CELLS_DELAY"] == [] and tpl["BAKE_CELL_DATA"]["delay"] == []
+
+
+@pytest.mark.parametrize("cells, message", [
+    ('{"filer": "FILL1"}', "lib(): unknown argument 'cells.filer' (did you mean 'filler'?)"),
+    ('{"tie_hi": "TIEH"}', "lib(): cells.tie_hi: "),
+])
+def test_lib_cell_roles_checked(bake, capfd, project, cells, message):
+    """A role lib() does not know is refused with the closest known one; a
+    tie needs its output pin."""
+    project("lib_cells")
+    Path("manifest").write_text(f"from bake import lib\nlib(name=\"cells\", cells={cells})\n")
+    assert bake.run([])
+    assert_stderr(capfd, expect=[message], expect_not=["Traceback"])
+
+
 def test_custom_step_appears_in_listing(bake, capfd, project):
     """A step loaded via load() in the manifest appears in the step listing."""
     project("sample_check")

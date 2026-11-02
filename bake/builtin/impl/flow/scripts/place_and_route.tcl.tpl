@@ -83,11 +83,22 @@ if {"$BAKE_FLOW_OPT_CLOCK_LAYER" ne ""} {
 # Floorplan, placement, clock tree, routing
 # ---------------------------------------------------------------------------
 
+# The site and the clock buffers: the flow options, else the cell roles of
+# the block's libraries (lib(cells=...))
+set site {$BAKE_FLOW_OPT_SITE}
+if {$$site eq ""} {
+    set site [lindex {$BAKE_CELLS_SITE} 0]
+}
+set cts_buffers {$BAKE_FLOW_OPT_CTS_BUFFERS}
+if {$$cts_buffers eq ""} {
+    set cts_buffers {$BAKE_CELLS_CLOCK_BUFFER}
+}
+
 initialize_floorplan \
     -utilization $BAKE_FLOW_OPT_CORE_UTILIZATION \
     -aspect_ratio $BAKE_FLOW_OPT_ASPECT_RATIO \
     -core_space $BAKE_FLOW_OPT_CORE_MARGIN \
-    -site $BAKE_FLOW_OPT_SITE
+    -site $$site
 make_tracks
 
 place_pins -hor_layers $BAKE_FLOW_OPT_PIN_HOR_LAYERS -ver_layers $BAKE_FLOW_OPT_PIN_VER_LAYERS
@@ -104,7 +115,7 @@ check_placement -verbose
 
 if {[llength [all_clocks]] > 0} {
     repair_clock_inverters
-    clock_tree_synthesis -buf_list {$BAKE_FLOW_OPT_CTS_BUFFERS}
+    clock_tree_synthesis -buf_list $$cts_buffers
     detailed_placement
 }
 

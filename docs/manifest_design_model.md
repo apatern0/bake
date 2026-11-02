@@ -286,7 +286,7 @@ is not a design: it has no top module, is not a target and cannot be included; a
 block of the project is a [`macro()`](#macros).
 
 ```python
-lib(name, desc, netlist_files, netlist_incdirs, liberty_files, layout_info, si_files)
+lib(name, desc, netlist_files, netlist_incdirs, liberty_files, layout_info, si_files, cells)
 ```
 
 Arguments:
@@ -302,12 +302,58 @@ Arguments:
     Liberty files must then provide it too, or `impl` refuses the block before running.
   * `layout_info` — LEF file or OpenAccess library folder for physical implementation — optional
   * `si_files` — SI-related (cdb) library information, same format as `liberty_files` — optional
+  * `cells` — what the library's cells are for, to the flows that pick cells on their own
+    (see [Cell roles](#cell-roles)) — optional
 
 Which fields are used depends on the step:
 
   * `vrf` steps use `netlist_files`; timing and layout data are ignored.
   * `impl` steps use `liberty_files`, `layout_info`, and `si_files`; netlist Verilog is ignored.
   * `tmr` steps use `netlist_files` by default.
+
+### Cell roles
+A flow inserts some cells without the design naming them: fillers, tie cells, the clock tree's
+buffers, the cells of a pad ring. `cells=` says which of the library's cells serve which role,
+so that a flow takes them from the libraries instead of hard-coding a kit's cell names:
+
+```python
+lib(name="stdcells", ..., cells={
+    "site":         "core",
+    "filler":       ["FILL8", "FILL4", "FILL2", "FILL1"],   # in the order the flow should try them
+    "tie_hi":       ("TIEH", "Z"),                          # (cell, output pin)
+    "tie_lo":       ("TIEL", "ZN"),
+    "clock_buffer": ["CKBUF4", "CKBUF2"],
+    "clock_gate":   "ICG1",
+})
+```
+
+A role takes a cell name or a list of them; a site role takes the site's name; a tie takes
+`(cell, output pin)` or a list of such pairs. An unknown role is an error. The roles:
+
+| Role | Cells |
+|------|-------|
+| `site` | the placement site of the core rows |
+| `filler`, `decap` | fillers; fillers that add decoupling capacitance |
+| `tap`, `endcap` | well taps; row ends |
+| `tie_hi`, `tie_lo` | tie cells, as `(cell, output pin)` |
+| `antenna_diode` | diodes for antenna repair |
+| `clock_buffer`, `clock_inverter`, `clock_gate` | clock tree cells; integrated clock gates |
+| `delay` | delay cells for hold fixing |
+| `dont_use` | cells a tool must never pick |
+| `io_site`, `io_corner_site` | the sites of the pad ring and of its corners |
+| `io_corner`, `io_filler` | corner cells; pad fillers |
+| `io_ring_break` | cells that cut the pad ring's supply rails |
+| `io_power`, `io_ground` | supply pads |
+| `bond_pad` | bond pads apart from the pad cells |
+
+The signal pads, like any macro, are instantiated by the design and have no role.
+
+A block's flows get the roles of all its libraries together, in the order of `libs=`, each cell
+once (`$BAKE_CELLS_<ROLE>` and `$BAKE_CELL_DATA`, see
+[Configuration](configuration.md#built-in-variables-all-steps)). A library fills the roles it
+has cells for: a block can take its fillers from one library and its clock gates from another.
+The built-in `yosys-openroad` flow takes its site, clock buffers and tie cells from them unless
+its flow options name others.
 
 ## Loading Additional Manifests
 

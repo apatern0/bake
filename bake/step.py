@@ -203,6 +203,29 @@ def _merge_fields(dst: "StepData", src: "StepData", names) -> None:
             setattr(dst, name, mine or theirs)
 
 
+def cell_role_vars(libs) -> dict:
+    """The template variables of the cell roles of a block's libraries
+    (lib(cells=...)): $BAKE_CELLS_<ROLE>, the names of the role's cells (a
+    site role: its sites) from every library, in the block's library order,
+    and $BAKE_CELL_DATA, {role: [{"name", "lib", and "pin" for a tie}]}, for
+    scripts reading bake_vars.json. Every role is defined, empty when no
+    library fills it."""
+    from .manifest import CellRoles  # pylint: disable=import-outside-toplevel  # manifest.py imports this module
+    names: dict[str, list] = {role: [] for role in CellRoles.names()}
+    data: dict[str, list] = {role: [] for role in CellRoles.names()}
+    for lib in libs:
+        for role, value in lib.cells.roles().items():
+            for item in ([value] if isinstance(value, str) else value):
+                name, pin = item if isinstance(item, tuple) else (item, None)
+                if name in names[role]:
+                    continue
+                names[role].append(name)
+                data[role].append({"name": name, "lib": lib.name, **({"pin": pin} if pin else {})})
+    tpl: dict[str, Any] = {f"BAKE_CELLS_{role.upper()}": cells for role, cells in names.items()}
+    tpl["BAKE_CELL_DATA"] = data
+    return tpl
+
+
 def kind_names(kinds) -> str:
     """How a message names a tuple of StepData kinds: "rtl or lib"."""
     names = [k.kind for k in kinds]
@@ -964,7 +987,8 @@ class Step(ABC):
 
         Combines config.bake.tpl_dict, the step's own config.<step>.tpl_dict,
         the options of the block's project ($BAKE_PROJ_<OPTION>), the
-        block/recipe identity, and the flow options: the flow's
+        block/recipe identity, the cell roles of the block's libraries
+        ($BAKE_CELLS_<ROLE>, cell_role_vars()), and the flow options: the flow's
         tpl_defaults overlaid with config.<step>.flow_options, exposed as
         $BAKE_FLOW_OPT_<NAME> (name upper-cased).  A dict option expands to
         one variable per key, $BAKE_FLOW_OPT_<NAME>_<KEY>, and an override
@@ -989,6 +1013,8 @@ class Step(ABC):
         tpl_dict["BAKE_TOP"]         = self.data.top
         tpl_dict["BAKE_BLOCK"]       = self.data.block
         tpl_dict["BAKE_RECIPE"]      = str(self.data.recipe_prefix)
+        # What the cells of the block's libraries are for (lib(cells=...))
+        tpl_dict.update(cell_role_vars(getattr(self.data, "libs", [])))
 
         flow_options = dict(self.flow.tpl_defaults)
         for opt_name, opt_val in (getattr(self.config, "flow_options", None) or {}).items():
