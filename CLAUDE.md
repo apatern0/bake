@@ -65,7 +65,7 @@ bake -a                      # list every project's blocks, not only the top one
 
 ### Core concepts
 
-- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `project()`, `block()`, `macro()`, `test()`, `env()`, `regression()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`; a `Step` subclass defined in it registers itself.
+- **`manifest`** — a Python file (always named literally `manifest`, no extension) that is `exec`'d by bake. It calls `project()`, `block()`, `macro()`, `test()`, `env()`, `regression()`, `lib()`, `flow()` and `load()` to register design objects into the global `context`, and `scratch_dir()` to claim a directory of the output directory (`context.scratch_dirs`, where every design claims its name too: `manifest.claim_scratch()`); a `Step` subclass defined in it registers itself.
 - **Block** (`BlockSpec`) — a design unit with RTL files, a top module, and optional timing/netlist libraries.
 - **Test** (`TestSpec`) / **Env** (`EnvSpec`) — a simulation environment associated with a block. Tests carry verification files; envs are reusable base environments that tests include via `includes=`.
 - **Flow** (`FlowSpec`) — a directory of scripts (`.tpl` templated) that one step executes. Steps use flows; a flow is not a recipe.

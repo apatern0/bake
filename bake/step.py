@@ -226,6 +226,17 @@ def cell_role_vars(libs) -> dict:
     return tpl
 
 
+def output_root(manifest_dir) -> Path:
+    """The directory the work directories go in: config.bake.output_dir,
+    else work/ in `manifest_dir` (a block's: the directory of the manifest
+    that declares it). One directory in it per design, named after it, and
+    one per scratch_dir()."""
+    if context.config.bake.output_dir:
+        # Absolute, so that the flow, which runs in it, gets paths it can use.
+        return Path(context.config.bake.output_dir).absolute()
+    return Path(manifest_dir) / "work"
+
+
 def kind_names(kinds) -> str:
     """How a message names a tuple of StepData kinds: "rtl or lib"."""
     names = [k.kind for k in kinds]
@@ -790,11 +801,7 @@ class Step(ABC):
 
     @property
     def workdir(self) -> Path:
-        if context.config.bake.output_dir:
-            # Absolute, so that the flow, which runs in it, gets paths it can use.
-            return Path(context.config.bake.output_dir).absolute() / self.data.block / self.recipe_path
-
-        return Path(self.data.block_dir) / "work" / self.data.block / self.recipe_path
+        return output_root(self.data.block_dir) / self.data.block / self.recipe_path
 
     @property
     def outputdir(self) -> Path:

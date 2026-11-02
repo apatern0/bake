@@ -2256,6 +2256,45 @@ def test_output_dir_override(bake, project):
     assert not Path("work/sample_target/impl").exists()
 
 
+def test_scratch_dir_follows_output_dir(bake, project):
+    """scratch_dir() is <output_dir>/<name>, taken when used: the manifest
+    sets output_dir after the claim, -o moves it, and without one it is
+    work/<name> beside the manifest."""
+    path = project("scratch_dir")
+    assert not bake.run(["top", "impl"])
+    assert json.loads(Path("out/top/impl/bake_vars.json").read_text())["BAKE_CACHE"] == \
+        str(path / "out" / "cache")
+    assert not bake.run(["top", "impl", "-o", "bake.output_dir=moved"])
+    assert json.loads(Path("moved/top/impl/bake_vars.json").read_text())["BAKE_CACHE"] == \
+        str(path / "moved" / "cache")
+    assert not bake.run(["top", "impl", "-o", "out="])
+    assert json.loads(Path("work/top/impl/bake_vars.json").read_text())["BAKE_CACHE"] == \
+        str(path / "work" / "cache")
+
+
+@pytest.mark.parametrize("clash, first, second", [
+    ("block_before", "block 'cache' at manifest:", "scratch_dir() at manifest:"),
+    ("block_after", "scratch_dir() at manifest:", "block 'cache' at manifest:"),
+    ("twice", "scratch_dir() at manifest:", "scratch_dir() at manifest:"),
+])
+def test_scratch_dir_claimed_twice(bake, capfd, project, clash, first, second):
+    """A directory of the output directory is claimed once: a block and a
+    scratch_dir() of one name are an error in either order, and so are two
+    scratch_dir() calls."""
+    project("scratch_dir")
+    assert bake.run(["-o", f"clash={clash}"])
+    assert_stderr(capfd, expect=[f"Directory 'cache' of the output directory is claimed twice: by {first}",
+                                 f" and by {second}"], expect_not=["Traceback"])
+
+
+def test_scratch_dir_bad_name(bake, capfd, project):
+    """A scratch_dir() name is one path component."""
+    project("scratch_dir")
+    assert bake.run(["-o", "clash=bad_name"])
+    assert_stderr(capfd, expect=["scratch_dir(): 'a/b' cannot name a directory"],
+                  expect_not=["Traceback"])
+
+
 # ===========================================================================
 # Tests — StepData and Recipe (unit)
 # ===========================================================================

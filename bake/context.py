@@ -735,6 +735,9 @@ class Context:
         self.tests = []
         self.steps = {}
         self.projects = {}  # Project by name, the top one first ("" when it calls no project())
+        # The directories of the output directory and who claimed each: every
+        # design its name, scratch_dir() the others (manifest.claim_scratch())
+        self.scratch_dirs = {}
         self.process_tracking = None   # how flow processes are tracked (procs.select())
 
     @property
