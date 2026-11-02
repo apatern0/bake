@@ -43,7 +43,7 @@ from . import loader
 from . import file_utils
 from .context import context
 from .exceptions import BakeManifestError
-from .step import LibData, RegressionData, RtlData, StepData, SweepData
+from .step import LibData, RegressionData, RtlData, StepData, SweepData, output_root
 
 
 def load(path, /, **options):
@@ -69,6 +69,62 @@ def project(name, /, **options):
     load() that loads it. A plain value declares an option without a
     description."""
     loader.declare_project(name, options)
+
+
+def scratch_dir(name, /):
+    """Claim directory `name` of the output directory for what is no
+    design's, e.g. a cache that flows share across blocks:
+
+        cache = scratch_dir("pdk_cache")
+
+    The output directory holds one directory per design, named after it, so
+    a name is claimed once: by a design or by one scratch_dir() call. A
+    second claim is an error, whichever comes first. The ScratchDir returned
+    gives the path when it is used (str(), open(), Path()): by then
+    config.bake.output_dir has its final value. bake does not create it."""
+    scope = loader.current()
+    claim_scratch(name, "scratch_dir()", scope.line() if scope is not None else "")
+    return ScratchDir(name)
+
+
+class ScratchDir(os.PathLike):
+    """A directory claimed by scratch_dir(): <output_dir>/<name>, or
+    work/<name> in the top manifest's directory without
+    config.bake.output_dir. Its path is taken when it is used."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    @property
+    def path(self) -> Path:
+        return output_root(context.config.bake.manifest_dir) / self.name
+
+    def __fspath__(self) -> str:
+        return str(self.path)
+
+    def __str__(self) -> str:
+        return str(self.path)
+
+    def __repr__(self) -> str:
+        return f"ScratchDir({self.name!r})"
+
+
+def claim_scratch(name, what: str, where: str) -> None:
+    """Claim directory `name` of the output directory for `what` (as the
+    error names it), declared at `where` (manifest:line, "" when unknown).
+    Every design claims its name, scratch_dir() the rest: two claims of one
+    directory are an error."""
+    if not isinstance(name, str) or name in ("", ".", "..") or "/" in name or "\0" in name:
+        raise BakeManifestError(
+            f"{what}: {name!r} cannot name a directory of the output directory: "
+            f"give one path component, without '/'.")
+    owner = f"{what} at {where}" if where else what
+    other = context.scratch_dirs.get(name)
+    if other is not None:
+        raise BakeManifestError(
+            f"Directory '{name}' of the output directory is claimed twice: by {other} and by "
+            f"{owner}. Each design's work goes in the directory named after it; rename one of them.")
+    context.scratch_dirs[name] = owner
 
 
 # Argument normalisation shared by the specs. Manifest authors write a
@@ -343,6 +399,9 @@ class DesignSpec(BaseModel):
             scope.use(f"declares block '{self.name}'")
             self._project = scope.project
         self._resolve()
+        # Its work goes in <output dir>/<name>: no other design or scratch_dir() may use it
+        claim_scratch(self.name, f"{self.manifest_function or 'design'} '{self.name}'",
+                      scope.line() if scope is not None else "")
         # Includes are checked once every manifest has loaded (context.validate())
         # and resolved when a recipe is elaborated, so a block may include one
         # that is defined later, and whether an included recipe has been run is

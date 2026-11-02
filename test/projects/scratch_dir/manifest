@@ -1,0 +1,42 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# scratch_dir(): a directory of the output directory for what is no block's.
+# -o clash=... declares a second claim on it (rejected).
+
+from bake import block, load, option, project, scratch_dir
+
+project("scratch",
+        clash=option("none", "The second claim on 'cache' to declare",
+                     choices=["none", "block_before", "block_after", "twice", "bad_name"]),
+        out=option("out", "config.bake.output_dir; empty leaves it unset"))
+
+load("../flows")
+config.impl.flow = "dummy_impl"
+
+if config.proj.clash == "block_before":
+    block(name="cache", top="sample", rtl_files=["../rtl/sample.v"])
+cache = scratch_dir("a/b" if config.proj.clash == "bad_name" else "cache")
+if config.proj.clash == "twice":
+    scratch_dir("cache")
+if config.proj.clash == "block_after":
+    block(name="cache", top="sample", rtl_files=["../rtl/sample.v"])
+
+# Set after the claim: the path is taken when the flow's variables are written
+if config.proj.out:
+    config.bake.output_dir = config.proj.out
+config.bake.tpl_dict["BAKE_CACHE"] = cache
+
+block(name="top", top="sample", rtl_files=["../rtl/sample.v"])

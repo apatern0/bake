@@ -271,6 +271,31 @@ Setting `config.bake.file_copy_method = "symlink"` makes *bake* symlink the flow
 instead of copying it, which is useful for read-only shared flow installations where the user
 should always run the latest version without a local copy.
 
+## Keeping Data Across Blocks: `scratch_dir()`
+
+A flow sometimes makes something that is no block's own and that every block's run reuses: a
+technology library converted for the tools, a compiled simulation library. `scratch_dir(name)`
+claims a directory of the output directory for it, beside the blocks' work directories, and
+returns its path:
+
+```python
+# the manifest of a tool's flows, which projects load()
+from bake import scratch_dir
+
+config.bake.tpl_dict["BAKE_PDK_CACHE"] = scratch_dir("pdk_cache")
+```
+
+The flows get `<output_dir>/pdk_cache` (`config.bake.output_dir`), or `work/pdk_cache` beside
+the top manifest when it is unset; *bake* does not create it. The path is taken when it is
+used (`str()`, `open()`, `Path()`, a template variable), so it follows an `output_dir` set
+after the call, by a later manifest or by `-o bake.output_dir=...`.
+
+The output directory holds one directory per design, named after it, so each name is claimed
+once: by a design, or by one `scratch_dir()` call. A block named `pdk_cache` in the project
+above is an error, whether it is declared before the call or after, and so is a second
+`scratch_dir("pdk_cache")`; the message says where both claims are. A name is one path
+component.
+
 ## Reading the Variables from a Script: `bake_vars.json`
 
 Pasting `$BAKE_XYZ` into a script works for Tcl and shell, but a value containing a quote or a

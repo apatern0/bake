@@ -1,6 +1,6 @@
 ---
 name: bake
-description: Running and writing for bake, the manifest-driven ASIC build and verification tool. Use for `bake <block> <recipe>` commands (-t, -o, -n, -f/-c/-r/-p, --list-options), reading a run's work directory, and writing manifests — block(), macro(), lib(), env(), test(), regression(), sweep(), project()/option(), load(), flow(), config sections — as well as custom flows ($BAKE_* variables, bake_vars.json, summary.json) and custom steps. Describes the bake of the checkout it ships in.
+description: Running and writing for bake, the manifest-driven ASIC build and verification tool. Use for `bake <block> <recipe>` commands (-t, -o, -n, -f/-c/-r/-p, --list-options), reading a run's work directory, and writing manifests — block(), macro(), lib(), env(), test(), regression(), sweep(), project()/option(), load(), flow(), scratch_dir(), config sections — as well as custom flows ($BAKE_* variables, bake_vars.json, summary.json) and custom steps. Describes the bake of the checkout it ships in.
 ---
 
 # bake
@@ -56,6 +56,7 @@ bake -m <dir> ...                   # manifest in another directory
 | Where | What |
 |---|---|
 | `work/<block>/<recipe>/` | a step's work directory (`config.bake.output_dir` moves `work/`); vrf adds `/<test>` |
+| `work/<name>/` | a directory a flow claimed with `scratch_dir(name)` (a cache shared by the blocks); no block may have its name |
 | `.../bake_vars.json` | every `$BAKE_*` variable the flow got, lists as lists |
 | `.../.bake_stamp.json` | written when the step completed; missing = the step will run again |
 | `.../summary.json` | how the run went, if its flow writes one (status, stage, error, metrics, notes, inspect) |

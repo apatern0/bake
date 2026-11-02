@@ -157,7 +157,7 @@ Global *bake* settings.
 | `tpl_dict` | `{}` | Extra template variables injected into all `.tpl` files. Keys must start with `BAKE_` and contain only uppercase letters, digits, and underscores. Example: `config.bake.tpl_dict["BAKE_PDK_DIR"] = "/opt/pdk/sky130A"`. |
 | `default_libs` | `[]` | Library names (`lib()`) for every block that declares no `libs=`. A project usually implements everything in one set of libraries: set it once here and leave `libs=` off the blocks; a block with its own `libs=[...]` uses exactly those (to add to the defaults, write `libs=[*config.bake.default_libs, "io_cells"]`). `-o bake.default_libs=name` appends for one run. |
 | `file_copy_method` | `"copy"` | How flow skeleton files are placed in the work directory. `"copy"` duplicates files; `"symlink"` creates symbolic links (useful for shared, read-only flow installations). |
-| `output_dir` | `None` | Override the root output directory for all steps. When unset, each step writes results relative to the manifest directory. |
+| `output_dir` | `None` | Override the root output directory for all steps. When unset, each step writes results relative to the manifest directory. It holds one directory per design, named after it, and one per [`scratch_dir()`](custom_flows.md#keeping-data-across-blocks-scratch_dir). |
 | `process_tracking` | `"auto"` | How *bake* knows the processes a step starts, so that an interrupt reaches all of them and none outlives the step: `"auto"`, `"cgroup"`, `"subreaper"` or `"group"`; see [Interrupting bake](cli.md#interrupting-bake). |
 | `kill_grace` | `10` | Seconds a process left by a step's script has, after `SIGTERM`, before `SIGKILL`. |
 
