@@ -424,4 +424,7 @@ Every kind has:
 | `si_files` | `dict[str, list[str]]` | `macro()` |
 | `layout_info` | `str` | `macro()`, or `impl` output |
 | `sdf_files` | `dict[str, str]` | `impl` output |
+| `macros` | `list[LibData]` | The hard macros the block places, from `impl` |
+| `def_file`, `physical_lef`, `sdc_file` | `str` | `impl` output, if its flow writes them: the placed and routed design, every LEF it refers to, the constraints |
+| `parasitics_files` | `dict[str, str]` | `impl` output, if its flow writes them: extracted parasitics per corner |
 | `libs` | `list[LibSpec]` | The cell libraries the netlist is mapped to |

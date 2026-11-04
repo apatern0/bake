@@ -122,6 +122,7 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
 |---|---|---|
 | repeat a failing simulation | `bake <block> vrf -t <test> -o vrf.seed=<N>` (the seed is logged as `Simulation seed: N`) | `manifest_verif_model.md#seeds` |
 | pass plusargs without rebuilding | `vrf_runtime_options` / `-o vrf.runtime_options=+X=1`; `vrf_options`, defines and files make a build of their own | `#building-once-for-many-tests` |
+| hand a test's dump to a later step, and skip the simulation while it is up to date | `vrf_outputs=["activity.vcd"]`; the next step reads `self.data.sim_outputs` | `manifest_verif_model.md#files-a-test-writes` |
 | make a plain testbench fail on errors | `vrf_fail_regex` / `vrf_pass_regex` (UVM: report summary and counts are checked already) | `#passfail-criteria` |
 | run tests many times | `regression()`, `bake <regression> regression`; build earlier steps and dependencies first | `#regressions` |
 | compare settings | `sweep()` over project options or attributes, `bake <sweep> sweep`; `report.md` pastes into a pull request | `manifest_design_model.md#sweeps` |

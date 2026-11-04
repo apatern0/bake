@@ -317,6 +317,8 @@ class StepData:
     default_sim:       str  = ""
     vrf_pass_regex:    str  = ""
     vrf_fail_regex:    str  = ""
+    vrf_outputs:       list = field(default_factory=list)  # files the test writes, relative to its directory
+    sim_outputs:       list = field(default_factory=list)  # the same, absolute, once vrf ran: for the next steps
 
     # ── Bookkeeping ──────────────────────────────────────────────────────────
     recipe_prefix: RecipePath = field(default_factory=RecipePath)
@@ -325,7 +327,7 @@ class StepData:
     _TEST_FIELDS: ClassVar[tuple] = (
         "vrf_top", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
         "vrf_options", "vrf_runtime_options", "vrf_framework", "vrf_framework_top", "default_sim",
-        "vrf_pass_regex", "vrf_fail_regex",
+        "vrf_pass_regex", "vrf_fail_regex", "vrf_outputs",
     )
 
     def copy(self: _D) -> _D:
@@ -401,6 +403,7 @@ class StepData:
         self.default_sim       = env.default_sim
         self.vrf_pass_regex    = env.vrf_pass_regex
         self.vrf_fail_regex    = env.vrf_fail_regex
+        self.vrf_outputs       = list(env.vrf_outputs)
 
     def _process_env_includes(self, env):
         for dep_name in env.includes:
@@ -524,6 +527,12 @@ class LibData(StepData):
     layout_info:     str  = ""                            # LEF files, space-separated
     sdf_files:       dict = field(default_factory=dict)   # annotated delays {corner: file}
     libs:            list = field(default_factory=list)   # list[LibSpec]: the cells it is mapped to
+    macros:          list = field(default_factory=list)   # list[LibData]: the hard macros it places
+    # What sign-off tools read the layout from, if the flow writes it
+    def_file:        str  = ""                            # the placed and routed design, power grid included
+    physical_lef:    str  = ""                            # every LEF the DEF refers to
+    sdc_file:        str  = ""                            # the constraints
+    parasitics_files: dict = field(default_factory=dict)  # extracted parasitics {corner: file}
 
 
 @dataclass

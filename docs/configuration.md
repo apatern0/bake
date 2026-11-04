@@ -236,6 +236,11 @@ the `LibData` it produces (`layout_info`, `liberty_files`), so a block that incl
 integrates it as a hard macro. They are expected outputs: a run that does not produce them fails. Implemented sub-blocks
 reach the flow through the `$BAKE_MACRO_*` variables below.
 
+A flow that also writes `<top>.def.gz`, `<top>.libs.lef`, `<top>.sdc` and `<top>.<corner>.spef.gz`
+in `output/` makes them available to later steps of the recipe (`def_file`, `physical_lef`,
+`sdc_file`, `parasitics_files`); they are not required, and a step that needs them checks for them
+when it runs.
+
 ### `config.tmr`
 Settings for the triplication (TMR) step.
 

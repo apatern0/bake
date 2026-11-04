@@ -189,6 +189,14 @@ class ImplStep(Step):
                 corner: [os.path.join(self.outputdir, f"{self.data.top}_{corner}.lib")]
                 for corner in self._macro_corners
             }
+            # What sign-off tools read the layout from, where the flow writes
+            # it; a step that needs them checks for them when it runs
+            top = os.path.join(self.outputdir, self.data.top)
+            data.macros           = [m.copy() for m in rtl.macros]
+            data.def_file         = f"{top}.def.gz"
+            data.physical_lef     = f"{top}.libs.lef"
+            data.sdc_file         = f"{top}.sdc"
+            data.parasitics_files = {c: f"{top}.{c}.spef.gz" for c in self._macro_corners}
         return data
 
 

@@ -30,6 +30,8 @@ Arguments:
   * `default_sim` — default simulator to use when running tests
   * `vrf_pass_regex`, `vrf_fail_regex` — pass/fail criteria on the simulator output, see
     [Pass/fail criteria](#passfail-criteria) — optional
+  * `vrf_outputs` — files the test writes in its work directory, such as an activity dump, see
+    [Files a test writes](#files-a-test-writes) — optional
 
 The same file reference and inheritance rules from the design modeling section apply here.
 Environments can be derived from other environments via `includes`, enabling flexible composition
@@ -119,6 +121,19 @@ Interactive runs (`-i`) do not use the shared builds either: they build and run 
 the test's work directory, as before. The GUI's *Reinvoke* reruns that command, so it rebuilds
 what changed in the sources; a run from a shared build would only reload the build it started
 from.
+
+## Files a test writes
+
+A test that writes something a later step needs declares it. The step then has outputs, like any
+other: it is skipped while they are up to date, fails when one is missing, and hands them on to
+the rest of the recipe in `sim_outputs` (absolute paths, in the order declared).
+
+```python
+test(name="counter_activity", target="counter", includes=["counter_env"],
+     vrf_outputs=["activity.vcd"])
+```
+
+A test that declares none runs every time, as a test with nothing to show for itself must.
 
 ## Pass/fail criteria
 
