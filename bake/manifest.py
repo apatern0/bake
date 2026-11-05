@@ -731,7 +731,7 @@ class EnvSpec(BaseModel):
     vrf_defines: list[str] = Field(default_factory=list)
 
     _lists = field_validator("includes", "vrf_files", "vrf_incdirs", "vrf_libs", "vrf_defines",
-                             mode="before")(_as_list)
+                             "vrf_outputs", mode="before")(_as_list)
     vrf_framework: str = ""
     vrf_framework_top: str = ""
     default_sim: str = ""
@@ -740,6 +740,10 @@ class EnvSpec(BaseModel):
     # so does a log with no line matching it.
     vrf_pass_regex: str = ""
     vrf_fail_regex: str = ""
+    # Files the test writes in its work directory, such as an activity dump.
+    # The step then has outputs: it is skipped when they are up to date, fails
+    # when one is missing, and hands them to the next steps of the recipe.
+    vrf_outputs: list[str] = Field(default_factory=list)
     is_test: bool = False
 
     @functools.cached_property

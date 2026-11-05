@@ -731,6 +731,27 @@ def test_vrf_exit_code_only_passes_on_error_line(bake, capfd, project, monkeypat
     assert_stderr(capfd, expect=["Simulation seed: ", "Step vrf completed"])
 
 
+def test_vrf_outputs_missing_fails(bake, capfd, project, monkeypatch):
+    """A test that does not write a file it declares fails."""
+    _fake_icarus(monkeypatch, project("criteria"), "ok")
+    assert bake.run(["dut", "vrf", "-t", "declares_output"])
+    assert_in_stderr(capfd, "activity.vcd")
+
+
+def test_vrf_outputs_make_it_skippable(bake, capfd, project, monkeypatch):
+    """A test with outputs is skipped while they are up to date; without any it
+    always runs."""
+    _fake_icarus(monkeypatch, project("criteria"), "ok")
+    assert not bake.run(["dut", "vrf", "-t", "declares_a_out"])
+    capfd.readouterr()
+    assert not bake.run(["dut", "vrf", "-t", "declares_a_out"])
+    assert_stderr(capfd, expect=["up-to-date"], expect_not=["Simulation seed: "])
+    assert not bake.run(["dut", "vrf", "-t", "exit_code_only"])
+    capfd.readouterr()
+    assert not bake.run(["dut", "vrf", "-t", "exit_code_only"])
+    assert_in_stderr(capfd, "Simulation seed: ")
+
+
 def test_vrf_fail_regex(bake, capfd, project, monkeypatch):
     """A line matching vrf_fail_regex fails the test although the simulator
     exited 0; without such a line it passes."""

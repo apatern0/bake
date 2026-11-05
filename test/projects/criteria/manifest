@@ -24,3 +24,6 @@ env(name="sim", vrf_files=["../rtl/sample_tb.v"], default_sim="icarus")
 test(name="exit_code_only", target="dut", includes=["sim"])
 test(name="fail_regex", target="dut", includes=["sim"], vrf_fail_regex=r"^ERROR\b")
 test(name="pass_regex", target="dut", includes=["sim"], vrf_pass_regex="TEST PASSED")
+# Writes nothing, whatever it declares: the fake simulator writes only a.out
+test(name="declares_output", target="dut", includes=["sim"], vrf_outputs=["activity.vcd"])
+test(name="declares_a_out", target="dut", includes=["sim"], vrf_outputs=["a.out"])

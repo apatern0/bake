@@ -141,11 +141,22 @@ class VrfStep(Step):
 
     @property
     def source_files(self):
-        return []
+        # A step without outputs always runs: only one with outputs compares
+        if not self.data.vrf_outputs:
+            return []
+        tpl_dict = self.build_tpl_dict()
+        return [*tpl_dict["BAKE_DESIGN_VERILOG_FILES"], *tpl_dict["BAKE_LIB_VERILOG_FILES"],
+                *tpl_dict["BAKE_SIM_FILES"], *tpl_dict["BAKE_SIM_SDF_FILES"]]
 
     @property
     def output_files(self):
-        return []
+        return [str(self.workdir / f) for f in self.data.vrf_outputs]
+
+    @property
+    def output_data(self):
+        data = super().output_data
+        data.sim_outputs = list(self.output_files)
+        return data
 
     @property
     def flow_copy_dir(self):
