@@ -45,6 +45,14 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.2.0](https://github.com/apatern0/bake/compare/v2.1.0...v2.2.0) (2026-11-11)
+
+
+### Features
+
+* **step:** hand on the files a test writes and the layout of an implementation ([7298a14](https://github.com/apatern0/bake/commit/7298a140b8397352641b71bf5783fad39a07104b))
+* **step:** render source templates (*.tpl) before the flow gets them ([e67fec3](https://github.com/apatern0/bake/commit/e67fec358973dee5ce78c7b0a01f4821da55e567))
+
 ## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-11-02)
 
 
