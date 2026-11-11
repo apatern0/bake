@@ -24,7 +24,7 @@ import os
 import functools
 
 from bake import file_utils
-from bake.step import RtlData, Step
+from bake.step import RtlData, Step, source_name
 from bake.manifest import FlowSpec
 from bake.exceptions import BakeManifestError
 
@@ -74,7 +74,7 @@ class TmrStep(Step):
         # files with the same name would overwrite each other.
         by_name = {}
         for f in self.data.rtl_files:
-            by_name.setdefault(os.path.basename(f), []).append(f)
+            by_name.setdefault(source_name(f), []).append(f)
         clashes = {name: files for name, files in by_name.items() if len(files) > 1}
         if clashes:
             listed = "\n".join(f"   - {name}: {', '.join(files)}" for name, files in clashes.items())
@@ -85,7 +85,7 @@ class TmrStep(Step):
 
     def get_rtl_filenames(self) -> list:
         """Return expected post-triplication filenames (basenames only)."""
-        names_exts = [os.path.splitext(os.path.basename(f)) for f in self.data.rtl_files]
+        names_exts = [os.path.splitext(source_name(f)) for f in self.data.rtl_files]
         return ["TMR".join((name, ext)) for name, ext in names_exts]
 
     def build_tpl_dict(self) -> dict:

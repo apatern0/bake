@@ -2269,6 +2269,96 @@ def test_tpl_undefined_variable_in_flow_errors(bake, capfd, project):
     assert_in_stderr(capfd, "undefined")
 
 
+# ===========================================================================
+# Tests — source templates (*.tpl)
+# ===========================================================================
+
+def _sim_file(test, block="core"):
+    """The one bench file the stand-in vrf flow was handed."""
+    line = [ln for ln in vrf_run_sh(block, test).splitlines() if ln.startswith("echo 'SIM_FILES=")][0]
+    return Path(line[len("echo 'SIM_FILES="):-1])
+
+
+def test_source_template_is_rendered_for_the_flow(bake, project):
+    """A source named *.tpl reaches the flow rendered, under its name without
+    the suffix: loops and conditions are expanded with the step's template
+    variables, and what is not template syntax (a replication's double
+    braces, a system task's $) is left as it is."""
+    project("source_templates")
+    assert not bake.run(["core", "vrf", "-t", "netlist_test"])
+    bench = _sim_file("netlist_test")
+    assert bench.name == "tb.sv"
+    assert Path("work/core/vrf/_build/src").resolve() in bench.parents
+    text = bench.read_text()
+    assert "//%" not in text and "//#" not in text and "${" not in text
+    assert "wire  [7:0] zeros = {{4{1'b0}}, 4'h0};" in text
+    assert "  core u_core();" in text
+    assert "  assign hit_probe[3] = u_core.gen_regions_1_gen_pixels_1_u_pixel.hit_o;" in text
+    assert text.count("$deposit(") == 4 * 3
+    assert "    $deposit(u_core.gen_regions_0_gen_pixels_1_u_pixel.counter_reg_1.IQ, 1'b0);" in text
+
+    design = [ln for ln in vrf_run_sh("core", "netlist_test").splitlines() if ln.startswith("echo 'DESIGN=")][0]
+    rtl = Path(design[len("echo 'DESIGN="):-1])
+    assert rtl.name == "core.v"
+    assert "module core();" in rtl.read_text() and "pixel u_pixel_1();" in rtl.read_text()
+
+    variables = json.loads(Path("work/core/vrf/netlist_test/bake_vars.json").read_text())
+    assert variables["BAKE_SIM_FILES"] == [str(bench)]
+
+
+def test_source_template_rendered_alike_is_one_file(bake, project):
+    """Tests that render a template to the same text get the same file,
+    written once, so they can share a simulation build; a test that renders
+    it differently gets a file of its own."""
+    project("source_templates")
+    assert not bake.run(["core", "vrf", "-t", "rtl_test"])
+    bench = _sim_file("rtl_test")
+    assert "u_core.gen_regions[1].gen_pixels[0].u_pixel.hit_o" in bench.read_text()
+    assert "$deposit" not in bench.read_text()
+    written = bench.stat().st_mtime_ns
+    assert not bake.run(["core", "vrf", "-t", "rtl_test_again"])
+    assert _sim_file("rtl_test_again") == bench
+    assert bench.stat().st_mtime_ns == written
+    assert not bake.run(["core", "vrf", "-t", "netlist_test"])
+    assert _sim_file("netlist_test") != bench
+
+
+def test_source_template_change_reruns_step(bake, capfd, project):
+    """The template is the step's source: editing it makes the step stale,
+    and the flow gets the new text."""
+    path = project("source_templates")
+    assert not bake.run(["core", "impl"])
+    assert not bake.run(["core", "impl"])
+    assert_in_stderr(capfd, "up-to-date")
+    template = path / "core.v.tpl"
+    template.write_text(template.read_text().replace("range(2)", "range(3)"))
+    future = time.time() + 5
+    os.utime(template, (future, future))
+    assert not bake.run(["core", "impl"])
+    assert_stderr(capfd, expect=["Source files are newer"], expect_not=["up-to-date"])
+    variables = json.loads(Path("work/core/impl/bake_vars.json").read_text())
+    assert "pixel u_pixel_2();" in Path(variables["BAKE_DESIGN_VERILOG_FILES"][0]).read_text()
+
+
+@pytest.mark.parametrize("test, line, message", [
+    ("undefined_test", 3, "'BAKE_NOBODY_DEFINES_THIS' is undefined"),
+    ("syntax_test", 3, "Unexpected end of template"),
+])
+def test_source_template_error_names_the_line(bake, capfd, project, test, line, message):
+    """A template that cannot be rendered is an error naming its file and
+    line; the flow does not start."""
+    project("source_templates")
+    assert bake.run(["core", "vrf", "-t", test])
+    assert_stderr(capfd, expect=[f"{test.split('_')[0]}.sv.tpl:{line}: ", message])
+    assert not Path(f"work/core/vrf/{test}/run.sh").exists()
+
+
+def test_source_name_drops_the_template_suffix():
+    from bake.step import source_name
+    assert source_name("/a/b/tb.sv.tpl") == "tb.sv"
+    assert source_name("/a/b/tb.sv") == "tb.sv"
+
+
 def test_output_dir_override(bake, project):
     """config.bake.output_dir redirects step work output to a custom path."""
     project("output_dir")
