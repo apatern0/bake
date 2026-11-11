@@ -176,6 +176,13 @@ class VrfStep(Step):
         share: next to the tests' work directories."""
         return Path(super().workdir) / "_build"
 
+    @property
+    def rendered_dir(self) -> Path:
+        """Source templates are rendered next to the shared builds: tests
+        that render a template alike compile the same file, and share the
+        build made from it."""
+        return self.build_dir / "src"
+
     def clean(self):
         """Remove the test's work directory, and the builds its block/recipe's
         tests share: -r then rebuilds from scratch."""

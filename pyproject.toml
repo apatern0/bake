@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "argcomplete",
     "coloredlogs",
+    "jinja2>=3",
     "pydantic>=2",
 ]
 

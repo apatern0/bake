@@ -127,6 +127,7 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
 | run tests many times | `regression()`, `bake <regression> regression`; build earlier steps and dependencies first | `#regressions` |
 | compare settings | `sweep()` over project options or attributes, `bake <sweep> sweep`; `report.md` pastes into a pull request | `manifest_design_model.md#sweeps` |
 | change a flow for one block | `-p`, edit the copy, commit it with `.bake_flow.json`; after "Flow ... has changed", merge, then `-p` again to record it | `custom_flows.md#customising-a-flow-for-one-block` |
+| generate source text (loops over flattened netlist names, per-test variants) | name the source `*.tpl`: Jinja rendered with the step's `$BAKE_*` variables; `${expr}`, `//% stmt` lines, `//#` comments | `manifest_design_model.md#source-templates` |
 | give a flow a knob | `tpl_defaults` in `flow()`, `config.<step>.flow_options[...]` in the project, `$BAKE_FLOW_OPT_<NAME>` in the template | `custom_flows.md#flow-specific-options` |
 | tell flows which cells to insert (fillers, ties, clock tree, pad ring) | `lib(cells={role: cells})`; flows read `$BAKE_CELLS_<ROLE>` / `$BAKE_CELL_DATA` | `manifest_design_model.md#cell-roles` |
 | read variables from a Python flow | `json.load(open(os.environ["BAKE_VARS"]))` rather than pasting `$BAKE_*` into strings | `#reading-the-variables-from-a-script-bake_varsjson` |

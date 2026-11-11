@@ -52,6 +52,53 @@ Wherever a list of files is expected, a single file may be given as a string, an
 objects are accepted in place of strings. In the corner dictionaries (`liberty_files`,
 `si_files`, `vcd_files`, `saif_files`) a corner may map to a single file instead of a list.
 
+### Source Templates
+A source file whose name ends in `.tpl` (`tb.sv.tpl`, `core.v.tpl`) is a
+[Jinja](https://github.com/pallets/jinja) template of that source. Before a step's flow starts,
+*bake* renders it with the step's template variables (the `$BAKE_*` ones the flow receives, lists
+kept as lists) and hands the flow the rendered file, named without `.tpl`, in its place. Use it
+for what the preprocessor writes badly: code repeated over names no `genvar` can index, such as
+the instances a netlist flattens out of generate scopes.
+
+```systemverilog
+//# The state registers of a pixel, by the names synthesis gives their cells
+//% set netlist = "NETLIST" in BAKE_SIM_DEFINES
+module tb;
+  //% for r in range(4)
+  //%   for p in range(4)
+  //%     if netlist
+  //%       set pixel = "u_core.gen_regions_%d_gen_pixels_%d_u_pixel" % (r, p)
+  //%     else
+  //%       set pixel = "u_core.gen_regions[%d].gen_pixels[%d].u_pixel" % (r, p)
+  //%     endif
+  assign hit_probe[${r * 4 + p}] = ${pixel}.hit_o;
+  //%     if netlist
+  initial begin
+    //% for i in range(10)
+    $deposit(${pixel}.counter_reg_${i}.IQ, 1'b0);
+    //% endfor
+  end
+  //%     endif
+  //%   endfor
+  //% endfor
+endmodule
+```
+
+A source template is a `.tpl` file like a flow's scripts, and `${BAKE_TOP}` means the same in
+both, but it is rendered by Jinja rather than by `$BAKE_*` substitution: write `${BAKE_TOP}`,
+not `$BAKE_TOP` (left as it is, like any other `$`), and use the loops and conditions below.
+The delimiters suit HDL: `{{ }}` is a SystemVerilog replication, so an expression is `${ }`; a line starting with `//%` is a statement and one starting with
+`//#` a comment, both comments to an editor or linter reading the template. `{% %}` and
+`{# #}` work too, and the `do` and loop-control (`break`, `continue`) extensions are enabled.
+A variable nobody defines is an error that names the template's file and line, and the flow does
+not start.
+
+A template is a source of the step like any other: editing it makes the step stale. The rendered
+file lives under the step's work directory, in a directory named after a digest of its text
+(the `vrf` step's under `_build/src/`, next to the builds its tests share), so tests that render a
+template alike compile the same file and may share a build, while tests that render it
+differently do not overwrite each other.
+
 ### Inheritance
 Blocks (and environments, introduced later) can inherit content from other items of the same
 type via an `includes` field. The item listed in `includes` is the *parent*; the newly defined

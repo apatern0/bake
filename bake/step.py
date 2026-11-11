@@ -54,6 +54,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional, TypeVar, TYPE_CHECKING
 
+import jinja2
+
 from . import exceptions, procs
 from .context import context
 
@@ -147,6 +149,82 @@ class BakeTemplate(string.Template):
     # A str here; Template's metaclass compiles it. `invalid` never matches:
     # a `$` that is not a placeholder is not an error, it is text.
     pattern = r"\$(?:(?P<escaped>\$)|(?P<named>BAKE_[A-Z0-9_]+)|\{(?P<braced>BAKE_[A-Z0-9_]+)\}|(?P<invalid>(?!)))"  # type: ignore[assignment]  # noqa: E501
+
+
+SOURCE_TEMPLATE_SUFFIX = ".tpl"
+
+
+def source_name(path) -> str:
+    """The name a source file has for the tools: its basename, without the
+    template suffix when it is a source template (`tb.sv.tpl` is `tb.sv`)."""
+    name = os.path.basename(str(path))
+    return name[:-len(SOURCE_TEMPLATE_SUFFIX)] if name.endswith(SOURCE_TEMPLATE_SUFFIX) else name
+
+
+def _source_environment(directory: Path) -> jinja2.Environment:
+    """The Jinja environment of a source template.
+
+    The delimiters are chosen for HDL sources: `{{ }}` is a SystemVerilog
+    replication, so an expression is `${ }` (as in a flow's `${BAKE_TOP}`),
+    and a statement is a line starting with `//%`, a comment for an editor
+    that reads the template as the source it will become. `{% %}` and
+    `{# #}` keep their meaning. An undefined variable is an error, as in a
+    flow template.
+    """
+    return jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(directory)),
+        undefined=jinja2.StrictUndefined,
+        variable_start_string="${",
+        variable_end_string="}",
+        line_statement_prefix="//%",
+        line_comment_prefix="//#",
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        autoescape=False,
+        extensions=["jinja2.ext.do", "jinja2.ext.loopcontrols"],
+    )
+
+
+def _template_error_line(err: BaseException, template: Path) -> Optional[int]:
+    """The line of `template` an error comes from, when Jinja knows it."""
+    lineno = getattr(err, "lineno", None)
+    if lineno and getattr(err, "filename", None) in (None, str(template)):
+        return lineno
+    tb, line = err.__traceback__, None
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == str(template):
+            line = tb.tb_lineno
+        tb = tb.tb_next
+    return line
+
+
+def render_source(template, variables: dict, dest_root) -> Path:
+    """Render the source template `template` with `variables` and return the
+    rendered file, `<dest_root>/<digest of its text>/<name without .tpl>`.
+
+    The directory is named after the text, so the same text is the same
+    file, written once: tests that render a template alike share it (and a
+    simulation build made from it), tests that render it differently do not
+    overwrite each other's.
+    """
+    template = Path(template)
+    try:
+        text = _source_environment(template.parent).get_template(template.name).render(variables)
+    except jinja2.TemplateNotFound as err:
+        raise exceptions.BakeFileError(f"{template}: template '{err}' not found.") from err
+    except jinja2.TemplateError as err:
+        line = _template_error_line(err, template)
+        where = f"{template}:{line}" if line else str(template)
+        raise exceptions.BakeConfigError(f"{where}: {err.message or err}") from err
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    dest = Path(dest_root) / digest / source_name(template)
+    if not dest.is_file():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        partial = dest.with_name(f".{dest.name}.{os.getpid()}")
+        partial.write_text(text, encoding="utf-8")
+        os.replace(partial, dest)  # runs of a regression may render the same file at once
+    return dest
 
 
 class RecipePath(list):
@@ -816,6 +894,11 @@ class Step(ABC):
     def outputdir(self) -> Path:
         return self.workdir / "output"
 
+    @property
+    def rendered_dir(self) -> Path:
+        """Where the step's source templates (`*.tpl`) are rendered."""
+        return self.workdir / "src"
+
     # ---------------------------------------------------------------------------
     # Up-to-date check
     # ---------------------------------------------------------------------------
@@ -1051,8 +1134,36 @@ class Step(ABC):
     # File operations
     # ---------------------------------------------------------------------------
 
+    def render_sources(self, tpl_dict: dict) -> dict:
+        """Render the source templates among the template variables.
+
+        A file the step hands its flow whose name ends in `.tpl` is a Jinja
+        template of a source (render_source()): it is rendered with the
+        step's template variables, lists kept as lists, and the flow gets the
+        rendered file in its place. The step's source_files keep naming the
+        template, so editing it makes the step stale like any source.
+        """
+        rendered: dict = {}
+
+        def swap(value):
+            if not (isinstance(value, (str, os.PathLike)) and str(value).endswith(SOURCE_TEMPLATE_SUFFIX)):
+                return value
+            src = str(value)
+            if src not in rendered:
+                if not Path(src).is_file():
+                    return value
+                rendered[src] = str(render_source(src, tpl_dict, self.rendered_dir))
+                logging.info("Rendered source template %s: %s", src, rendered[src])
+            return rendered[src]
+
+        out = {}
+        for key, value in tpl_dict.items():
+            out[key] = [swap(v) for v in value] if isinstance(value, (list, tuple)) else swap(value)
+        return out
+
     def copy_and_template(self):
-        """Copy the flow directory tree into workdir, expanding *.tpl files."""
+        """Copy the flow directory tree into workdir, expanding *.tpl files,
+        after rendering the source templates the flow is handed."""
         copy_method_map = {"copy": shutil.copy, "symlink": os.symlink}  # copy keeps the mode
         copy_method_key = context.config.bake.file_copy_method
         if copy_method_key not in copy_method_map:
@@ -1067,7 +1178,7 @@ class Step(ABC):
             self.flowdir, self.workdir, copy_method_key,
         )
 
-        tpl_dict = self.build_tpl_dict()
+        tpl_dict = self.render_sources(self.build_tpl_dict())
         with open(self.vars_path, "w", encoding="utf-8") as f:
             json.dump(tpl_dict, f, indent=2, sort_keys=True, default=str)
             f.write("\n")
