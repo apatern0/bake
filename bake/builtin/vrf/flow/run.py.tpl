@@ -333,6 +333,22 @@ def check_uvm_summary(log_file):
         retval = 2
     return retval
 
+# Records whether cocotb's build is interactive or batch: cocotb rebuilds the
+# simulator only when a source changes, not when the options do, so the build
+# depends on this file, which changes when -i is switched on or off.
+COCOTB_BUILD_MODE = "cocotb_build_mode"
+
+
+def update_build_mode(mode):
+    """Write `mode` into COCOTB_BUILD_MODE when it differs from the one there,
+    leaving the file, and so cocotb's build, untouched otherwise."""
+    if os.path.isfile(COCOTB_BUILD_MODE):
+        with open(COCOTB_BUILD_MODE) as f:
+            if f.read() == mode:
+                return
+    with open(COCOTB_BUILD_MODE, "w") as f:
+        f.write(mode)
+
 
 def main():
     # The template variables, as bake wrote them to bake_vars.json (lists
@@ -488,6 +504,19 @@ def main():
             makefile.write("export PYTHONPATH\n")
             for define in BAKE_SIM_DEFINES:
                 makefile.write("export %s\n" % define)
+            if gui and BAKE_SIM_SIMULATOR == "vcs":
+                # Interactive run (-i): simv starts in Verdi with the test
+                # loaded. Not cocotb's GUI = 1, which passes -gui to vcs at
+                # compile time too, where it is deprecated (DBG_UCLI_DEP):
+                # -kdb is already among the compile options (simulator
+                # "gui"), -gui goes to simv only.
+                makefile.write("SIM_ARGS += -gui\n")
+            elif gui:
+                # Interactive run (-i): cocotb starts the simulator in its
+                # own GUI, with the test loaded.
+                makefile.write("GUI = 1\n")
+            update_build_mode("gui" if gui else "batch")
+            makefile.write("CUSTOM_COMPILE_DEPS = %s\n" % COCOTB_BUILD_MODE)
             makefile.write("include $$(shell cocotb-config --makefiles)/Makefile.sim\n")
         if os.path.isfile("results.xml"):
             os.remove("results.xml")
@@ -553,7 +582,9 @@ def main():
         if vcd_files:
             run_command("gtkwave %s" % vcd_files[0], capture=False)
 
-    if gui and BAKE_SIM_SIMULATOR == "vcs" and retval == 0:
+    # A cocotb run had its GUI already (GUI = 1 above): only a plain or UVM
+    # testbench is reopened in the GUI here.
+    if gui and BAKE_SIM_SIMULATOR == "vcs" and BAKE_SIM_FRAMEWORK != "cocotb" and retval == 0:
         run_command("./simv* -gui=sx", capture=False)
 
     write_summary("passed" if retval == 0 else "failed", seed)
