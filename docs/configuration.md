@@ -269,6 +269,17 @@ config.tmr.seu_reset_pin    = "RN"
 config.tmr.seu_set_pin      = "SN"
 ```
 
+### `config.release`
+Which releases the `release` recipe resolves to (see [Releases](manifest_design_model.md#releases)).
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `path` | `[]` | Release roots, searched in order for `<project>/<block>/<version>/`. A version found under several roots is the first root's. |
+| `use` | `{}` | The release of each block, `{block: version}`. `-o release.use.<block>=<version>` selects one for a run. A block without an entry is built with its fallback recipe. |
+| `recipe` | `"impl"` | The fallback recipe: what builds a block whose release is included and none is selected. A block's `release_recipe=` replaces it. |
+| `accept` | `"draft"` | Which releases may be used: any (`draft`), or only those whose quality checks pass or are waived (`signoff`). |
+| `waive` | `{}` | Failing quality checks accepted anyway, `{"<block>@<version>": {check: reason}}`. |
+
 ### `config.user`
 A free-form section for values a project shares between its manifests and its own steps. There
 is no fixed schema — you may add any attribute you like and read it back from within manifest

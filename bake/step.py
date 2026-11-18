@@ -322,9 +322,10 @@ def kind_names(kinds) -> str:
 
 
 def converting_steps(src: type, targets: tuple) -> list:
-    """Registered steps that take `src` data and produce one of `targets`."""
+    """Registered steps that take `src` data and produce one of `targets`;
+    not `release`, which turns nothing: it stands for a release of the block."""
     return [name for name, cls in context.steps.items()
-            if issubclass(src, cls.consumes) and cls.produces is not None
+            if name != "release" and issubclass(src, cls.consumes) and cls.produces is not None
             and issubclass(cls.produces, targets)]
 
 
@@ -862,6 +863,10 @@ class Step(ABC):
     @abstractmethod
     def output_files(self):
         """List of output files produced by this step."""
+
+    def dry_run_note(self) -> str:
+        """What a dry run says about the step besides whether it would run."""
+        return ""
 
     def is_available(self) -> bool:
         try:
@@ -1439,6 +1444,10 @@ class Recipe:
         self.steps        = []
         self.data         = []
         self.dependencies = []
+        # A recipe starting with `release` (see _resolve_release): the
+        # version used, or the fallback recipe that runs in its place
+        self.release_version  = ""
+        self.release_fallback = ""
 
     @property
     def key(self):
@@ -1463,6 +1472,100 @@ class Recipe:
         visit(self)
         return ordered
 
+    def _resolve_release(self, block) -> Optional["Step"]:
+        """For a recipe that starts with `release`: the step standing for
+        the release config.release.use selects for the block, or None after
+        replacing `release` with the block's fallback recipe. A block that
+        only exists as releases (external()) must have one selected. Other
+        recipes: None, after checking `release` is not further down."""
+        cfg = context.config.release
+        if "release" in self.recipe[1:]:
+            raise exceptions.BakeManifestError(
+                f"Recipe '{'-'.join(self.recipe)}' for block '{block.name}': release can only be "
+                f"the first step of a recipe, which it builds the block for (e.g. release-lef2oa)."
+            )
+        external = block.manifest_function == "external"
+        if self.recipe[0] != "release":
+            if external:
+                raise exceptions.BakeManifestError(
+                    f"Block '{block.name}' is external: it only exists as releases, so it takes "
+                    f"recipes that start with release (e.g. {{\"{block.name}\": \"release\"}})."
+                )
+            return None
+
+        version = cfg.use.get(block.name, "")
+        if not version:
+            if external:
+                raise exceptions.BakeManifestError(
+                    f"Block '{block.name}' is external: select one of its releases with "
+                    f"config.release.use[\"{block.name}\"] (or -o release.use.{block.name}=<version>)."
+                )
+            fallback = getattr(block, "release_recipe", "") or cfg.recipe
+            parts = fallback.split("-")
+            if "release" in parts or not all(parts):
+                raise exceptions.BakeManifestError(
+                    f"Block '{block.name}': the fallback recipe '{fallback}' of a release include must "
+                    f"build the block (e.g. impl), not start from a release."
+                )
+            logging.debug("Block '%s': no release selected; the fallback recipe '%s' builds it",
+                          block.name, fallback)
+            self.release_fallback = fallback
+            self.recipe = parts + self.recipe[1:]
+            return None
+
+        from . import release as releases  # pylint: disable=import-outside-toplevel  # release.py imports this module
+        roots = list(cfg.path)
+        if not roots:
+            raise exceptions.BakeManifestError(
+                f"Block '{block.name}': config.release.use selects release {version}, but "
+                f"config.release.path names no release root to find it in."
+            )
+        where = releases.find(roots, block.project, block.name, version)
+        if where is None:
+            found = [v for v, _ in releases.versions(roots, block.project, block.name)]
+            raise exceptions.BakeManifestError(
+                f"Block '{block.name}': no release {version} under {', '.join(str(r) for r in roots)}. "
+                + (f"Its releases: {', '.join(found)}." if found else "It has no release there.")
+            )
+        rel = releases.Release.read(where)
+        self._check_release_project(block, rel)
+
+        def resolve_lib(name):
+            return context.libs[name]
+
+        data = releases.libdata_from_dict(rel.data, where, block.name, rel.top, resolve_lib, rel.name)
+        # The steps after it work in the block's directory, never in the release
+        data.block_dir = block.dir
+        data.project = block.project
+        self.release_version = version
+        return context.steps["release"](data, release=rel, release_dir=where)
+
+    @staticmethod
+    def _check_release_project(block, rel) -> None:
+        """Refuse a release built in another project, or with other values
+        of the project's options than this run's."""
+        recorded = rel.project or {}
+        if recorded.get("name", "") != block.project:
+            raise exceptions.BakeManifestError(
+                f"Release {rel.name} was built in project '{recorded.get('name', '')}', not "
+                f"'{block.project}'."
+            )
+        project = context.projects.get(block.project)
+        options = project.options if project is not None else None
+        differ = []
+        for key, value in (recorded.get("options") or {}).items():
+            if options is None or key not in options._bake_attributes():  # pylint: disable=protected-access
+                differ.append(f"{key}={value!r} (not an option of this project)")
+                continue
+            current = json.loads(json.dumps(getattr(options, key), default=str))
+            if current != value:
+                differ.append(f"{key}={value!r} (this run: {current!r})")
+        if differ:
+            raise exceptions.BakeManifestError(
+                f"Release {rel.name} was built with other project options: {'; '.join(differ)}. "
+                f"Select a release built with these options, or run with them."
+            )
+
     def elaborate(self, resolve_test=False, _visiting: tuple = ()):
         if self.block_name not in context.blocks:
             raise exceptions.BakeRuntimeError(
@@ -1472,6 +1575,10 @@ class Recipe:
         # Resolve block
         block = context.blocks[self.block_name]
         logging.debug("Elaborating recipe '%s' for block '%s'", "-".join(self.recipe), block.name)
+
+        # A recipe starting with `release`: the selected release stands for
+        # the block, or its fallback recipe builds it
+        release_step = self._resolve_release(block)
 
         # Validate all step names before any further elaboration so unknown
         # steps surface as a clean BakeRuntimeError instead of a raw KeyError.
@@ -1512,16 +1619,32 @@ class Recipe:
                 logging.debug("No test required for recipe '%s'", "-".join(self.recipe))
 
         # Create initial StepData; recipe-form includes are elaborated here
-        # and recorded as dependencies.
+        # and recorded as dependencies. A release replaces the block's own
+        # data, includes and all: nothing of the block is built.
         self.steps        = []
         self.data         = []
         self.dependencies = []
-        running_data = StepData.create(
-            block=block, env=test, dependencies=self.dependencies, _visiting=_visiting,
-        )
-        self.data.append(running_data)
+        start = 0
+        if release_step is not None:
+            release_step.data.is_last = len(self.recipe) == 1
+            if test is not None:
+                release_step.data._set_test(test)
+            release_step.check_kind()
+            release_step.check_pre()
+            self.data.append(release_step.data)
+            self.steps.append(release_step)
+            running_data = release_step.output_data
+            self.data.append(running_data)
+            start = 1
+        else:
+            running_data = StepData.create(
+                block=block, env=test, dependencies=self.dependencies, _visiting=_visiting,
+            )
+            self.data.append(running_data)
 
         for i, step_name in enumerate(self.recipe):
+            if i < start:
+                continue
             running_data.is_last = (i == len(self.recipe) - 1)
 
             step = context.steps[step_name](running_data)

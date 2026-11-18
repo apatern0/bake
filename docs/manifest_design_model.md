@@ -17,7 +17,7 @@ works but is deprecated: it logs a warning and will be removed in a future major
 
 ```python
 block(name, desc, includes, top, rtl_files, rtl_incdirs, libs,
-      sdc_files, vcd_files, saif_files)
+      sdc_files, vcd_files, saif_files, release_recipe)
 ```
 
 Arguments:
@@ -34,6 +34,8 @@ Arguments:
   * `sdc_files` — design constraint files — optional
   * `vcd_files`, `saif_files` — switching-activity files for power analysis, per corner
     (`{"tt": ["run.vcd"]}`); a plain list or a single file is the `"default"` corner — optional
+  * `release_recipe` — the recipe that builds the block where a parent includes a release of it
+    and none is selected (see [Releases](#releases)); default `config.release.recipe` — optional
 
 `block()` declares RTL only. A block implemented elsewhere is declared with
 [`macro()`](#macros), and a netlist argument given to `block()` is reported as such.
@@ -263,6 +265,53 @@ block(name="pixel", top="pixel", rtl_files=["pixel.v"], includes=["frontend"])
   * It includes nothing, and it is not a cell library: naming it in `libs=` is an error, as is
     including a `lib()`. A testbench may still name it in `vrf_libs=` to simulate with its
     netlist.
+
+## Releases
+
+A block implemented once can be used from one of its **releases** instead of being built again:
+its netlist and abstracts saved, with where they come from and how they fared in their checks
+(see [Release Format](release_format.md)). A parent asks for that with the `release` recipe:
+
+```python
+block(name="core", top="core", rtl_files=["core.v"])
+block(name="column", top="column", rtl_files=["column.v"], includes={"core": "release"})
+```
+
+The include resolves when a recipe of the parent is elaborated:
+
+  * when `config.release.use` selects a release of `core`, `{"core": "release"}` is that
+    release: nothing of `core` is built, not even what `core` itself includes, and `column`
+    gets the release's files, as it gets those of `{"core": "impl"}`;
+  * otherwise `core` is built with its **fallback recipe**, `config.release.recipe` (`impl` by
+    default) or the block's own `release_recipe=`, in that recipe's work directory: without a
+    selection, `{"core": "release"}` is `{"core": "impl"}`.
+
+```python
+config.release.path = ["/shared/releases"]          # where to find them
+config.release.use = {"core": "20261118-edef189"}   # which one; -o release.use.core=... for a run
+```
+
+A release is refused when it was built in another project, with other values of the project's
+options than the run's, or with a cell library the project does not declare.
+
+`release` is always the first step of a recipe: further steps run on the release's data, in the
+block's own work directory (`{"core": "release-lef2oa"}`). `bake core release` builds nothing
+when a release is selected (it reports it) and builds `core` with its fallback recipe otherwise.
+A plain `{"core": "impl"}` is never replaced by a release.
+
+### External blocks
+
+A block made outside the project, an analog one say, may exist only as releases. Declare it
+with `external()`, and include it with `release`:
+
+```python
+external(name="adc", top="adc_top", desc="Column ADC")
+block(name="column", top="column", rtl_files=["column.v"], includes={"adc": "release"})
+config.release.use["adc"] = "2026-12-01"
+```
+
+An external block includes nothing and has no fallback recipe: without a selected release, a
+recipe that needs it stops and says how to select one. Any other recipe on it is an error.
 
 ## Sweeps
 

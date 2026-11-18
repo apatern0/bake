@@ -427,6 +427,10 @@ class BlockSpec(DesignSpec):
     # PDK cell library dependencies (LibSpec names)
     libs: list[str] = Field(default_factory=list)
 
+    # The recipe that builds it where a release of it is included and none
+    # is selected (default: config.release.recipe)
+    release_recipe: str = ""
+
     _lists = field_validator("rtl_files", "rtl_incdirs", "sdc_files", "libs", mode="before")(_as_list)
 
     # What an implemented block declares; block() takes RTL only.
@@ -546,6 +550,33 @@ class MacroSpec(DesignSpec, AbstractsSpec):
     def _summary(self) -> str:
         return (f"top={self.top or '<none>'}, {len(self.netlist_files)} netlist files, "
                 f"{len(self.liberty_files)} liberty corners")
+
+
+class ExternalSpec(DesignSpec):
+    """A block that only exists as releases, made outside the project (an
+    analog block, say): included with a recipe starting with `release`, and
+    config.release.use selects which release."""
+    manifest_function: ClassVar[str] = "external"
+
+    top: str = ""
+
+    @field_validator("includes", mode="after")
+    @classmethod
+    def no_includes(cls, v):
+        if v:
+            raise BakeManifestError("external(): an external block includes nothing; its releases hold it whole.")
+        return v
+
+    @property
+    def data_type(self) -> type[StepData]:
+        return LibData
+
+    def to_data(self):
+        # Never built: a recipe on it starts from one of its releases
+        return LibData(block=self.name, block_dir=self.dir, top=self.top)
+
+    def _summary(self) -> str:
+        return f"top={self.top or '<none>'}, releases only"
 
 
 # A command-line override, as -o takes it: [section.]attribute[.key]=value
@@ -836,6 +867,7 @@ flow  = FlowSpec
 lib   = LibSpec    # PDK cell libraries
 block = BlockSpec  # user design blocks, in RTL
 macro = MacroSpec  # implemented blocks (hard macros)
+external = ExternalSpec  # blocks that only exist as releases
 regression = RegressionSpec  # tests run many times, with their seeds
 sweep = SweepSpec  # a block's recipe run once per variant of its options
 

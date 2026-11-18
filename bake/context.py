@@ -834,6 +834,13 @@ class Context:
                     raise BakeManifestError(
                         f"Block '{name}' includes unknown block '{dep_name}'"
                     )
+                dep = self.blocks[dep_name]
+                if dep.manifest_function == "external" and recipe.split("-")[0] != "release":
+                    raise BakeManifestError(
+                        f"Block '{name}' includes '{dep_name}' with recipe '{recipe}': '{dep_name}' "
+                        f"is external and only exists as releases: include it with "
+                        f"{{\"{dep_name}\": \"release\"}}."
+                    )
                 if recipe == "rtl":
                     continue
                 for part in recipe.split("-"):

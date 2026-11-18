@@ -1,0 +1,42 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Releases: a block taken from one of its releases (config.release.use) in
+# place of being built, or built by its fallback recipe when none is
+# selected; an external block, which only exists as releases. The releases
+# are hand-written under releases/demo/<block>/<version>/.
+
+import os
+
+from bake import block, external, load, option, project, test
+
+project("demo", width=option(8, "Data width in bits", choices=[8, 16]))
+
+load("../flows")
+load("../steps/dummy")
+config.impl.flow = "dummy_impl"
+config.vrf.flow = "dummy_vrf"
+config.release.path = [os.path.abspath("releases")]
+
+block(name="sub", top="block", rtl_files=["../rtl/block.v"])
+block(name="sub_syn", top="block", rtl_files=["../rtl/block.v"], release_recipe="dummy")
+
+block(name="top", top="top", includes={"sub": "release"}, rtl_files=["../rtl/top.v"])
+test(name="top_test", target="top", vrf_files=["../rtl/top_tb.v"], default_sim="stub")
+
+block(name="top_chain", top="top", includes={"sub": "release-dummy"}, rtl_files=["../rtl/top.v"])
+
+external(name="ana", top="ana")
+block(name="top_ana", top="top", includes={"ana": "release"}, rtl_files=["../rtl/top.v"])

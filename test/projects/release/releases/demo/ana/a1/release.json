@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "block": "ana",
+  "top": "ana",
+  "version": "a1",
+  "label": "hand-written for the tests",
+  "project": {"name": "demo", "options": {"width": 8}},
+  "recipe": "impl",
+  "data": {
+    "netlist_files": ["netlist/ana.v"],
+    "layout_info": "lef/ana.lef",
+    "liberty_files": {"TC": ["liberty/TC/ana.lib"]},
+    "libs": [],
+    "vrf_defines": ["NETLIST"],
+    "macros": []
+  },
+  "checks": {"integrity": {"status": "pass"}, "quality": {"drc": {"status": "fail", "value": 3}}}
+}
