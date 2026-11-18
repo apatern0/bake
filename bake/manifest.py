@@ -539,8 +539,8 @@ class MacroSpec(DesignSpec, AbstractsSpec):
                 f"{len(self.liberty_files)} liberty corners")
 
 
-# A command-line override, as -o takes it: [section.]attribute=value
-_OPTION = re.compile(r"^(?:[A-Za-z0-9_]+\.)?[A-Za-z0-9_]+=.*$")
+# A command-line override, as -o takes it: [section.]attribute[.key]=value
+_OPTION = re.compile(r"^(?:[A-Za-z0-9_]+\.)?[A-Za-z0-9_]+(?:\.[A-Za-z0-9_@.-]+)?=.*$")
 
 
 class RegressionSpec(DesignSpec):

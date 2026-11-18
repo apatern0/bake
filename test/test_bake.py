@@ -1881,8 +1881,11 @@ def test_project_option_change_reruns_step(bake, capfd, project):
     ("vrf.simulater=x", "config.vrf has no attribute 'simulater' (did you mean 'simulator'?)"),
     ("vrf.flow_options=x", "config.vrf.flow_options is a dictionary, which -o cannot set"),
     ("width",          "Malformed option '-o width': it has no '='"),
-    ("a.b.c=1",        "Malformed option '-o a.b.c=1': the section and the attribute take letters, "
+    ("a.b c=1",        "Malformed option '-o a.b c=1': the section and the attribute take letters, "
                        "digits and _ only"),
+    ("a.b.c=1",        "unknown config section 'a'"),
+    ("vrf.simulator.x=1", "config.vrf.simulator is a string, not a dictionary: "
+                          "-o vrf.simulator=value sets it"),
 ])
 def test_option_errors_explain(bake, capfd, project, option, message):
     """Every override that cannot be applied stops before anything runs, with
@@ -2129,6 +2132,30 @@ def test_flow_option_overrides(bake, project):
     project("flow_options")
     assert not bake.run(["sample_target", "vrf"])
     assert "SPEED=fast TIE_HI=conb_1 HI TIE_LO='" in vrf_run_sh()
+
+
+def test_option_sets_one_key_of_a_dictionary(bake, project):
+    """-o section.attribute.key=value sets one key of a dictionary attribute
+    once the manifests have loaded: over the manifest's whole dictionary,
+    keeping its other keys, converted to the kind of the key it replaces."""
+    project("override_dict")
+    assert not bake.run(["-o", "demo.table.replaced=cli", "-o", "demo.table.new=cli",
+                         "-o", "demo.table.number=7", "-o", "demo.table.core@v1=x"])
+    from bake.context import context
+    assert context.config.demo.table == {"kept": "manifest", "replaced": "cli", "number": 7,
+                                         "new": "cli", "core@v1": "x"}
+
+
+@pytest.mark.parametrize("option, message", [
+    ("demo.count.x=1",   "config.demo.count is an integer, not a dictionary: -o demo.count=value sets it"),
+    ("demo.table=x",     "config.demo.table is a dictionary, which -o cannot set as a whole: "
+                         "set one of its keys with -o demo.table.<key>=value"),
+    ("demo.table.number=many", "config.demo.table['number'] takes an integer, not 'many'"),
+])
+def test_option_dictionary_key_errors(bake, capfd, project, option, message):
+    project("override_dict")
+    assert bake.run(["-o", option]) == 1
+    assert message in stderr(capfd)
 
 
 # ===========================================================================
