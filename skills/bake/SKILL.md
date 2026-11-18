@@ -104,7 +104,8 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
   `config.release.path`), building nothing of `sub`; without a selection it is
   `{"sub": "impl"}` (`config.release.recipe`, or the block's `release_recipe=`). `external()`
   declares a block that only exists as releases (docs/manifest_design_model.md#releases,
-  docs/release_format.md). Each step takes some data kinds (RTL, an
+  docs/release_format.md). `bake <block> impl-publish -o publish.root=<dir>` makes a release;
+  `bake-release pack` makes one without a project (docs/cli.md#bake-release). Each step takes some data kinds (RTL, an
   implemented block, a register map...) and refuses others before anything runs.
 - A tool (a generator, a vendor flow) comes in as a manifest the project `load()`s: its step,
   config section and `flow()`. There is no plugin mechanism and no `use()`.

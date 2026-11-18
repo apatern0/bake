@@ -269,6 +269,17 @@ config.tmr.seu_reset_pin    = "RN"
 config.tmr.seu_set_pin      = "SN"
 ```
 
+### `config.publish`
+How `publish` saves a block as a release (see [Writing a Publish Flow](custom_flows.md#writing-a-publish-flow)).
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `root` | `""` | The release root it goes under; `publish` stops when it is empty. |
+| `name` | `""` | The version; default `<date>-<commit>[-dirty]`, or `<date>-<time>` outside git. |
+| `label` | `""` | A note kept with the release. |
+| `flow` | built-in | The flow that makes the release: the built-in one only packs it; a project's runs its checks first. |
+| `flow_options` | `{}` | Options of the publish flow (`$BAKE_FLOW_OPT_*`). |
+
 ### `config.release`
 Which releases the `release` recipe resolves to (see [Releases](manifest_design_model.md#releases)).
 

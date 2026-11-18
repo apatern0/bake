@@ -768,6 +768,7 @@ class Step(ABC):
     def __init__(self, data: StepData):
         self.data = data
         self.__flow = None
+        self.previous_steps: list = []
 
     @property
     def flow(self):
@@ -1648,6 +1649,9 @@ class Recipe:
             running_data.is_last = (i == len(self.recipe) - 1)
 
             step = context.steps[step_name](running_data)
+            # The steps it follows in this recipe: a step that reports on how
+            # the data was made (publish) reads their sources
+            step.previous_steps = list(self.steps)
             logging.debug(
                 "Elaborated step '%s' [%d/%d] for block '%s'",
                 step_name, i + 1, len(self.recipe), block.name,

@@ -1,0 +1,152 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The publish step: an implemented block saved as a release
+(docs/release_format.md), for parents to include with {"block": "release"}.
+
+    bake core impl-publish
+
+Its flow gets the block's views ($BAKE_PUBLISH_LIBDATA), where the release
+goes and what it records (the project's options, the recipe, the git state,
+the digests of the sources), and calls `bake-release pack --from-vars`. The
+built-in flow does only that; a project's flow runs its own checks first and
+hands their results and further files (layout, LVS netlist, reports) to pack."""
+
+import datetime
+import functools
+import sys
+
+from bake import release
+from bake.context import context
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import LibData, Step, _git, git_state
+
+FlowSpec(
+    name="builtin_publish_flow",
+    desc="Saves an implemented block as a release, checking only that its views agree",
+    dir="flow/local",
+    run_cmd="run.py",
+)
+
+
+# `config` is provided by bake; a config section needs no methods.
+# pylint: disable=undefined-variable,too-few-public-methods
+class PublishConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = config.option(
+            None, "Flow that makes the release, by name; the built-in one when unset", kind=str)
+        self.flow_options = config.option({}, "Options of the publish flow ($BAKE_FLOW_OPT_*)")
+        self.root         = config.option("", "The release root the release goes under")
+        self.name         = config.option(
+            "", "The release's version; default <date>-<commit>[-dirty], or <date>-<time> outside git")
+        self.label        = config.option("", "A note kept with the release, shown where it is used")
+
+
+config.register("publish", PublishConfig())
+
+
+class PublishStep(Step):
+    """Saves the implemented block as a release under config.publish.root."""
+
+    name = "publish"
+    default_flow = "builtin_publish_flow"
+    consumes = (LibData,)
+    produces = LibData
+
+    # Where the project stands and when: recorded, but no reason to publish again
+    _FINGERPRINT_IGNORED_VARS = Step._FINGERPRINT_IGNORED_VARS + (
+        "BAKE_PUBLISH_GIT", "BAKE_PUBLISH_VERSION")
+
+    def check_pre(self):
+        if not self.config.root:
+            raise BakeManifestError(
+                f"Block '{self.data.block}': config.publish.root is not set: nowhere to publish. "
+                f"Set it in a manifest, or with -o publish.root=<release root>."
+            )
+        if not self.data.recipe_prefix or self.data.recipe_prefix[0] == "release":
+            raise BakeManifestError(
+                f"Block '{self.data.block}': publish saves a block a recipe built "
+                f"(e.g. bake {self.data.block} impl-publish), not a release or a declared macro."
+            )
+
+    @property
+    def source_files(self):
+        files = []
+        for value in release.libdata_files(self.data).values():
+            files += [f for _, f in value]
+        return files
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / "published.json")]
+
+    @functools.cached_property
+    def _git(self):
+        root = self.project_dir
+        state = git_state(root)
+        if state is None:
+            return {}
+        state["submodules"] = {}
+        for line in (_git(state["repo"], "submodule", "status", "--recursive") or "").splitlines():
+            parts = line.strip().lstrip("+-U").split()
+            if len(parts) >= 2:
+                state["submodules"][parts[1]] = parts[0]
+        return state
+
+    @property
+    def project_dir(self):
+        return context.config.bake.manifest_dir
+
+    @functools.cached_property
+    def _version(self):
+        if self.config.name:
+            return self.config.name
+        state = self._git
+        now = datetime.datetime.now()
+        if state.get("commit"):
+            return f"{now:%Y%m%d}-{state['commit'][:7]}" + ("-dirty" if state.get("dirty") else "")
+        return f"{now:%Y%m%d-%H%M%S}"
+
+    def build_tpl_dict(self):
+        """$BAKE_PUBLISH_LIBDATA: the block's views (absolute paths), its
+        libraries by name, its macros; $BAKE_PUBLISH_ROOT, _VERSION, _LABEL:
+        where the release goes; $BAKE_PUBLISH_PROJECT: {name, options};
+        $BAKE_PUBLISH_RECIPE: the recipe that built it; $BAKE_PUBLISH_GIT:
+        the project's commit, whether it was dirty, the repository and its
+        submodules' commits ({} outside git); $BAKE_PUBLISH_SOURCES: the
+        digests of the sources the recipe's steps were built from;
+        $BAKE_PUBLISH_PYTHON: the interpreter bake runs in, to call
+        bake-release with."""
+        tpl_dict = super().build_tpl_dict()
+        project = context.projects.get(self.data.project)
+        options = {}
+        if project is not None and project.options is not None:
+            for attr in project.options._bake_attributes():  # pylint: disable=protected-access
+                options[attr] = getattr(project.options, attr)
+        tpl_dict["BAKE_PUBLISH_LIBDATA"] = release.libdata_to_json(self.data)
+        tpl_dict["BAKE_PUBLISH_ROOT"] = str(self.config.root)
+        tpl_dict["BAKE_PUBLISH_VERSION"] = self._version
+        tpl_dict["BAKE_PUBLISH_LABEL"] = self.config.label
+        tpl_dict["BAKE_PUBLISH_PROJECT"] = {"name": self.data.project, "options": options}
+        tpl_dict["BAKE_PUBLISH_RECIPE"] = str(self.data.recipe_prefix)
+        tpl_dict["BAKE_PUBLISH_GIT"] = self._git
+        tpl_dict["BAKE_PUBLISH_SOURCES"] = {
+            "root": "project",
+            "files": release.source_digests(self.previous_steps, self.project_dir),
+        }
+        tpl_dict["BAKE_PUBLISH_PYTHON"] = sys.executable
+        return tpl_dict

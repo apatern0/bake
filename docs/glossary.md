@@ -11,7 +11,7 @@ each step runs a **flow**.
 
 **macro**: An implemented block (a hard macro) declared by its netlist and abstracts — the same files as a library — rather than RTL: an analog block, or a digital one implemented elsewhere. A design, unlike a library: a target, and included by RTL blocks, whose `impl` places it. Registered in a manifest using `macro()`; `impl` makes the same kind of data out of an RTL block.
 
-**release**: An implemented block saved, read-only, under a release root (`<root>/<project>/<block>/<version>/`): its netlist and abstracts, where they come from and how they fared in their checks. A parent includes a block with the `release` recipe (`{"core": "release"}`) to use the release `config.release.use` **selects** for it, and gets the block built by its **fallback recipe** (`impl` by default) when none is selected. See [Releases](manifest_design_model.md#releases) and [Release Format](release_format.md).
+**release**: An implemented block saved, read-only, under a release root (`<root>/<project>/<block>/<version>/`): its netlist and abstracts, where they come from and how they fared in their checks. `bake <block> impl-publish` makes one, `bake-release pack` one of a block made elsewhere. A parent includes a block with the `release` recipe (`{"core": "release"}`) to use the release `config.release.use` **selects** for it, and gets the block built by its **fallback recipe** (`impl` by default) when none is selected. See [Releases](manifest_design_model.md#releases) and [Release Format](release_format.md).
 
 **external block**: A block that only exists as releases, made outside the project (an analog block, say). Registered in a manifest using `external()` and included with the `release` recipe; one of its releases must be selected.
 

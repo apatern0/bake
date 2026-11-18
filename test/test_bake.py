@@ -30,6 +30,7 @@ import csv
 import importlib.metadata
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -2822,3 +2823,126 @@ def test_release_listing(bake, capfd, project):
     assert_in_stderr(capfd, "- top  (needs sub release: release v1)")
     assert not bake.run([])
     assert_in_stderr(capfd, "- top  (needs sub release: no release selected, not built)")
+
+
+# ===========================================================================
+# Tests — publishing releases (the publish step, bake-release pack)
+# ===========================================================================
+
+def _publish(bake, root, *more):
+    return bake.run(["sub", "impl-publish", "-o", f"publish.root={root}", *more])
+
+
+def test_publish_then_use(bake, capfd, project, tmp_path):
+    """impl-publish saves the implemented block as a read-only release that
+    records where it comes from; a parent then uses it without building."""
+    project("release")
+    root = tmp_path / "published"
+    assert not _publish(bake, root, "-o", "publish.name=p1", "-o", "publish.label=first")
+    where = root / "demo" / "sub" / "p1"
+    rel = json.loads((where / "release.json").read_text())
+    assert rel["recipe"] == "impl" and rel["label"] == "first"
+    assert rel["project"] == {"name": "demo", "options": {"width": 8}}
+    assert rel["data"]["netlist_files"] == ["netlist/block.v"]
+    assert rel["checks"]["integrity"]["status"] == "pass"
+    assert rel["producer"]["kind"] == "publish"
+    assert "rtl/sub.v" in rel["sources"]["files"]
+    assert not os.access(where / "netlist" / "block.v", os.W_OK)
+    published = json.loads(Path("work/sub/impl-publish/output/published.json").read_text())
+    assert published["version"] == "p1"
+
+    shutil.rmtree("work/sub")
+    assert not bake.run(["top", "vrf", "-o", f"release.path={root}", "-o", "release.use.sub=p1"])
+    assert not Path("work/sub").exists()
+    design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))
+    assert f"{where}/netlist/block.v" in design
+    for path in [where, *where.rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_publish_never_overwrites(bake, capfd, project, tmp_path):
+    project("release")
+    assert not _publish(bake, tmp_path, "-o", "publish.name=p1")
+    assert _publish(bake, tmp_path, "-o", "publish.name=p1", "-f") == 1
+    assert_in_stderr(capfd, "Release sub@p1 exists")
+    for path in [tmp_path / "demo", *(tmp_path / "demo").rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_publish_default_version(bake, project, tmp_path):
+    """Outside git, the version is the date and time."""
+    project("release")
+    assert not _publish(bake, tmp_path)
+    (version,) = [p.name for p in (tmp_path / "demo" / "sub").iterdir()]
+    assert re.match(r"^\d{8}-\d{6}$", version)
+    for path in [tmp_path / "demo", *(tmp_path / "demo").rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_publish_needs_root(bake, capfd, project):
+    project("release")
+    assert bake.run(["sub", "impl-publish"]) == 1
+    assert_in_stderr(capfd, "config.publish.root is not set: nowhere to publish")
+
+
+def test_publish_takes_built_blocks(bake, capfd, project, tmp_path):
+    project("release")
+    assert bake.run(["sub", "release-publish", "-o", f"publish.root={tmp_path}",
+                     "-o", "release.use.sub=v1"]) == 1
+    assert_in_stderr(capfd, "publish saves a block a recipe built")
+
+
+def _pack(tmp_path, *args):
+    from bake import release_cli  # pylint: disable=import-outside-toplevel
+    return release_cli.main(["pack", *[str(a) for a in args]])
+
+
+def _views(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    for name, text in (("adc.v", "module adc_top(); endmodule\n"), ("adc.lef", "MACRO adc_top\n"),
+                       ("adc_tt.lib", "library(adc) {}\n"), ("adc.gds", "gds"), ("adc.cdl", ".SUBCKT adc_top\n")):
+        (src / name).write_text(text)
+    return src
+
+
+def test_pack_from_files(tmp_path):
+    """bake-release pack makes a release from files, outside any project."""
+    src = _views(tmp_path)
+    assert not _pack(tmp_path, "--block", "adc", "--top", "adc_top", "--project", "chip",
+                     "--option", "pixel_pitch=100", "--netlist", src / "adc.v", "--lef", src / "adc.lef",
+                     "--liberty", f"TT={src / 'adc_tt.lib'}", "--stream", src / "adc.gds",
+                     "--lvs", src / "adc.cdl", "--placeholder", "liberty.TT",
+                     "--provenance", "library=adc_lib", "--root", tmp_path / "rel", "--version", "a1")
+    where = tmp_path / "rel" / "chip" / "adc" / "a1"
+    rel = json.loads((where / "release.json").read_text())
+    assert rel["project"]["options"] == {"pixel_pitch": 100}
+    assert rel["data"]["liberty_files"] == {"TT": ["liberty/TT/adc_tt.lib"]}
+    assert rel["data"]["stream_files"] == ["stream/adc.gds"] and rel["data"]["lvs_files"] == ["lvs/adc.cdl"]
+    assert rel["placeholders"] == ["liberty.TT"]
+    assert rel["producer"]["kind"] == "pack" and rel["producer"]["notes"] == {"library": "adc_lib"}
+    from bake import release  # pylint: disable=import-outside-toplevel
+    assert release.verify_checksums(where) == []
+    for path in [where, *where.rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+@pytest.mark.parametrize("args, message", [
+    (["--block", "adc", "--top", "adc_top", "--project", "chip"], "the release has no view"),
+    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "gone.lef"],
+     "its lef file gone.lef does not exist"),
+    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "{src}/adc.lef",
+      "--placeholder", "liberty.TT"], "placeholder liberty.TT: the release has no such file"),
+    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "{src}/adc.lef",
+      "--version", ".x"], "a version takes letters, digits"),
+    (["--block", "adc", "--lef", "{src}/adc.lef"], "pack needs --top, --project"),
+    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--liberty", "{src}/adc_tt.lib"],
+     "give CORNER=FILE"),
+])
+def test_pack_refuses(tmp_path, caplog, args, message):
+    src = _views(tmp_path)
+    args = [a.replace("{src}", str(src)) for a in args]
+    assert _pack(tmp_path, *args, "--out", tmp_path / "out") == 1
+    assert message in caplog.text
+    assert not (tmp_path / "out").exists()
+    assert not list(tmp_path.glob(".out.tmp"))

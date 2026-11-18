@@ -30,7 +30,7 @@ config.impl.flow = "dummy_impl"
 config.vrf.flow = "dummy_vrf"
 config.release.path = [os.path.abspath("releases")]
 
-block(name="sub", top="block", rtl_files=["../rtl/block.v"])
+block(name="sub", top="block", rtl_files=["rtl/sub.v"])
 block(name="sub_syn", top="block", rtl_files=["../rtl/block.v"], release_recipe="dummy")
 
 block(name="top", top="top", includes={"sub": "release"}, rtl_files=["../rtl/top.v"])

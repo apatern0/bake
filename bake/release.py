@@ -233,6 +233,22 @@ def copy_libdata(data: LibData, dest: Path, follow: Callable[[str], str] = os.pa
     return out
 
 
+def libdata_to_json(data: LibData) -> dict:
+    """data's views, absolute paths as they are, its libraries by name and
+    its macros, recursively, for a flow to hand to `bake-release pack`."""
+    out: dict[str, Any] = {"block": data.block, "top": data.top}
+    for view in VIEWS.values():
+        value = getattr(data, view.field)
+        if isinstance(value, (dict, list)):
+            value = type(value)(value)
+        out[view.field] = value
+    out["netlist_incdirs"] = list(data.netlist_incdirs)
+    out["vrf_defines"] = list(data.vrf_defines)
+    out["libs"] = [lib.name for lib in data.libs]
+    out["macros"] = [libdata_to_json(m) for m in data.macros]
+    return out
+
+
 def libdata_from_dict(raw: dict, directory: Path, block: str, top: str,
                       resolve_lib: Callable[[str], Any], owner: str) -> LibData:
     """The LibData of release data `raw` (copy_libdata's result) whose paths
@@ -324,6 +340,39 @@ def _warn_if_different(first: Path, other: Path) -> None:
         return
     logging.warning("Release %s exists under two roots with different contents; using %s, not %s.",
                     first.name, first, other)
+
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+def source_digests(steps: list, root: Path | str) -> dict[str, str]:
+    """{path relative to root: sha256} of what the steps were built from:
+    their source files and the files of the flows they run. Files outside
+    root (a PDK, an installed flow) are left out: the release records the
+    project's own sources, to tell later whether it is older than them."""
+    root = Path(root).resolve()
+    files: set[Path] = set()
+    for s in steps:
+        candidates = [Path(f) for f in s.source_files]
+        try:
+            flowdir = Path(s.flowdir)
+            if flowdir.is_dir():
+                candidates += [p for p in flowdir.rglob("*") if p.is_file()]
+        except exceptions.BakeRuntimeError:
+            pass
+        for f in candidates:
+            path = f.resolve()
+            if path.is_file() and path.is_relative_to(root):
+                files.add(path)
+    return {p.relative_to(root).as_posix(): _sha256(p) for p in sorted(files)}
+
+
+def stale_sources(recorded: dict[str, str], current: dict[str, str]) -> list[str]:
+    """The sources that changed, appeared or disappeared since a release
+    recorded `recorded`, sorted."""
+    names = set(recorded) | set(current)
+    return sorted(n for n in names if recorded.get(n) != current.get(n))
 
 
 # ---------------------------------------------------------------------------
