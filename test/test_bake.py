@@ -1540,6 +1540,9 @@ def test_macro_is_included_as_a_macro(bake, capfd, project):
     tpl = json.loads(Path("work/top/impl/bake_vars.json").read_text())
     assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("rtl/block.v")
     assert tpl["BAKE_MACRO_LIBERTY_FILES_TC"][0].endswith("rtl/block.v")
+    assert [Path(f).name for f in tpl["BAKE_MACRO_STREAM_FILES"]] == ["block.v"]
+    assert [Path(f).name for f in tpl["BAKE_MACRO_LVS_FILES"]] == ["top.v"]
+    assert Path(tpl["BAKE_MACRO_LVS_FILES"][0]).is_absolute()
     assert tpl["BAKE_DESIGN_VERILOG_FILES"][0].endswith("rtl/top.v")
     assert not bake.run(["top", "vrf"])
     design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))

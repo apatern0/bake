@@ -22,6 +22,7 @@ nav = [
     { "Design Modeling" = "manifest_design_model.md" },
     { "Verification Modeling" = "manifest_verif_model.md" },
     { "Configuration" = "configuration.md" },
+    { "Release Format" = "release_format.md" },
   ] },
   { "Extending" = [
     { "Custom Steps" = "custom_steps.md" },

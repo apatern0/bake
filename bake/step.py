@@ -611,6 +611,9 @@ class LibData(StepData):
     physical_lef:    str  = ""                            # every LEF the DEF refers to
     sdc_file:        str  = ""                            # the constraints
     parasitics_files: dict = field(default_factory=dict)  # extracted parasitics {corner: file}
+    # What a parent's sign-off reads, if the flow or the release has it
+    stream_files:    list = field(default_factory=list)   # layout (GDS, OASIS) to merge into the parent's
+    lvs_files:       list = field(default_factory=list)   # netlists for LVS (CDL, SPICE)
 
 
 @dataclass

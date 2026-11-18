@@ -122,6 +122,9 @@ class ImplStep(Step):
                 f for m in macros for f in m.liberty_files.get(corner, [])
             ]
         tpl_dict["BAKE_MACRO_NETLIST_FILES"] = _macro_netlists(macros)
+        # Their layouts and LVS netlists, for a flow that merges or checks them
+        tpl_dict["BAKE_MACRO_STREAM_FILES"] = [f for m in macros for f in m.stream_files]
+        tpl_dict["BAKE_MACRO_LVS_FILES"] = [f for m in macros for f in m.lvs_files]
 
         for lib in self.data.libs:
             # layout_info may name several files, space-separated
