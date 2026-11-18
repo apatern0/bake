@@ -615,6 +615,8 @@ class LibData(StepData):
     # What a parent's sign-off reads, if the flow or the release has it
     stream_files:    list = field(default_factory=list)   # layout (GDS, OASIS) to merge into the parent's
     lvs_files:       list = field(default_factory=list)   # netlists for LVS (CDL, SPICE)
+    # The release it comes from, <block>@<version>; "" when it was built
+    release:         str  = ""
 
 
 @dataclass
@@ -750,6 +752,9 @@ class Step(ABC):
     name: str
     default_flow = None
     require_test = False
+    # The views (bake.release.VIEWS) the step needs of each hard macro that
+    # comes from a release: a partial release lacking one is refused
+    needs_views: ClassVar[tuple] = ()
     consumes: ClassVar[tuple[type[StepData], ...]] = (StepData,)
     produces: ClassVar[Optional[type[StepData]]] = None
 
@@ -820,6 +825,24 @@ class Step(ABC):
             msg += (f" A step that turns {self.data.kind} into {kind_names(self.consumes)}: "
                     f"{', '.join(steps)} (e.g. recipe {prefix + '-' if prefix else ''}{steps[0]}-{self.name}).")
         raise exceptions.BakeManifestError(msg)
+
+    def check_release_views(self) -> None:
+        """Refuse a hard macro from a release that lacks a view the step
+        needs (needs_views): a partial release serves only some steps."""
+        if not self.needs_views:
+            return
+        from . import release  # pylint: disable=import-outside-toplevel  # release.py imports this module
+        for macro in getattr(self.data, "macros", []):
+            if not macro.release:
+                continue
+            files = release.libdata_files(macro)
+            missing = [v for v in self.needs_views if v not in files]
+            if missing:
+                raise exceptions.BakeManifestError(
+                    f"Step {self.name} for block '{self.data.block}' needs the {', '.join(missing)} of "
+                    f"'{macro.block}', and release {macro.release} has none: select a release that has "
+                    f"them, or leave the release out of this recipe."
+                )
 
     def check_pre(self) -> None:
         """Verify that this step can consume self.data.
@@ -967,8 +990,14 @@ class Step(ABC):
             return None
 
     def write_stamp(self, fingerprint: dict) -> None:
+        record: dict = {"fingerprint": fingerprint}
+        # The releases this run used, for whoever asks what it was built from
+        releases = {m.block: m.release.partition("@")[2]
+                    for m in getattr(self.data, "macros", []) if getattr(m, "release", "")}
+        if releases:
+            record["releases"] = releases
         with open(self.stamp_path, "w", encoding="utf-8") as f:
-            json.dump({"fingerprint": fingerprint}, f, indent=2)
+            json.dump(record, f, indent=2)
             f.write("\n")
 
     def remove_stamp(self) -> None:
@@ -1539,8 +1568,51 @@ class Recipe:
         # The steps after it work in the block's directory, never in the release
         data.block_dir = block.dir
         data.project = block.project
+
+        def mark(d):
+            d.release = rel.name
+            for m in d.macros:
+                mark(m)
+        mark(data)
+
+        from . import release_checks  # pylint: disable=import-outside-toplevel
+        grade = release_checks.grade(rel, cfg.waive.get(rel.name))
+        if cfg.accept == "signoff" and grade.name != "signoff":
+            reasons = [f"failing {', '.join(grade.failing)}"] if grade.failing else []
+            reasons += [f"skipped {', '.join(grade.skipped)}"] if grade.skipped else []
+            reasons += [f"placeholders {', '.join(rel.placeholders)}"] if rel.placeholders else []
+            raise exceptions.BakeManifestError(
+                f"Release {rel.name} is a draft ({'; '.join(reasons)}), and config.release.accept is "
+                f"signoff: select a release that passes, or waive its failing or skipped checks with "
+                f"config.release.waive[\"{rel.name}\"] = {{\"<check>\": \"<reason>\"}}."
+            )
         self.release_version = version
-        return context.steps["release"](data, release=rel, release_dir=where)
+        step = context.steps["release"](data, release=rel, release_dir=where)
+        step.grade = grade
+        step.stale = self._stale_sources(block, rel)
+        profile = cfg.profile.get(block.name, "")
+        step.uses = release_checks.uses(rel, release_checks.read_profile(profile)) if profile else None
+        step.others = [v for v, _ in releases.versions(roots, block.project, block.name) if v != version]
+        return step
+
+    @staticmethod
+    def _stale_sources(block, rel) -> list:
+        """The sources of the block that changed since the release recorded
+        them: those its fallback recipe would build it from now. Empty for
+        a release that recorded none (made outside bake)."""
+        recorded = (rel.sources or {}).get("files") or {}
+        if not recorded or block.manifest_function == "external":
+            return []
+        from . import release as releases  # pylint: disable=import-outside-toplevel
+        fallback = getattr(block, "release_recipe", "") or context.config.release.recipe
+        try:
+            recipe = Recipe(block.name, fallback)
+            recipe.elaborate()
+        except exceptions.BakeRuntimeError as err:
+            logging.debug("Cannot tell whether release %s is stale: %s", rel.name, err)
+            return []
+        current = releases.source_digests(recipe.steps, context.config.bake.manifest_dir)
+        return releases.stale_sources(recorded, current)
 
     @staticmethod
     def _check_release_project(block, rel) -> None:
@@ -1665,6 +1737,7 @@ class Recipe:
                 )
 
             step.check_kind()
+            step.check_release_views()
             step.check_pre()
 
             running_data = step.output_data

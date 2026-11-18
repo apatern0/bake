@@ -78,6 +78,7 @@ class VrfStep(Step):
     default_flow = "builtin_vrf_flow"
     require_test = True
     consumes = (RtlData, LibData)
+    needs_views = ("netlist",)
 
     def build_tpl_dict(self):
         tpl_dict = super().build_tpl_dict()

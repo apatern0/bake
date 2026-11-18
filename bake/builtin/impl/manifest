@@ -47,6 +47,7 @@ class ImplStep(Step):
     name = "impl"
     consumes = (RtlData,)
     produces = LibData
+    needs_views = ("lef", "liberty")
 
     def check_pre(self):
         # An implemented sub-block (an include after its impl recipe, or a
