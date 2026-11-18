@@ -326,7 +326,8 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | Variable | Description |
 |----------|-------------|
 | `$BAKE_TOP` | Top-level module name of the current block |
-| `$BAKE_BLOCK` | Name of the current block |
+| `$BAKE_BLOCK` | Name of the current block; for a [variant](manifest_design_model.md#variants), the block it copies |
+| `$BAKE_VARIANT` | The variant's name for a variant (`r1` of `top@r1`), empty otherwise |
 | `$BAKE_RECIPE` | Hyphen-separated recipe executed so far (e.g. `tmr-impl`) |
 | `$BAKE_INTERACTIVE` | `1` when *bake* is invoked with `-i`, `0` otherwise |
 | `$BAKE_VERBOSITY` | Number of `-v` flags given |

@@ -822,6 +822,9 @@ class Context:
         Whether an included recipe has been *run* is not a manifest property;
         that is decided when a recipe is elaborated.
         """
+        for b in list(self.blocks.values()):
+            if b.manifest_function == "variant":
+                b.adopt_base()
         for name, b in self.blocks.items():
             for dep_name, recipe in b.includes.items():
                 if dep_name not in self.blocks:
@@ -903,16 +906,27 @@ class Context:
     # Helper functions for test discovery
     # ---------------------------------------------------------------------------
 
+    def _test_target(self, target: str) -> str:
+        """The block whose tests a block runs: a variant's base, the block
+        itself otherwise."""
+        spec = self.blocks.get(target)
+        if spec is not None and spec.manifest_function == "variant":
+            return spec.base
+        return target
+
     def find_test(self, name: str, target: str) -> "TestSpec | None":
+        target = self._test_target(target)
         result = next((t for t in self.tests if t.name == name and t.target == target), None)
         if result is None:
             logging.debug("Test '%s' not found for target '%s'", name, target)
         return result
 
     def find_test_by_target(self, target: str) -> "list[TestSpec]":
+        target = self._test_target(target)
         return [t for t in self.tests if t.target == target]
 
     def test_exists(self, name: str, target: str) -> bool:
+        target = self._test_target(target)
         return any(t.name == name and t.target == target for t in self.tests)
 
     # ------------------------------------------------------------------
