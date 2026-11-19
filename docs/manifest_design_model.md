@@ -299,6 +299,24 @@ block's own work directory (`{"core": "release-lef2oa"}`). `bake core release` b
 when a release is selected (it reports it) and builds `core` with its fallback recipe otherwise.
 A plain `{"core": "impl"}` is never replaced by a release.
 
+### Variants
+
+`config.release.use` holds for the whole run, so one block is built either on a release or
+on its fallback. To have both side by side (a release next to the current sources, two
+releases), declare a **variant**:
+
+```python
+variant("column", "tapeout1", release={"core": "20261118-edef189"})
+```
+
+`column@tapeout1` is `column` (its includes, files, tests and copies of flows, under `flow/column/`)
+with a work directory of its own, `<output dir>/column@tapeout1/`, and the releases it names,
+which take precedence over `config.release.use` for everything built under it. Its flows see
+`$BAKE_BLOCK` as `column`, so the settings a flow keys on the block's name hold for the
+variant too, and `$BAKE_VARIANT` as `tapeout1` (empty for a block that is not a variant).
+`bake column@tapeout1 impl` builds it; a variant copies a block that is built, not an external
+block or another variant.
+
 ### External blocks
 
 A block made outside the project, an analog one say, may exist only as releases. Declare it

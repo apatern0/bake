@@ -3021,3 +3021,57 @@ def test_publish_external_needs_source(bake, capfd, project, tmp_path):
     assert_in_stderr(capfd, "is external and has no source file to publish from")
     assert bake.run(["ana", "impl"]) == 1
     assert_in_stderr(capfd, "and publish, which makes a release from its source file")
+
+
+# ===========================================================================
+# Tests — variants (variant())
+# ===========================================================================
+
+def test_variant_uses_its_releases(bake, capfd, project):
+    """A variant builds its base with its own releases, in a work directory
+    of its own, while the base keeps building its includes."""
+    project("release")
+    assert not bake.run(["top@r1", "impl"])
+    assert not Path("work/sub").exists()
+    tpl = _impl_vars("top@r1")
+    assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("releases/demo/sub/v1/lef/block.lef")
+    assert tpl["BAKE_BLOCK"] == "top" and tpl["BAKE_VARIANT"] == "r1"
+    assert tpl["BAKE_DESIGN_VERILOG_FILES"][0].endswith("rtl/top.v")
+    assert not bake.run(["top", "vrf"])        # the base: no selection, sub is built
+    assert Path("work/sub/impl").is_dir()
+    assert Path("work/top@r1/impl").is_dir() and Path("work/top/vrf").is_dir()
+
+
+def test_variant_release_wins_over_config(bake, project):
+    project("release")
+    # v16 was built with width=16: selected, it would be refused
+    assert not bake.run(["top@r1", "impl", "-o", "release.use.sub=v16"])
+    assert _impl_vars("top@r1")["BAKE_MACRO_PHYSICAL"][0].endswith("sub/v1/lef/block.lef")
+
+
+def test_variant_runs_base_tests_and_flow_copy(bake, capfd, project):
+    """A variant runs its base's tests, and the base's copy of a flow."""
+    project("release")
+    assert not bake.run(["top", "impl", "-p", "-o", "release.use.sub=v1"])
+    assert Path("flow/top/impl").is_dir()
+    capfd.readouterr()
+    assert not bake.run(["top@r1", "impl"])
+    assert_in_stderr(capfd, "Flow: the block's copy in")
+    assert not bake.run(["top@r1", "vrf", "-t", "top_test"])
+    assert Path("work/top@r1/vrf/top_test/run.sh").is_file()
+    assert not bake.run([])
+    assert_in_stderr(capfd, "- top@r1  (needs sub release: release v1)")
+
+
+def test_variant_of_unknown_block(bake, capfd, project):
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text() + 'variant("ghost", "x")\n')
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "Variant 'ghost@x' copies block 'ghost', which is not declared")
+
+
+def test_variant_of_external_refused(bake, capfd, project):
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text() + 'variant("ana", "x")\n')
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "a variant copies a block that is built")

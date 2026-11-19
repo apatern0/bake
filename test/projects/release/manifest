@@ -21,7 +21,7 @@
 
 import os
 
-from bake import block, external, load, option, project, test
+from bake import block, external, load, option, project, test, variant
 
 project("demo", width=option(8, "Data width in bits", choices=[8, 16]))
 
@@ -45,3 +45,7 @@ block(name="top_ana", top="top", includes={"ana": "release"}, rtl_files=["../rtl
 external(name="adc", top="block", source="analog/adc.ini")
 block(name="top_adc", top="top", includes={"adc": "release"}, rtl_files=["../rtl/top.v"])
 test(name="top_adc_test", target="top_adc", vrf_files=["../rtl/top_tb.v"], default_sim="stub")
+
+# A variant of top: top's includes, tests and flow copies, its own work
+# directory, and release v1 of sub whatever config.release.use says.
+variant("top", "r1", release={"sub": "v1"})

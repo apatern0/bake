@@ -18,8 +18,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .manifest import (flow, block, macro, external, regression, sweep, env, test, lib, load, project,
-                       target, scratch_dir)
+from .manifest import (flow, block, macro, external, variant, regression, sweep, env, test, lib, load,
+                       project, target, scratch_dir)
 from .context import context, option
 from .exceptions import BakeFileError, BakeUserRuntimeError
 
@@ -31,7 +31,7 @@ is_test   = context.is_test
 is_flow   = context.is_flow
 
 __all__ = [
-    "flow", "block", "macro", "external", "regression", "sweep", "target", "env", "test", "lib", "load",
+    "flow", "block", "macro", "external", "variant", "regression", "sweep", "target", "env", "test", "lib", "load",
     "project", "scratch_dir", "option", "context",
     "BakeFileError", "BakeUserRuntimeError",
     "is_block", "is_target", "is_env", "is_test", "is_flow",

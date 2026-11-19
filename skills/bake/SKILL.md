@@ -105,7 +105,9 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
   `{"sub": "impl"}` (`config.release.recipe`, or the block's `release_recipe=`). `external()`
   declares a block that only exists as releases (docs/manifest_design_model.md#releases,
   docs/release_format.md). `bake <block> impl-publish -o publish.root=<dir>` makes a release;
-  `external(source="adc.ini")` names the INI file listing a block's views, and `bake adc publish` makes a release of them (docs/release_format.md#source-files). Each step takes some data kinds (RTL, an
+  `external(source="adc.ini")` names the INI file listing a block's views, and `bake adc publish` makes a release of them (docs/release_format.md#source-files).
+  `variant("top", "r1", release={"sub": "<version>"})` declares `top@r1`: top with those
+  releases and its own work directory; flows see `$BAKE_BLOCK=top`, `$BAKE_VARIANT=r1`. Each step takes some data kinds (RTL, an
   implemented block, a register map...) and refuses others before anything runs.
 - A tool (a generator, a vendor flow) comes in as a manifest the project `load()`s: its step,
   config section and `flow()`. There is no plugin mechanism and no `use()`.

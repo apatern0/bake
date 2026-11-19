@@ -33,6 +33,7 @@ that the block's recipe-form includes require.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime
 import hashlib
@@ -382,6 +383,9 @@ class StepData:
     test:      str = ""
     project:   str = ""
     top:       str = ""
+    # For a variant (variant()), the block it copies, whose flow copies and
+    # per-block settings it uses; "" otherwise
+    base_block: str = ""
 
     # ── Mutable test-derived working state ───────────────────────────────────
     vrf_top:           str  = ""
@@ -883,7 +887,7 @@ class Step(ABC):
     def flow_copy_dir(self) -> Path:
         """Where `-p` puts the block's own copy of the flow:
         flow/<block>/<recipe>/."""
-        return Path(self.data.block_dir) / "flow" / self.data.block / self.recipe_path
+        return Path(self.data.block_dir) / "flow" / (self.data.base_block or self.data.block) / self.recipe_path
 
     @property
     def uses_flow_copy(self) -> bool:
@@ -1119,7 +1123,10 @@ class Step(ABC):
         tpl_dict["BAKE_INTERACTIVE"] = int(context.config.bake.interactive)
         tpl_dict["BAKE_VERBOSITY"]   = context.config.bake.verbosity
         tpl_dict["BAKE_TOP"]         = self.data.top
-        tpl_dict["BAKE_BLOCK"]       = self.data.block
+        # A variant is its base block to the flow, which keys per-block
+        # settings on the name; $BAKE_VARIANT tells them apart
+        tpl_dict["BAKE_BLOCK"]       = self.data.base_block or self.data.block
+        tpl_dict["BAKE_VARIANT"]     = self.data.block.partition("@")[2] if self.data.base_block else ""
         tpl_dict["BAKE_RECIPE"]      = str(self.data.recipe_prefix)
         # What the cells of the block's libraries are for (lib(cells=...))
         tpl_dict.update(cell_role_vars(getattr(self.data, "libs", [])))
@@ -1430,6 +1437,25 @@ class Step(ABC):
 # Main orchestration entry point
 # ---------------------------------------------------------------------------
 
+# The releases of the variants being elaborated, innermost last: they take
+# precedence over config.release.use for what is elaborated under them
+_RELEASE_OVERRIDES: list = []
+
+
+@contextlib.contextmanager
+def variant_releases(spec):
+    """While elaborating what is under `spec`: its releases first, when it
+    is a variant (variant()) that names some."""
+    overrides = getattr(spec, "release", None) if spec.manifest_function == "variant" else None
+    if overrides:
+        _RELEASE_OVERRIDES.append(overrides)
+    try:
+        yield
+    finally:
+        if overrides:
+            _RELEASE_OVERRIDES.pop()
+
+
 class Recipe:
     """An ordered series of steps applied to one block.
 
@@ -1480,6 +1506,9 @@ class Recipe:
         only exists as releases (external()) must have one selected. Other
         recipes: None, after checking `release` is not further down."""
         cfg = context.config.release
+        use = {**cfg.use}
+        for override in _RELEASE_OVERRIDES:
+            use.update(override)
         if "release" in self.recipe[1:]:
             raise exceptions.BakeManifestError(
                 f"Recipe '{'-'.join(self.recipe)}' for block '{block.name}': release can only be "
@@ -1495,7 +1524,7 @@ class Recipe:
                 )
             return None
 
-        version = cfg.use.get(block.name, "")
+        version = use.get(block.name, "")
         if not version:
             if external:
                 raise exceptions.BakeManifestError(
@@ -1577,6 +1606,12 @@ class Recipe:
         # Resolve block
         block = context.blocks[self.block_name]
         logging.debug("Elaborating recipe '%s' for block '%s'", "-".join(self.recipe), block.name)
+
+        # A variant's releases hold for everything elaborated under it
+        with variant_releases(block):
+            self._elaborate(block, resolve_test, _visiting)
+
+    def _elaborate(self, block, resolve_test, _visiting):
 
         # A recipe starting with `release`: the selected release stands for
         # the block, or its fallback recipe builds it

@@ -582,6 +582,77 @@ class ExternalSpec(DesignSpec):
         return f"top={self.top or '<none>'}, releases only" + (f", source={self.source}" if self.source else "")
 
 
+class VariantSpec(DesignSpec):
+    """A copy of a block with releases of its own: everything the block
+    declares (includes, files, tests, flow copies, per-block settings that
+    flows key on its name) but its work directory, under its own name
+    <block>@<variant>, and the releases its release includes resolve to,
+    which take precedence over config.release.use for everything built
+    under it. Declared with variant()."""
+    manifest_function: ClassVar[str] = "variant"
+
+    base: str = ""
+    variant: str = ""
+    release: dict = Field(default_factory=dict)   # {block: version}
+
+    @model_validator(mode="before")
+    @classmethod
+    def name_from_base(cls, values):
+        if isinstance(values, dict) and not values.get("name"):
+            base, variant = values.get("base", ""), values.get("variant", "")
+            if not base or not variant:
+                raise BakeManifestError("variant(): give the block it copies and the variant's name, "
+                                        "e.g. variant(\"core\", \"tapeout1\", release={...}).")
+            if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$", variant):
+                raise BakeManifestError(f"variant(): the name {variant!r} takes letters, digits and _ . -.")
+            values = {**values, "name": f"{base}@{variant}"}
+        return values
+
+    @property
+    def base_spec(self) -> DesignSpec:
+        spec = context.blocks.get(self.base)
+        if spec is None:
+            raise BakeManifestError(f"Variant '{self.name}' copies block '{self.base}', which is not declared.")
+        return spec
+
+    def adopt_base(self) -> None:
+        """Take the base's includes, once every manifest has loaded (the base
+        may be declared after the variant)."""
+        base = self.base_spec
+        if base.manifest_function in ("variant", "external"):
+            what = "a variant" if base.manifest_function == "variant" else "external"
+            raise BakeManifestError(
+                f"Variant '{self.name}': '{self.base}' is {what}; a variant copies a block that is built."
+            )
+        self.includes = dict(base.includes)
+
+    @property
+    def data_type(self) -> type[StepData]:
+        spec = context.blocks.get(self.base)
+        return spec.data_type if spec is not None else StepData
+
+    @property
+    def release_recipe(self) -> str:
+        return getattr(self.base_spec, "release_recipe", "")
+
+    @property
+    def top(self) -> str:
+        return getattr(self.base_spec, "top", "")
+
+    @functools.cached_property
+    def available_tests(self):
+        return [t.name for t in context.find_test_by_target(self.base)]
+
+    def to_data(self):
+        data = self.base_spec.to_data()
+        data.block = self.name
+        data.base_block = self.base
+        return data
+
+    def _summary(self) -> str:
+        return f"variant of {self.base}, releases {self.release or '{}'}"
+
+
 # A command-line override, as -o takes it: [section.]attribute[.key]=value
 _OPTION = re.compile(r"^(?:[A-Za-z0-9_]+\.)?[A-Za-z0-9_]+(?:\.[A-Za-z0-9_@.-]+)?=.*$")
 
@@ -871,6 +942,12 @@ lib   = LibSpec    # PDK cell libraries
 block = BlockSpec  # user design blocks, in RTL
 macro = MacroSpec  # implemented blocks (hard macros)
 external = ExternalSpec  # blocks that only exist as releases
+
+
+def variant(base: str, name: str, release: dict | None = None, desc: str = ""):
+    """A copy of block `base` named <base>@<name>, whose release includes
+    resolve to `release` ({block: version}) before config.release.use."""
+    return VariantSpec(base=base, variant=name, release=dict(release or {}), desc=desc)
 regression = RegressionSpec  # tests run many times, with their seeds
 sweep = SweepSpec  # a block's recipe run once per variant of its options
 

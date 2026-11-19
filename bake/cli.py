@@ -262,7 +262,8 @@ def _log_blocks(designs) -> None:
                 continue
             try:
                 dep = step.Recipe(dep_name, dep_recipe_str)
-                dep.elaborate()
+                with step.variant_releases(b):
+                    dep.elaborate()
                 state = _dependency_state(dep)
             except exceptions.BakeRuntimeError as err:
                 state = f"cannot elaborate: {err}"
