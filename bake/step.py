@@ -768,6 +768,7 @@ class Step(ABC):
     def __init__(self, data: StepData):
         self.data = data
         self.__flow = None
+        self.previous_steps: list = []
 
     @property
     def flow(self):
@@ -1486,10 +1487,11 @@ class Recipe:
             )
         external = block.manifest_function == "external"
         if self.recipe[0] != "release":
-            if external:
+            if external and self.recipe != ["publish"]:
                 raise exceptions.BakeManifestError(
                     f"Block '{block.name}' is external: it only exists as releases, so it takes "
-                    f"recipes that start with release (e.g. {{\"{block.name}\": \"release\"}})."
+                    f"recipes that start with release (e.g. {{\"{block.name}\": \"release\"}}), "
+                    f"and publish, which makes a release from its source file."
                 )
             return None
 
@@ -1648,6 +1650,9 @@ class Recipe:
             running_data.is_last = (i == len(self.recipe) - 1)
 
             step = context.steps[step_name](running_data)
+            # The steps it follows in this recipe: a step that reports on how
+            # the data was made (publish) reads their sources
+            step.previous_steps = list(self.steps)
             logging.debug(
                 "Elaborated step '%s' [%d/%d] for block '%s'",
                 step_name, i + 1, len(self.recipe), block.name,

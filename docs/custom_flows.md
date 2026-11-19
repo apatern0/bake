@@ -370,6 +370,40 @@ not change is up to date. The built-in flow, `bake/builtin/sweep/flow/local/run.
 example to start from for another engine: it also shows how the report is built from each run's
 `summary.json`, at `<directory>/<block>/<recipe>/summary.json`.
 
+## Writing a Publish Flow
+
+The `publish` step (`bake <block> impl-publish`, see [Releases](#releases-a-block-for-others))
+writes the release itself, after its flow. The flow is where a project checks a block before it
+is released, and adds what the block's data does not carry. It gets, in `bake_vars.json`,
+`BAKE_PUBLISH_LIBDATA` (the block's views, absolute paths, its libraries and its macros: the
+netlist's directory is the impl run's), `BAKE_PUBLISH_ROOT`, `BAKE_PUBLISH_VERSION` and
+`BAKE_PUBLISH_LABEL` (where the release goes), `BAKE_PUBLISH_PROJECT` (the project and its
+options) and `BAKE_PUBLISH_RECIPE`. It leaves in its `output/`
+
+| Path | Content |
+|---|---|
+| `checks.json` | The results of its checks (DRC, LVS, timing, read from the impl run's reports): `{check: {"status": "pass" \| "fail" \| "skipped", "value": ..., "report": "reports/<file>"}}` |
+| `stream/` | The layout (GDS, OASIS) |
+| `lvs/` | The netlist LVS compared the layout with (CDL, SPICE) |
+| `reports/` | Reports to keep in the release |
+
+and exits with `0`. A failing check does not stop the publish: the release records it, and the
+projects that use the release decide whether they accept it. A flow that exits non-zero stops
+it. What an earlier run left in those paths is removed before the flow starts.
+
+The built-in flow adds nothing; set `config.publish.flow` to a flow of your own for the rest.
+An external block is always published with the built-in flow: there is no impl run to check.
+
+### Releases: a block for others
+
+`bake <block> impl-publish -o publish.root=<release root>` saves the implemented block as a
+[release](release_format.md) under `<root>/<project>/<block>/<version>/`, read-only; a parent
+then includes it with `{"<block>": "release"}` (see
+[Releases](manifest_design_model.md#releases)). The version is `config.publish.name`, or
+`<date>-<commit>` (`-dirty` with uncommitted changes, which go into the release's
+`reports/git.diff`), or `<date>-<time>` outside git. Publishing a version that exists is
+refused.
+
 ## Writing a Regression Flow
 
 The [regression](manifest_verif_model.md#regressions) step leaves its flow one job: being the

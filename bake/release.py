@@ -25,6 +25,7 @@ format; the steps that make releases and use them build on it."""
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import hashlib
 import json
 import logging
@@ -233,6 +234,22 @@ def copy_libdata(data: LibData, dest: Path, follow: Callable[[str], str] = os.pa
     return out
 
 
+def libdata_to_json(data: LibData) -> dict:
+    """data's views, absolute paths as they are, its libraries by name and
+    its macros, recursively, for a publish flow (BAKE_PUBLISH_LIBDATA)."""
+    out: dict[str, Any] = {"block": data.block, "top": data.top}
+    for view in VIEWS.values():
+        value = getattr(data, view.field)
+        if isinstance(value, (dict, list)):
+            value = type(value)(value)
+        out[view.field] = value
+    out["netlist_incdirs"] = list(data.netlist_incdirs)
+    out["vrf_defines"] = list(data.vrf_defines)
+    out["libs"] = [lib.name for lib in data.libs]
+    out["macros"] = [libdata_to_json(m) for m in data.macros]
+    return out
+
+
 def libdata_from_dict(raw: dict, directory: Path, block: str, top: str,
                       resolve_lib: Callable[[str], Any], owner: str) -> LibData:
     """The LibData of release data `raw` (copy_libdata's result) whose paths
@@ -327,6 +344,39 @@ def _warn_if_different(first: Path, other: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+def source_digests(steps: list, root: Path | str) -> dict[str, str]:
+    """{path relative to root: sha256} of what the steps were built from:
+    their source files and the files of the flows they run. Files outside
+    root (a PDK, an installed flow) are left out: the release records the
+    project's own sources, to tell later whether it is older than them."""
+    root = Path(root).resolve()
+    files: set[Path] = set()
+    for s in steps:
+        candidates = [Path(f) for f in s.source_files]
+        try:
+            flowdir = Path(s.flowdir)
+            if flowdir.is_dir():
+                candidates += [p for p in flowdir.rglob("*") if p.is_file()]
+        except exceptions.BakeRuntimeError:
+            pass
+        for f in candidates:
+            path = f.resolve()
+            if path.is_file() and path.is_relative_to(root):
+                files.add(path)
+    return {p.relative_to(root).as_posix(): _sha256(p) for p in sorted(files)}
+
+
+def stale_sources(recorded: dict[str, str], current: dict[str, str]) -> list[str]:
+    """The sources that changed, appeared or disappeared since a release
+    recorded `recorded`, sorted."""
+    names = set(recorded) | set(current)
+    return sorted(n for n in names if recorded.get(n) != current.get(n))
+
+
+# ---------------------------------------------------------------------------
 # Checksums and protection
 # ---------------------------------------------------------------------------
 
@@ -377,3 +427,104 @@ def make_read_only(directory: Path | str) -> None:
     for path in sorted(directory.rglob("*"), reverse=True) + [directory]:
         mode = path.stat().st_mode
         path.chmod(mode & ~write)
+
+
+# ---------------------------------------------------------------------------
+# Writing a release (the publish step)
+# ---------------------------------------------------------------------------
+
+def _bake_version() -> str:
+    from .step import bake_version  # pylint: disable=import-outside-toplevel
+    return bake_version()
+
+
+def _check_placeholders(placeholders: list, rel_data: dict) -> list[str]:
+    errors = []
+    for item in placeholders:
+        name, _, corner = item.partition(".")
+        view = VIEWS.get(name) or next((v for v in VIEWS.values() if v.field == name), None)
+        if view is None:
+            errors.append(f"placeholder {item}: no view {name} (views: {', '.join(VIEWS)})")
+            continue
+        value = rel_data.get(view.field)
+        if not value or (corner and (not isinstance(value, dict) or corner not in value)):
+            errors.append(f"placeholder {item}: the release has no such file")
+    return errors
+
+
+def integrity_errors(directory: Path, rel: Release) -> list[str]:  # pylint: disable=unused-argument
+    """What makes the release unusable: no view at all, a placeholder that
+    names no file of it."""
+    errors = []
+    if not rel.views():
+        errors.append("the release has no view: give at least one file (a source file's [views], "
+                      "or the block's impl run)")
+    return errors + _check_placeholders(rel.placeholders, rel.data)
+
+
+def write_release(libdata: LibData, *, root: str, project: str, options: dict, version: str,
+                  label: str = "", recipe: str = "", producer: Optional[dict] = None,
+                  placeholders: Optional[list] = None, quality: Optional[dict] = None,
+                  reports: Optional[list] = None, sources: Optional[dict] = None) -> Path:
+    """Write a release of libdata under root/<project>/<block>/<version>
+    and return its directory. Written in a hidden directory beside it, then
+    renamed, then made read-only; refused when the release exists or fails
+    its integrity checks. `reports` are files, or (name, text) pairs."""
+    if not VERSION_RE.match(version):
+        raise exceptions.BakeRuntimeError(
+            f"Version {version!r}: a version takes letters, digits and . _ -, and does not start "
+            f"with . or -."
+        )
+    final = block_dir(root, project, libdata.block) / version
+    if final.exists():
+        raise exceptions.BakeRuntimeError(
+            f"Release {libdata.block}@{version} exists ({final}): a release never changes. "
+            f"Give another version."
+        )
+    tmp = final.parent / f".{final.name}.tmp"
+    if tmp.exists():
+        _make_writable(tmp)
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+    try:
+        data = copy_libdata(libdata, tmp)
+        for report in reports or []:
+            (tmp / "reports").mkdir(exist_ok=True)
+            if isinstance(report, tuple):
+                (tmp / "reports" / report[0]).write_text(report[1], encoding="utf-8")
+            else:
+                shutil.copy2(report, tmp / "reports" / Path(report).name)
+        rel = Release(
+            block=libdata.block, top=libdata.top, version=version, label=label,
+            created=datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+            project={"name": project, "options": dict(options)},
+            recipe=recipe,
+            producer={"bake_version": _bake_version(), **(producer or {})},
+            data=data,
+            placeholders=list(placeholders or []),
+            sources=dict(sources or {}),
+        )
+        errors = integrity_errors(tmp, rel)
+        if errors:
+            raise exceptions.BakeRuntimeError(
+                f"Release {rel.name} fails its integrity checks:\n" + "\n".join(f"   - {e}" for e in errors)
+            )
+        rel.checks = {"integrity": {"status": "pass", "details": []}, "quality": dict(quality or {})}
+        rel.write(tmp)
+        write_checksums(tmp)
+        tmp.rename(final)
+    except BaseException:
+        _make_writable(tmp)
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    make_read_only(final)
+    logging.info("Released %s@%s in %s", libdata.block, version, final)
+    return final
+
+
+def _make_writable(directory: Path) -> None:
+    for path in [directory, *directory.rglob("*")]:
+        try:
+            path.chmod(path.stat().st_mode | 0o200)
+        except OSError:
+            pass

@@ -5,8 +5,9 @@ it: its netlist and abstracts (what a parent needs of a hard macro), a descripti
 come from and how they fared in their checks, and the checksums of every file. A release never
 changes once it is written.
 
-This page describes the format. It is what *bake* writes and reads, and what a tool outside
-*bake* writes to hand a block over (an analog block, say).
+This page describes the format, which *bake* writes and reads, and the
+[source file](#source-files) of a block made outside the project (an analog block, say), from
+which *bake* makes its releases.
 
 ## Where releases live
 
@@ -105,11 +106,11 @@ A release need not have every view: one made for an early floorplan may hold onl
 | `created` | When it was written (ISO 8601) |
 | `project` | The project it was built in and the values of its options: a build that uses the release must have the same |
 | `recipe` | The recipe that built it (`impl`); empty for a release made outside *bake* |
-| `producer` | Who made it: the *bake* version and the git state of the project, or what the tool that made it records |
+| `producer` | Who made it: the *bake* version and the git state of the project (`kind` `publish`), or, for an [external block](#source-files) (`kind` `external`), its source file, when each of its files was last modified and the source file's `[provenance]` (`notes`) |
 | `data` | The views, with paths relative to the release directory; `libs`, the cell libraries the netlist is mapped to, by name; `vrf_defines`, what a simulation of its netlist defines; `macros`, the hard macros it places, each with the same keys and its `dir` |
 | `placeholders` | Views (`<field>` or `<field>.<corner>`) holding stand-ins, not the real thing |
 | `checks` | `integrity`: whether the views agree with each other; `quality`: one entry per check (`status` `pass`, `fail` or `skipped`, an optional `value` and `report`) |
-| `sources` | The digest of every source file it was built from, by path relative to the top project's directory, to tell when the release is older than the sources |
+| `sources` | The digest of every source file it was built from, by path relative to the top project's directory (`root` `project`), to tell when the release is older than the sources; for an external block, the digest of each file its source file names, by absolute path (`root` `external`) |
 
 A build that uses a release resolves `libs` against the libraries the project declares, and
 refuses a release mapped to a library it does not have.
@@ -118,3 +119,47 @@ refuses a release mapped to a library it does not have.
 
 The SHA-256 of every file of the release but itself, one per line, as `sha256sum` writes them
 (`<digest>  <path>`), sorted by path.
+
+## Source files
+
+A block made outside the project, an analog block say, is declared with
+`external(name=..., source="<file>.ini")` (see
+[External blocks](manifest_design_model.md#external-blocks)). Its source file is an INI file its
+makers fill in once, saying where its views are; they need not know *bake*. Each hand-over,
+`bake <block> publish` makes a release of the files it names, as they are then.
+
+```ini
+[block]
+name = adc                  ; as the project's external() names it
+top = adc_top               ; its top cell
+placeholders = liberty.SS   ; views holding a stand-in, not the real thing (optional)
+
+[views]
+netlist = export/adc.v
+lef = export/adc.lef
+stream = export/adc.gds
+lvs = export/adc.cdl
+
+[liberty]                   ; one key per corner
+TT = export/adc_tt.lib
+SS = export/adc_ss.lib
+
+[provenance]                ; anything worth keeping about where it comes from
+library = ADC_LIB
+```
+
+| Section | Keys |
+|---|---|
+| `[block]` | `name`, `top` (required); `placeholders`, as `VIEW[.CORNER]` |
+| `[views]` | `netlist`, `lef`, `def`, `physical_lef`, `sdc`, `stream` (GDS, OASIS), `lvs` (CDL, SPICE), `libs` (cell libraries the netlist is mapped to, which a project must declare); see [Views](#views) |
+| `[liberty]`, `[si]`, `[sdf]`, `[spef]` | One key per corner: `CORNER = FILE ...` (one file for `sdf` and `spef`) |
+| `[provenance]` | Any keys, kept in `release.json` as the producer's `notes` |
+
+Paths are relative to the source file, and may use `~` and `$VARIABLES`. A key that takes
+several files takes them separated by spaces or new lines (quote a path with spaces). An
+unknown section or key, a missing file, and a `name` or `top` other than the project's are
+refused. The source file is kept in the release's `reports/`.
+
+What changes from one hand-over to the next is not in the file: the version, the label and the
+release root are the project's (`config.publish`), and so are the values of its options, which
+the release records like any other.

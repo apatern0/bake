@@ -555,10 +555,13 @@ class MacroSpec(DesignSpec, AbstractsSpec):
 class ExternalSpec(DesignSpec):
     """A block that only exists as releases, made outside the project (an
     analog block, say): included with a recipe starting with `release`, and
-    config.release.use selects which release."""
+    config.release.use selects which release. `bake <block> publish` makes
+    a release of the files its source file (an INI file, relative to the
+    manifest) names."""
     manifest_function: ClassVar[str] = "external"
 
     top: str = ""
+    source: str = ""  # the INI file its makers fill in (bake/release_source.py)
 
     @field_validator("includes", mode="after")
     @classmethod
@@ -576,7 +579,7 @@ class ExternalSpec(DesignSpec):
         return LibData(block=self.name, block_dir=self.dir, top=self.top)
 
     def _summary(self) -> str:
-        return f"top={self.top or '<none>'}, releases only"
+        return f"top={self.top or '<none>'}, releases only" + (f", source={self.source}" if self.source else "")
 
 
 # A command-line override, as -o takes it: [section.]attribute[.key]=value

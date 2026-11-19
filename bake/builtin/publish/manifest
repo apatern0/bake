@@ -1,0 +1,289 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The publish step: an implemented block saved as a release
+(docs/release_format.md), for parents to include with {"block": "release"}.
+
+    bake core impl-publish
+    bake adc publish
+
+The second makes a release of an external block from the files its source
+file names (external(source=...), an INI file its makers fill in), always
+with the built-in flow.
+
+The step writes the release after its flow. The flow gets the block's views
+($BAKE_PUBLISH_LIBDATA) and where the release goes, runs the project's
+checks of a release, and leaves in its output/ what the release adds to the
+views: checks.json (the checks' results), stream/ (the layout), lvs/ (the
+netlist for LVS) and reports/. The built-in flow adds nothing."""
+
+import dataclasses
+import datetime
+import functools
+import hashlib
+import json
+import logging
+import os
+import shutil
+from pathlib import Path
+
+from bake import release, release_source
+from bake.context import context
+from bake.exceptions import BakeManifestError, BakeRuntimeError
+from bake.manifest import FlowSpec
+from bake.step import LibData, Step, _git, git_state
+
+FlowSpec(
+    name="builtin_publish_flow",
+    desc="Adds nothing to the release: no checks, no layout",
+    dir="flow/local",
+    run_cmd="run.py",
+)
+
+
+# `config` is provided by bake; a config section needs no methods.
+# pylint: disable=undefined-variable,too-few-public-methods
+class PublishConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = config.option(
+            None, "Flow that checks the block and adds files to its release, by name; the built-in "
+                  "one, which adds nothing, when unset", kind=str)
+        self.flow_options = config.option({}, "Options of the publish flow ($BAKE_FLOW_OPT_*)")
+        self.root         = config.option("", "The release root the release goes under")
+        self.name         = config.option(
+            "", "The release's version; default <date>-<commit>[-dirty], or <date>-<time> outside git")
+        self.label        = config.option("", "A note kept with the release, shown where it is used")
+        self.source       = config.option(
+            "", "An external block's source file (INI), instead of the one external(source=) names", kind=str)
+
+
+config.register("publish", PublishConfig())
+
+
+class PublishStep(Step):
+    """Saves the implemented block as a release under config.publish.root."""
+
+    name = "publish"
+    default_flow = "builtin_publish_flow"
+    consumes = (LibData,)
+    produces = LibData
+
+    # Where the project stands and when: recorded, but no reason to publish again
+    _FINGERPRINT_IGNORED_VARS = Step._FINGERPRINT_IGNORED_VARS + ("BAKE_PUBLISH_VERSION",)
+
+    @property
+    def _external(self):
+        spec = context.blocks.get(self.data.block)
+        return spec if spec is not None and spec.manifest_function == "external" else None
+
+    @property
+    def flow(self):
+        # An external block's files come as they are: no impl run for a
+        # project's publish flow to read its checks from
+        if self._external is not None:
+            return context.flows[self.default_flow]
+        return Step.flow.fget(self)
+
+    @functools.cached_property
+    def _source(self):
+        """The external block's source file, read; None for a built block."""
+        spec = self._external
+        if spec is None:
+            return None
+        name = self.config.source or spec.source
+        if not name:
+            raise BakeManifestError(
+                f"Block '{spec.name}' is external and has no source file to publish from: give "
+                f"external(source=\"<file>.ini\") or -o publish.source=<file>.ini."
+            )
+        path = Path(os.path.expanduser(name))
+        if not path.is_absolute():
+            path = Path(spec.dir or context.config.bake.manifest_dir) / path
+        source = release_source.read(path)
+        if source.name != spec.name:
+            raise BakeManifestError(
+                f"Source file {source.path} describes block '{source.name}', not '{spec.name}'.")
+        if spec.top and source.top != spec.top:
+            raise BakeManifestError(
+                f"Source file {source.path}: top {source.top}, but external() '{spec.name}' has "
+                f"top {spec.top}.")
+        missing = source.missing()
+        if missing:
+            raise BakeManifestError(
+                f"Source file {source.path} names files that do not exist:\n"
+                + "\n".join(f"   - {m}" for m in missing))
+        source.libdata.block = spec.name
+        return source
+
+    @property
+    def _published(self):
+        """The views that go into the release."""
+        return self._source.libdata if self._external is not None else self.data
+
+    def check_pre(self):
+        if not self.config.root:
+            raise BakeManifestError(
+                f"Block '{self.data.block}': config.publish.root is not set: nowhere to publish. "
+                f"Set it in a manifest, or with -o publish.root=<release root>."
+            )
+        if self._external is not None:
+            if self.data.recipe_prefix:
+                raise BakeManifestError(
+                    f"Block '{self.data.block}' is external: publish it on its own "
+                    f"(bake {self.data.block} publish).")
+            return
+        if not self.data.recipe_prefix or self.data.recipe_prefix[0] == "release":
+            raise BakeManifestError(
+                f"Block '{self.data.block}': publish saves a block a recipe built "
+                f"(e.g. bake {self.data.block} impl-publish), not a release or a declared macro."
+            )
+
+    @property
+    def source_files(self):
+        files = [str(self._source.path)] if self._external is not None else []
+        for value in release.libdata_files(self._published).values():
+            files += [f for _, f in value]
+        return files
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / "published.json")]
+
+    @functools.cached_property
+    def _git(self):
+        root = self.project_dir
+        state = git_state(root)
+        if state is None:
+            return {}
+        state["submodules"] = {}
+        for line in (_git(state["repo"], "submodule", "status", "--recursive") or "").splitlines():
+            parts = line.strip().lstrip("+-U").split()
+            if len(parts) >= 2:
+                state["submodules"][parts[1]] = parts[0]
+        return state
+
+    @property
+    def project_dir(self):
+        return context.config.bake.manifest_dir
+
+    @functools.cached_property
+    def _version(self):
+        if self.config.name:
+            return self.config.name
+        now = datetime.datetime.now()
+        if self._external is not None:
+            # A hand-over: its date, or its date and time when one was
+            # made that day
+            where = release.block_dir(self.config.root, self.data.project, self.data.block)
+            return f"{now:%Y%m%d}" if not (where / f"{now:%Y%m%d}").exists() else f"{now:%Y%m%d-%H%M%S}"
+        state = self._git
+        if state.get("commit"):
+            return f"{now:%Y%m%d}-{state['commit'][:7]}" + ("-dirty" if state.get("dirty") else "")
+        return f"{now:%Y%m%d-%H%M%S}"
+
+    @property
+    def _options(self):
+        project = context.projects.get(self.data.project)
+        options = {}
+        if project is not None and project.options is not None:
+            for attr in project.options._bake_attributes():  # pylint: disable=protected-access
+                options[attr] = getattr(project.options, attr)
+        return options
+
+    def build_tpl_dict(self):
+        """$BAKE_PUBLISH_LIBDATA: the block's views (absolute paths), its
+        libraries by name, its macros; $BAKE_PUBLISH_ROOT, _VERSION, _LABEL:
+        where the release goes; $BAKE_PUBLISH_PROJECT: {name, options};
+        $BAKE_PUBLISH_RECIPE: the recipe that built it."""
+        tpl_dict = super().build_tpl_dict()
+        tpl_dict["BAKE_PUBLISH_LIBDATA"] = release.libdata_to_json(self._published)
+        tpl_dict["BAKE_PUBLISH_ROOT"] = str(self.config.root)
+        tpl_dict["BAKE_PUBLISH_VERSION"] = self._version
+        tpl_dict["BAKE_PUBLISH_LABEL"] = self.config.label
+        tpl_dict["BAKE_PUBLISH_PROJECT"] = {"name": self.data.project, "options": self._options}
+        tpl_dict["BAKE_PUBLISH_RECIPE"] = str(self.data.recipe_prefix)
+        return tpl_dict
+
+    def execute_flow_step(self):
+        # What an earlier run left is not this run's
+        for name in ("stream", "lvs", "reports", "checks.json", "published.json"):
+            path = self.outputdir / name
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.exists():
+                path.unlink()
+        super().execute_flow_step()
+        self._write_release()
+
+    def _flow_output(self):
+        """What the flow adds: (layout files, LVS netlists, reports, check
+        results), from its output/."""
+        out = self.outputdir
+
+        def files(name):
+            return sorted(str(f) for f in (out / name).glob("*") if f.is_file()) if (out / name).is_dir() else []
+
+        checks = {}
+        if (out / "checks.json").is_file():
+            try:
+                checks = json.loads((out / "checks.json").read_text(encoding="utf-8"))
+            except ValueError as err:
+                raise BakeRuntimeError(f"The publish flow's {out / 'checks.json'}: {err}") from err
+        return files("stream"), files("lvs"), files("reports"), checks
+
+    def _write_release(self):
+        stream, lvs, reports, checks = self._flow_output()
+        data = dataclasses.replace(self._published, stream_files=list(self._published.stream_files) + stream,
+                                   lvs_files=list(self._published.lvs_files) + lvs)
+        source = self._source
+        placeholders = []
+        if source is None:
+            git = self._git
+            producer = {"kind": "publish", "git": git}
+            sources = {"root": "project", "files": release.source_digests(self.previous_steps, self.project_dir)}
+            if git.get("dirty"):
+                status = _git(git["repo"], "status", "--porcelain") or ""
+                diff = _git(git["repo"], "diff", "HEAD") or ""
+                reports.append(("git.diff", "# git status --porcelain\n" + status + "\n" + diff))
+        else:
+            # Not the project's: where the files were, and what they held
+            files = sorted({f for _, f in source.files()})
+            producer = {"kind": "external", "source": str(source.path),
+                        "modified": {f: datetime.datetime.fromtimestamp(os.path.getmtime(f)).astimezone()
+                                     .isoformat(timespec="seconds") for f in files}}
+            if source.provenance:
+                producer["notes"] = source.provenance
+            sources = {"root": "external", "files": {f: _sha256(f) for f in files}}
+            placeholders = source.placeholders
+            reports.append(str(source.path))
+        where = release.write_release(
+            data, root=self.config.root, project=self.data.project, options=self._options,
+            version=self._version, label=self.config.label, recipe=str(self.data.recipe_prefix),
+            producer=producer, placeholders=placeholders, quality=checks, reports=reports, sources=sources)
+        if source is not None:
+            logging.info('Select it with config.release.use["%s"] = "%s"', self.data.block, self._version)
+        self.outputdir.mkdir(parents=True, exist_ok=True)
+        (self.outputdir / "published.json").write_text(
+            json.dumps({"block": self.data.block, "version": self._version, "path": str(where)}, indent=2) + "\n",
+            encoding="utf-8")
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
