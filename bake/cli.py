@@ -267,6 +267,14 @@ def _log_blocks(designs) -> None:
             except exceptions.BakeRuntimeError as err:
                 state = f"cannot elaborate: {err}"
             needs.append(f"needs {dep_name} {dep_recipe_str}: {state}")
+        version = context.config.release.use.get(name, "")
+        if version:
+            try:
+                selected = step.Recipe(name, "release")
+                selected.elaborate()
+                needs.append(f"release {version} ({selected.steps[0].grade.name})")
+            except exceptions.BakeRuntimeError as err:
+                needs.append(f"release {version}: cannot use it: {err}")
         suffix = f"  ({'; '.join(needs)})" if needs else ""
         logging.info("- %s%s", name, suffix)
         for t in context.find_test_by_target(name):

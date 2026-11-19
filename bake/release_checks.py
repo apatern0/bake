@@ -390,6 +390,36 @@ def run_checks_dir(checks_dir: Path | str, release_dir: Path | str, options: dic
 
 
 # ---------------------------------------------------------------------------
+# Grade
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Grade:
+    """How a project sees a release: `signoff` when every quality check
+    passes or is waived and no view is a placeholder, `draft` otherwise. A
+    check that was skipped did not pass: a release whose reports were not
+    found is not signed off."""
+    name: str
+    failing: list           # failing checks no waiver covers
+    waived: dict            # failing or skipped checks a waiver covers: {check: reason}
+    unneeded: list          # waivers of checks that pass
+    skipped: list = field(default_factory=list)  # skipped checks no waiver covers
+
+
+def grade(rel: release.Release, waivers: Optional[dict] = None) -> Grade:
+    waivers = dict(waivers or {})
+    quality = rel.checks.get("quality", {})
+    failing = sorted(k for k, v in quality.items() if v.get("status") == "fail")
+    skipped = sorted(k for k, v in quality.items() if v.get("status") == "skipped")
+    waived = {k: waivers[k] for k in failing + skipped if k in waivers}
+    unwaived = [k for k in failing if k not in waived]
+    unrun = [k for k in skipped if k not in waived]
+    unneeded = sorted(k for k in waivers if k not in failing + skipped)
+    name = "signoff" if not unwaived and not unrun and not rel.placeholders else "draft"
+    return Grade(name, unwaived, waived, unneeded, unrun)
+
+
+# ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
 

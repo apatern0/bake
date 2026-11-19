@@ -2703,7 +2703,7 @@ def test_release_include_uses_selected_release(bake, capfd, project):
     assert not bake.run(["top", "impl", "-o", "release.use.sub=v1"])
     out = stderr(capfd)
     assert "Block sub: release v1 (hand-written for the tests)" in out
-    assert "Failing checks: drc" in out
+    assert "check drc fails (accepted: config.release.accept is draft)" in out
     assert not Path("work/sub").exists()
     tpl = _impl_vars("top")
     assert tpl["BAKE_MACRO_NETLIST_FILES"][0].endswith("releases/demo/sub/v1/netlist/block.v")
@@ -2991,6 +2991,10 @@ def test_publish_external(bake, capfd, project, tmp_path):
     assert (where / "reports" / "adc.ini").read_text() == ADC_INI
     assert not os.access(where / "lef" / "adc.lef", os.W_OK)
 
+    Path("manifest").write_text(
+        Path("manifest").read_text()
+        + 'block(name="top_adc", top="top", includes={"adc": "release"}, rtl_files=["../rtl/top.v"])\n'
+        + 'test(name="top_adc_test", target="top_adc", vrf_files=["../rtl/top_tb.v"], default_sim="stub")\n')
     assert not bake.run(["top_adc", "vrf", "-o", f"release.path={tmp_path}", "-o", "release.use.adc=a1"])
     _writable(tmp_path)
 
@@ -3046,3 +3050,101 @@ def test_publish_external_needs_source(bake, capfd, project, tmp_path):
     assert_in_stderr(capfd, "is external and has no source file to publish from")
     assert bake.run(["ana", "impl"]) == 1
     assert_in_stderr(capfd, "and publish, which makes a release from its source file")
+
+
+# ===========================================================================
+# Tests — which releases a project accepts (accept, waive), staleness
+# ===========================================================================
+
+def test_release_report(bake, capfd, project):
+    """bake <block> release reports the release: grade, checks, the other
+    versions; a failing check is a warning while drafts are accepted."""
+    project("release")
+    assert not bake.run(["sub", "release", "-o", "release.use.sub=v1"])
+    out = stderr(capfd)
+    assert "Block sub: release v1 (hand-written for the tests)" in out
+    assert "drc         FAIL  3" in out
+    assert "other       v16, vlib" in out
+    assert "check drc fails (accepted: config.release.accept is draft)" in out
+
+
+def test_release_report_tampered(bake, capfd, project, tmp_path):
+    """bake <block> release says when a release's files changed since it was written."""
+    project("release")
+    assert not bake.run(["sub", "impl-publish", "-o", f"publish.root={tmp_path}", "-o", "publish.name=p1"])
+    where = tmp_path / "demo" / "sub" / "p1"
+    _writable(tmp_path)
+    (where / "netlist" / "block.v").write_text("// changed\n")
+    assert not bake.run(["sub", "release", "-o", f"release.path={tmp_path}", "-o", "release.use.sub=p1"])
+    assert_in_stderr(capfd, "Release sub@p1 has files that changed since it was written: netlist/block.v")
+
+
+def test_release_signoff_refuses_draft(bake, capfd, project):
+    project("release")
+    assert bake.run(["top", "impl", "-o", "release.use.sub=v1", "-o", "release.accept=signoff"]) == 1
+    assert_in_stderr(capfd, "Release sub@v1 is a draft (failing drc), and config.release.accept is signoff")
+
+
+def test_release_waiver(bake, capfd, project):
+    """A waiver makes a failing check acceptable for signoff, and says so;
+    a waiver of a check that passes is pointed out."""
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text()
+                                + 'config.release.waive = {"sub@v1": {"drc": "known short", "lvs": "x"}}\n')
+    assert not bake.run(["top", "impl", "-o", "release.use.sub=v1", "-o", "release.accept=signoff"])
+    out = stderr(capfd)
+    assert "drc         FAIL  3   waived: known short" in out
+    assert "the waiver of lvs is no longer needed" in out
+    assert "check drc fails" not in out
+    stamp = json.loads(Path("work/top/impl/.bake_stamp.json").read_text())
+    assert stamp["releases"] == {"sub": "v1"}
+
+
+def test_release_grade_in_listing(bake, capfd, project):
+    project("release")
+    assert not bake.run(["-o", "release.use.sub=v1", "-o", "release.use.ana=nothere"])
+    out = stderr(capfd)
+    assert "- sub  (release v1 (draft))" in out
+    assert "- ana  (lib; release nothere: cannot use it: Block 'ana': no release nothere" in out
+
+
+def test_release_stale_sources(bake, capfd, project, tmp_path):
+    """A release older than the block's sources is used, with a warning
+    naming what changed."""
+    project("release")
+    assert not bake.run(["sub", "impl-publish", "-o", f"publish.root={tmp_path}", "-o", "publish.name=p1"])
+    args = ["top", "vrf", "-o", f"release.path={tmp_path}", "-o", "release.use.sub=p1"]
+    assert not bake.run(args)
+    assert_not_in_stderr(capfd, "is older than")
+    Path("rtl/sub.v").write_text(Path("rtl/sub.v").read_text() + "// changed\n")
+    assert not bake.run(args)
+    assert_in_stderr(capfd, "Release sub@p1 is older than sub's sources: rtl/sub.v")
+    for path in [tmp_path / "demo", *(tmp_path / "demo").rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_release_missing_view_refused(bake, capfd, project, tmp_path):
+    """A partial release serves the steps it has the views for: one without
+    a LEF can be simulated, not implemented around."""
+    project("release")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "block.v").write_text("module block(); endmodule\n")
+    from bake import release  # pylint: disable=import-outside-toplevel
+    from bake.step import LibData  # pylint: disable=import-outside-toplevel
+    release.write_release(LibData(block="sub", top="block", netlist_files=[str(src / "block.v")]),
+                          root=str(tmp_path / "rel"), project="demo", options={"width": 8}, version="netlist_only")
+    args = ["-o", f"release.path={tmp_path / 'rel'}", "-o", "release.use.sub=netlist_only"]
+    assert not bake.run(["top", "vrf", *args])
+    assert bake.run(["top", "impl", *args]) == 1
+    assert_in_stderr(capfd, "Step impl for block 'top' needs the lef, liberty of 'sub', and release "
+                            "sub@netlist_only has none")
+    for path in [tmp_path / "rel", *(tmp_path / "rel").rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_release_profile_uses(bake, capfd, project):
+    project("release")
+    Path("profile.toml").write_text('[uses.vrf]\nneeds = ["netlist"]\n[uses.signoff]\nneeds = ["stream"]\n')
+    assert not bake.run(["sub", "release", "-o", "release.use.sub=v1", "-o", "release.profile.sub=profile.toml"])
+    assert_in_stderr(capfd, "uses        vrf ok · signoff missing (stream)")

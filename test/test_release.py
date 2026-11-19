@@ -392,3 +392,15 @@ def test_profile_errors(tmp_path):
     (tmp_path / "bad.toml").write_text("[uses\n")
     with pytest.raises(exceptions.BakeRuntimeError, match="Profile"):
         release_checks.read_profile(tmp_path / "bad.toml")
+
+
+def test_grade_skipped_is_not_signoff():
+    """A skipped check has not passed: the release is a draft until it is
+    waived, like a failing one."""
+    rel = release.Release(block="b", top="b", version="v", label="", created="", project={}, recipe="",
+                          producer={}, data={}, placeholders=[], sources={},
+                          checks={"quality": {"drc": {"status": "pass"}, "lvs": {"status": "skipped"}}})
+    grade = release_checks.grade(rel)
+    assert grade.name == "draft" and grade.skipped == ["lvs"] and grade.failing == []
+    grade = release_checks.grade(rel, {"lvs": "run by hand", "drc": "x"})
+    assert grade.name == "signoff" and grade.waived == {"lvs": "run by hand"} and grade.unneeded == ["drc"]

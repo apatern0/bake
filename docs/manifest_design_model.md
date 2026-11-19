@@ -299,6 +299,36 @@ block's own work directory (`{"core": "release-lef2oa"}`). `bake core release` b
 when a release is selected (it reports it) and builds `core` with its fallback recipe otherwise.
 A plain `{"core": "impl"}` is never replaced by a release.
 
+### Which releases a project accepts
+
+A release records its quality checks (DRC, LVS, timing, ...) as they came out; a failing one
+does not stop it being published, so that an unfinished block can be shared. The project that
+uses it decides what it accepts. A release is graded **signoff** when every quality check passes
+or is waived and none of its views is a placeholder, **draft** otherwise. A check that was
+skipped (its report was not found) has not passed: it keeps a release a draft until it is
+waived like a failing one.
+
+```python
+config.release.accept = "signoff"     # default "draft": any release, with a warning per failing check
+config.release.waive = {
+    "core@20261118-edef189": {"drc": "12 shorts in the filler region, fixed in the next run"},
+}
+```
+
+The waivers are the project's, with their reasons, and the release stays as it was published:
+the same release can be fine for a trial and not for a tape-out. A waiver of a check that passes
+is pointed out.
+
+Every run that uses a release also says, as a warning, when the block's sources changed since
+the release was made (the release records the digests of what it was built from), and the
+parent's record of the run (`.bake_stamp.json`) names the releases it used.
+
+A release need not have every view: a step refuses a release that lacks a view it needs (`impl`
+needs the LEF and the Liberty files of a macro, `vrf` its netlist), so an early release that has
+only a netlist serves simulations. `bake <block> release` reports the release, and, with
+`config.release.profile[<block>]`, the uses of the [profile](release_format.md#profiles) it
+serves; plain `bake` shows the selected release and its grade next to each block.
+
 ### External blocks
 
 A block made outside the project, an analog one say, may exist only as releases. Declare it

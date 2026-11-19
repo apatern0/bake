@@ -28,6 +28,8 @@ LibData."""
 import logging
 from pathlib import Path
 
+from bake import release_checks
+from bake.release import verify_checksums
 from bake.exceptions import BakeRuntimeError
 from bake.step import LibData, StepData, Step
 
@@ -48,6 +50,8 @@ class ReleaseConfig(config.FixedSchemaAttributes):
             choices=["draft", "signoff"])
         self.waive = config.option(
             {}, "Failing quality checks accepted anyway, {\"<block>@<version>\": {check: reason}}")
+        self.profile = config.option(
+            {}, "The profile (TOML) a block's releases are checked against, {block: path}")
 
 
 config.register("release", ReleaseConfig())
@@ -67,6 +71,12 @@ class ReleaseStep(Step):
         super().__init__(data)
         self.release = release            # bake.release.Release
         self.release_dir = Path(release_dir) if release_dir else None
+        # What Recipe.elaborate() found: release_checks.Grade, the sources
+        # changed since, the profile's uses, the other versions
+        self.grade = None
+        self.stale: list = []
+        self.uses = None
+        self.others: list = []
 
     def is_available(self) -> bool:
         return True
@@ -116,12 +126,33 @@ class ReleaseStep(Step):
         )
 
     def run(self, force=None):
+        """Builds nothing: reports the release, and warns of what the
+        project accepts in it rather than signs it off for (failing checks
+        without a waiver, waivers no longer needed, sources changed since)."""
         self.check_post()
-        rel = self.release
-        label = f" ({rel.label})" if rel.label else ""
-        logging.info("Block %s: release %s%s from %s", self.data.block, rel.version, label,
-                     self.release_dir)
-        quality = rel.checks.get("quality", {})
-        failing = sorted(k for k, v in quality.items() if v.get("status") == "fail")
-        if failing:
-            logging.info("   Failing checks: %s", ", ".join(failing))
+        rel, grade = self.release, self.grade
+        logging.info("Block %s: release %s%s from %s", self.data.block, rel.version,
+                     f" ({rel.label})" if rel.label else "", self.release_dir)
+        checksums = verify_checksums(self.release_dir)
+        lines = release_checks.report_lines(
+            rel, grade=grade.name if grade else "", waived=grade.waived if grade else None,
+            stale=self.stale, use_states=self.uses, others=self.others, checksums=checksums)
+        for line in lines[1:]:
+            logging.info(" %s", line)
+        if grade is not None:
+            for check in grade.failing:
+                logging.warning("Release %s: check %s fails (accepted: config.release.accept is draft)",
+                                rel.name, check)
+            for check in grade.skipped:
+                logging.warning("Release %s: check %s was skipped (accepted: config.release.accept is "
+                                "draft)", rel.name, check)
+            for check in grade.unneeded:
+                logging.warning("Release %s: the waiver of %s is no longer needed: the check passes",
+                                rel.name, check)
+        if checksums:
+            logging.warning("Release %s has files that changed since it was written: %s", rel.name,
+                            ", ".join(checksums[:5]) + (" ..." if len(checksums) > 5 else ""))
+        if self.stale:
+            more = f" (and {len(self.stale) - 5} more)" if len(self.stale) > 5 else ""
+            logging.warning("Release %s is older than %s's sources: %s%s", rel.name, self.data.block,
+                            ", ".join(self.stale[:5]), more)
