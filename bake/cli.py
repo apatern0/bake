@@ -78,7 +78,7 @@ def _log_option_rows(rows) -> None:
         elif isinstance(value, list):
             details.append("a list: -o adds one item")
         elif isinstance(value, dict):
-            details.append("a dictionary: set its keys in a manifest")
+            details.append("a dictionary: set its keys in a manifest, or one with -o section.attribute.key=value")
         if details:
             logging.info("  %-22s   %s", "", "; ".join(details))
 

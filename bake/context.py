@@ -260,8 +260,8 @@ class FixedSchemaAttributes:
         kinds = self._bake_kinds(key)
         if dict in kinds:
             raise BakeOptionError(
-                f"{what}: {name} is a dictionary, which -o cannot set. Set its keys in a "
-                f"manifest instead, e.g. {name}[\"name\"] = value."
+                f"{what}: {name} is a dictionary, which -o cannot set as a whole: set one of "
+                f"its keys with -o {name[len('config.'):]}.<key>=value."
             )
         if list in kinds:
             value = list(getattr(self, key) or []) + list(raw)
@@ -273,6 +273,28 @@ class FixedSchemaAttributes:
             )
         self._bake_check(key, value, what, BakeOptionError)
         self._bake_lock(key, value, "-o")
+
+    def _bake_set_item_from_cli(self, key, item, raw, what) -> None:
+        """Set item `item` of dictionary attribute key from the command-line
+        text raw: converted to the kind of the item's current value, a string
+        for a new item. The manifests have loaded: nothing changes it later."""
+        name = f"config.{self._bake_name()}.{key}"
+        current = dict(getattr(self, key) or {})
+        old = current.get(item)
+        kind = _kind_of(old) if old is not None else str
+        if kind in (list, dict):
+            raise BakeOptionError(
+                f"{what}: {name}[{item!r}] is {_KIND_NAMES[kind]}, which -o cannot set."
+            )
+        value = _convert(raw, (kind,))
+        if value is _NOT_CONVERTED:
+            raise BakeOptionError(
+                f"{what}: {name}[{item!r}] takes {_KIND_NAMES[kind]}, not '{raw}'."
+            )
+        current[item] = value
+        object.__setattr__(self, key, current)
+        self._bake_book("_bake_origin")[key] = "-o"
+        logging.debug("Config option applied (-o): %s[%r] = %r", name, item, value)
 
     def _bake_set_given(self, key, value, what) -> None:
         """Set attribute key to a value load() gives a project, checked;
@@ -416,25 +438,29 @@ class Project:
 
 # What -o names: section.attribute=value, or option=value for an option of
 # the top project
-_OVERRIDE = re.compile(r'^(?:([A-Za-z0-9_]+)\.)?([A-Za-z0-9_]+)=(.*)$', re.DOTALL)
+_OVERRIDE = re.compile(r'^(?:([A-Za-z0-9_]+)\.)?([A-Za-z0-9_]+)(?:\.([A-Za-z0-9_@.-]+))?=(.*)$',
+                       re.DOTALL)
 
 
 class Override:
-    """One -o [section.]attribute=value of the command line; without a
-    section, an option of the top project."""
+    """One -o [section.]attribute[.key]=value of the command line; without a
+    section, an option of the top project; with a key, one key of a
+    dictionary attribute."""
 
-    __slots__ = ("section", "attribute", "value", "text")
+    __slots__ = ("section", "attribute", "key", "value", "text")
 
     def __init__(self, text: str):
         m = _OVERRIDE.match(text)
         if not m:
             hint = ("it has no '='" if "=" not in text else
-                    "the section and the attribute take letters, digits and _ only")
+                    "the section and the attribute take letters, digits and _ only, a "
+                    "dictionary's key letters, digits and _ @ . -")
             raise BakeOptionError(
                 f"Malformed option '-o {text}': {hint}. -o takes option=value for an option of "
-                f"the project, section.attribute=value otherwise, e.g. -o vrf.simulator=icarus."
+                f"the project, section.attribute=value otherwise, e.g. -o vrf.simulator=icarus, "
+                f"and section.attribute.key=value for one key of a dictionary."
             )
-        self.section, self.attribute, self.value = m.groups()
+        self.section, self.attribute, self.key, self.value = m.groups()
         self.text = text
 
     @property
@@ -520,6 +546,14 @@ class Config:
                     f"{_suggest(o.attribute, known)}. Its attributes: {_join(known)} "
                     f"(`bake --list-options` describes them)."
                 )
+            if o.key is not None:
+                if dict not in section._bake_kinds(o.attribute):
+                    raise BakeOptionError(
+                        f"{o.label}: config.{name}.{o.attribute} is "
+                        f"{_kind_name(section._bake_kinds(o.attribute))}, not a dictionary: "
+                        f"-o {name}.{o.attribute}=value sets it."
+                    )
+                continue    # finish_overrides sets the key, once the manifests have loaded
             if list in section._bake_kinds(o.attribute):
                 continue
             section._bake_set_from_cli(o.attribute, o.value, o.label)
@@ -588,7 +622,9 @@ class Config:
                 continue
             section = getattr(self, o.section)
             if isinstance(section, FixedSchemaAttributes):
-                if list in section._bake_kinds(o.attribute):
+                if o.key is not None:
+                    section._bake_set_item_from_cli(o.attribute, o.key, o.value, o.label)
+                elif list in section._bake_kinds(o.attribute):
                     section._bake_append_from_cli(o.attribute, o.value)
                 continue
             if o.section == "user":
@@ -612,13 +648,29 @@ class Config:
             )
         current = getattr(section, o.attribute)
         kind = _kind_of(current) or str
+        if o.key is not None:
+            if kind is not dict:
+                raise BakeOptionError(
+                    f"{o.label}: config.{o.section}.{o.attribute} is {_KIND_NAMES[kind]}, "
+                    f"not a dictionary: -o {o.section}.{o.attribute}=value sets it."
+                )
+            old = current.get(o.key)
+            item_kind = _kind_of(old) if old is not None else str
+            value = _convert(o.value, (item_kind,)) if item_kind not in (list, dict) else _NOT_CONVERTED
+            if value is _NOT_CONVERTED:
+                raise BakeOptionError(
+                    f"{o.label}: config.{o.section}.{o.attribute}[{o.key!r}] takes "
+                    f"{_KIND_NAMES[item_kind]}, not '{o.value}'."
+                )
+            current[o.key] = value
+            return
         if kind is list:
             current.append(o.value)
             return
         if kind is dict:
             raise BakeOptionError(
                 f"{o.label}: config.{o.section}.{o.attribute} is a dictionary, which -o cannot "
-                f"set. Set its keys in a manifest instead."
+                f"set as a whole: set one of its keys with -o {o.section}.{o.attribute}.<key>=value."
             )
         value = _convert(o.value, (kind,))
         if value is _NOT_CONVERTED:

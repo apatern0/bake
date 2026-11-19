@@ -38,6 +38,7 @@ bake <block> <recipe> -c | -r       # clean the work directory | clean then run
 bake <block> <recipe> -p            # copy the last step's flow to flow/<block>/<recipe>/ to customise; runs nothing
 bake <block> <recipe> -i            # interactive (simulator GUI), where the flow supports it
 bake -o section.attr=value ...      # override a config attribute (repeatable)
+bake -o section.attr.key=value ...  # set one key of a dictionary attribute
 bake -o option=value ...            # set an option of the top project
 bake --list-options [-o ...]        # every option and attribute: value, origin, kind, choices, description
 bake -l                             # libraries and macros
@@ -112,7 +113,8 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
   is registered: manifests read the command line's value, and a manifest assigning it keeps the
   command line's value.
 - Items of a list attribute (`-o vrf.options=-x`) are appended after every manifest has loaded,
-  so manifests don't see them. A dict attribute (`flow_options`) cannot be set with `-o`.
+  so manifests don't see them. One key of a dict attribute is set the same way, after loading:
+  `-o impl.flow_options.pixel_pitch=120`; the dict as a whole cannot be set with `-o`.
 - Unknown names, values of the wrong kind and values outside the choices stop bake before
   anything runs, with a suggestion. `bake --list-options -o ...` shows the effect.
 

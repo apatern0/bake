@@ -138,8 +138,14 @@ Two kinds of attribute keep the old timing:
 - **`config.user`** attributes, which have no schema to check against, are set once every
   manifest has loaded, and only if a manifest assigned them (deprecated, see below).
 
-A **dictionary** attribute (`flow_options`, ...) cannot be set with `-o`: set its keys in a
-manifest. An override of a section or attribute that never appears, a value that does not
+- one **key of a dictionary** attribute (`flow_options`, ...) is set with
+  `-o section.attribute.key=value`, e.g. `-o impl.flow_options.pixel_pitch=120`, once every
+  manifest has loaded: it replaces that key of the manifests' dictionary, or adds it, and leaves
+  the other keys alone. The value takes the kind of the key's current value (a string for a
+  new key); a key whose value is a list or a dictionary cannot be set this way. A key takes
+  letters, digits and `_ @ . -`. A dictionary as a whole cannot be set with `-o`.
+
+An override of a section or attribute that never appears, a value that does not
 convert to the attribute's kind and a value outside its choices all stop *bake* before
 anything runs, as for the project's options:
 
