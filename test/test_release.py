@@ -201,3 +201,194 @@ def test_version_names():
     assert release.VERSION_RE.match("tapeout1.2_b")
     for bad in (".hidden", "-x", "a/b", "", "a b"):
         assert not release.VERSION_RE.match(bad)
+
+
+# ---------------------------------------------------------------------------
+# Checks without tools (bake/release_checks.py)
+# ---------------------------------------------------------------------------
+
+from bake import release_checks  # noqa: E402
+from bake.step import LibData  # noqa: E402
+
+LEF = """MACRO adc_top
+  SIZE 10 BY 20 ;
+  PIN clk
+    DIRECTION INPUT ;
+  END clk
+  PIN code[0]
+    DIRECTION INPUT ;
+  END code[0]
+  PIN ready
+    DIRECTION OUTPUT ;
+  END ready
+  PIN VDD
+    USE POWER ;
+  END VDD
+END adc_top
+"""
+LIB = """library(adc) {
+  /* a comment { */
+  cell(adc_top) {
+    pg_pin(VDD) { pg_type : primary_power; }
+    pin(clk) { direction : input; }
+    bus(code) { direction : input; pin(code[0]) { } }
+    pin(ready) { direction : "output"; }
+  }
+}
+"""
+NETLIST = "// netlist\nmodule adc_top(input clk, input [7:0] code, output ready);\nendmodule\n"
+CDL = "* adc\n.SUBCKT adc_top clk code<0> code<7>\n+ ready VDD\n.ENDS\n"
+PROFILE = """[profile]
+name = "hard_macro"
+corners = ["TT", "SS"]
+power_pins = ["VDD"]
+
+[uses.vrf]
+needs = ["netlist"]
+[uses.impl]
+needs = ["lef", "liberty", "netlist"]
+[uses.signoff]
+needs = ["stream", "lvs"]
+
+[checks]
+max_layer = "M4"
+"""
+
+
+def test_parsers():
+    assert release_checks.verilog_ports(NETLIST, "adc_top") == {"clk": "input", "code": "input", "ready": "output"}
+    non_ansi = "module m (a, b);\n input [3:0] a;\n output reg b;\nendmodule\nmodule other(x); endmodule"
+    assert release_checks.verilog_ports(non_ansi, "m") == {"a": "input", "b": "output"}
+    assert release_checks.verilog_ports(non_ansi, "nothere") is None
+    signals, power, size = release_checks.lef_ports(LEF, "adc_top")
+    assert signals == {"clk": "input", "code": "input", "ready": "output"}
+    assert power == {"VDD"} and size == (10.0, 20.0)
+    signals, power = release_checks.liberty_ports(LIB, "adc_top")
+    assert signals == {"clk": "input", "code": "input", "ready": "output"} and power == {"VDD"}
+    assert release_checks.spice_ports(CDL, "adc_top") == ["clk", "code", "code", "ready", "VDD"]
+    with pytest.raises(exceptions.BakeRuntimeError, match="braces do not balance"):
+        release_checks.liberty_ports("library(x) { cell(y) {", "y")
+
+
+def _adc(tmp_path, **changes) -> Path:
+    src = tmp_path / "views"
+    src.mkdir(exist_ok=True)
+    views = {"adc.v": NETLIST, "adc.lef": LEF, "adc_tt.lib": LIB, "adc.cdl": CDL, "adc.gds": "gds", **changes}
+    for name, text in views.items():
+        (src / name).write_text(text)
+    (tmp_path / "profile.toml").write_text(PROFILE)
+    return src
+
+
+def _pack_adc(tmp_path, version="a1", corner="TT", views=("netlist", "lef", "liberty", "lvs"), **kwargs):
+    """Write a release of the ADC's views under tmp_path/rel."""
+    src = _adc(tmp_path)
+    data = LibData(
+        block="adc", top="adc_top",
+        netlist_files=[str(src / "adc.v")] if "netlist" in views else [],
+        layout_info=str(src / "adc.lef") if "lef" in views else "",
+        liberty_files={corner: [str(src / "adc_tt.lib")]} if "liberty" in views else {},
+        lvs_files=[str(src / "adc.cdl")] if "lvs" in views else [],
+    )
+    return release.write_release(data, root=str(tmp_path / "rel"), project="chip", options={}, version=version,
+                                 **kwargs)
+
+
+def _profile(tmp_path):
+    return release_checks.read_profile(tmp_path / "profile.toml")
+
+
+def _writable(tmp_path):
+    for path in [tmp_path, *tmp_path.rglob("*")]:
+        path.chmod(path.stat().st_mode | 0o200)
+
+
+@pytest.mark.parametrize("name, text, message", [
+    ("adc.lef", LEF.replace("  PIN ready\n    DIRECTION OUTPUT ;\n  END ready\n", ""),
+     "ready in netlist netlist/adc.v, not in lef lef/adc.lef"),
+    ("adc_tt.lib", LIB.replace('direction : "output"', "direction : input"),
+     "ready is output in netlist netlist/adc.v, output in lef lef/adc.lef, input in liberty"),
+    ("adc_tt.lib", "library(adc) { cell(adc_top) {", "liberty: liberty/TT/adc_tt.lib does not parse"),
+    ("adc_tt.lib", "library(adc) { cell(other) { } }", "liberty: no cell adc_top in liberty/TT/adc_tt.lib"),
+    ("adc.v", "module other(); endmodule", "netlist: no module adc_top in netlist/adc.v"),
+    ("adc.cdl", ".SUBCKT adc_top clk code<0> ready extra VDD\n", "extra in lvs lvs/adc.cdl"),
+])
+def test_integrity_refuses_views_that_disagree(tmp_path, name, text, message):
+    _adc(tmp_path)
+    (tmp_path / "views" / name).write_text(text)
+    with pytest.raises(exceptions.BakeRuntimeError) as err:
+        _pack_adc_as_is(tmp_path)
+    assert "fails its integrity checks" in str(err.value) and message in str(err.value)
+    assert not (tmp_path / "rel" / "chip" / "adc" / "a1").exists()
+
+
+def _pack_adc_as_is(tmp_path, **kwargs):
+    src = tmp_path / "views"
+    data = LibData(block="adc", top="adc_top", netlist_files=[str(src / "adc.v")], layout_info=str(src / "adc.lef"),
+                   liberty_files={"TT": [str(src / "adc_tt.lib")]}, lvs_files=[str(src / "adc.cdl")])
+    return release.write_release(data, root=str(tmp_path / "rel"), project="chip", options={}, version="a1",
+                                 **kwargs)
+
+
+def test_profile_checks_corners(tmp_path):
+    _adc(tmp_path)
+    with pytest.raises(exceptions.BakeRuntimeError, match=r"liberty: corners FF are not the profile's \(TT, SS\)"):
+        _pack_adc(tmp_path, corner="FF", views=("lef", "liberty"), profile=_profile(tmp_path))
+
+
+def test_report(tmp_path):
+    """The report says what the release is, whether its views agree, its
+    checks and the uses of the profile."""
+    where = _pack_adc(tmp_path, placeholders=["liberty.TT"], label="first cut")
+    rel = release.Release.read(where)
+    profile = _profile(tmp_path)
+    lines = release_checks.report_lines(rel, integrity_result=release_checks.integrity(where, rel, profile),
+                                        use_states=release_checks.uses(rel, profile))
+    out = "\n".join(lines)
+    assert out.startswith("adc a1  (label: first cut)\n")
+    assert "integrity   ok    3 ports agree across netlist, lef, liberty, lvs" in out
+    assert "placeholder liberty.TT" in out
+    assert "uses        vrf ok · impl placeholder (liberty) · signoff missing (stream)" in out
+    _writable(tmp_path)
+
+
+def test_tampered_release(tmp_path):
+    where = _pack_adc(tmp_path)
+    _writable(tmp_path)
+    (where / "lef" / "adc.lef").write_text(LEF + "\n")
+    assert release.verify_checksums(where) == ["lef/adc.lef"]
+
+
+def test_checks_directory(tmp_path):
+    """A checks directory's run.py gets the release and the profile's
+    [checks] table, and its results become quality checks."""
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "run.py").write_text(
+        "import json, os\n"
+        "opts = json.load(open(os.environ['BAKE_CHECKS_OPTIONS']))\n"
+        "lef = os.path.join(os.environ['BAKE_RELEASE_DIR'], 'lef', 'adc.lef')\n"
+        "json.dump({'layers': {'status': 'pass' if os.path.isfile(lef) else 'fail', 'value': opts['max_layer']}},\n"
+        "          open(os.environ['BAKE_CHECKS_OUT'], 'w'))\n")
+    _adc(tmp_path)
+    where = _pack_adc(tmp_path, profile=_profile(tmp_path), checks_dir=str(checks))
+    rel = release.Release.read(where)
+    assert rel.checks["quality"] == {"layers": {"status": "pass", "value": "M4"}}
+    _writable(tmp_path)
+
+
+def test_checks_directory_failing(tmp_path):
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "run.py").write_text("import sys\nsys.exit('no licence')\n")
+    with pytest.raises(exceptions.BakeRuntimeError, match=r"failed \(exit 1, no checks.json\): no licence"):
+        _pack_adc(tmp_path, checks_dir=str(checks))
+
+
+def test_profile_errors(tmp_path):
+    (tmp_path / "p.toml").write_text('[uses.x]\nneeds = ["gds"]\n')
+    with pytest.raises(exceptions.BakeRuntimeError, match="use x needs gds, which are not views"):
+        release_checks.read_profile(tmp_path / "p.toml")
+    (tmp_path / "bad.toml").write_text("[uses\n")
+    with pytest.raises(exceptions.BakeRuntimeError, match="Profile"):
+        release_checks.read_profile(tmp_path / "bad.toml")

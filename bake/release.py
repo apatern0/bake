@@ -438,38 +438,17 @@ def _bake_version() -> str:
     return bake_version()
 
 
-def _check_placeholders(placeholders: list, rel_data: dict) -> list[str]:
-    errors = []
-    for item in placeholders:
-        name, _, corner = item.partition(".")
-        view = VIEWS.get(name) or next((v for v in VIEWS.values() if v.field == name), None)
-        if view is None:
-            errors.append(f"placeholder {item}: no view {name} (views: {', '.join(VIEWS)})")
-            continue
-        value = rel_data.get(view.field)
-        if not value or (corner and (not isinstance(value, dict) or corner not in value)):
-            errors.append(f"placeholder {item}: the release has no such file")
-    return errors
-
-
-def integrity_errors(directory: Path, rel: Release) -> list[str]:  # pylint: disable=unused-argument
-    """What makes the release unusable: no view at all, a placeholder that
-    names no file of it."""
-    errors = []
-    if not rel.views():
-        errors.append("the release has no view: give at least one file (a source file's [views], "
-                      "or the block's impl run)")
-    return errors + _check_placeholders(rel.placeholders, rel.data)
-
-
 def write_release(libdata: LibData, *, root: str, project: str, options: dict, version: str,
                   label: str = "", recipe: str = "", producer: Optional[dict] = None,
                   placeholders: Optional[list] = None, quality: Optional[dict] = None,
-                  reports: Optional[list] = None, sources: Optional[dict] = None) -> Path:
+                  reports: Optional[list] = None, sources: Optional[dict] = None,
+                  profile: Optional[dict] = None, checks_dir: Optional[str] = None) -> Path:
     """Write a release of libdata under root/<project>/<block>/<version>
     and return its directory. Written in a hidden directory beside it, then
     renamed, then made read-only; refused when the release exists or fails
-    its integrity checks. `reports` are files, or (name, text) pairs."""
+    its integrity checks (bake/release_checks.py, against `profile` when
+    given). `checks_dir` runs on it, its results added to `quality`.
+    `reports` are files, or (name, text) pairs."""
     if not VERSION_RE.match(version):
         raise exceptions.BakeRuntimeError(
             f"Version {version!r}: a version takes letters, digits and . _ -, and does not start "
@@ -504,12 +483,16 @@ def write_release(libdata: LibData, *, root: str, project: str, options: dict, v
             placeholders=list(placeholders or []),
             sources=dict(sources or {}),
         )
-        errors = integrity_errors(tmp, rel)
-        if errors:
+        from . import release_checks  # pylint: disable=import-outside-toplevel  # it imports this module
+        result = release_checks.integrity(tmp, rel, profile)
+        if not result.ok:
             raise exceptions.BakeRuntimeError(
-                f"Release {rel.name} fails its integrity checks:\n" + "\n".join(f"   - {e}" for e in errors)
+                f"Release {rel.name} fails its integrity checks:\n" + "\n".join(f"   - {e}" for e in result.errors)
             )
-        rel.checks = {"integrity": {"status": "pass", "details": []}, "quality": dict(quality or {})}
+        quality = dict(quality or {})
+        if checks_dir:
+            quality.update(release_checks.run_checks_dir(checks_dir, tmp, (profile or {}).get("checks", {})))
+        rel.checks = {"integrity": {"status": "pass", "details": [], "ports": result.ports}, "quality": quality}
         rel.write(tmp)
         write_checksums(tmp)
         tmp.rename(final)

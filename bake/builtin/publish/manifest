@@ -39,7 +39,7 @@ import os
 import shutil
 from pathlib import Path
 
-from bake import release, release_source
+from bake import release, release_checks, release_source
 from bake.context import context
 from bake.exceptions import BakeManifestError, BakeRuntimeError
 from bake.manifest import FlowSpec
@@ -66,6 +66,11 @@ class PublishConfig(config.FixedSchemaAttributes):
         self.name         = config.option(
             "", "The release's version; default <date>-<commit>[-dirty], or <date>-<time> outside git")
         self.label        = config.option("", "A note kept with the release, shown where it is used")
+        self.profile      = config.option(
+            "", "A profile (TOML) the release must agree with: its Liberty corners, its power pins", kind=str)
+        self.checks       = config.option(
+            "", "A checks directory (run.py) run on the release, its results recorded as quality checks",
+            kind=str)
         self.source       = config.option(
             "", "An external block's source file (INI), instead of the one external(source=) names", kind=str)
 
@@ -272,7 +277,9 @@ class PublishStep(Step):
         where = release.write_release(
             data, root=self.config.root, project=self.data.project, options=self._options,
             version=self._version, label=self.config.label, recipe=str(self.data.recipe_prefix),
-            producer=producer, placeholders=placeholders, quality=checks, reports=reports, sources=sources)
+            producer=producer, placeholders=placeholders, quality=checks, reports=reports, sources=sources,
+            profile=release_checks.read_profile(self.config.profile) if self.config.profile else None,
+            checks_dir=self.config.checks or None)
         if source is not None:
             logging.info('Select it with config.release.use["%s"] = "%s"', self.data.block, self._version)
         self.outputdir.mkdir(parents=True, exist_ok=True)

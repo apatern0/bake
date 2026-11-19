@@ -279,6 +279,8 @@ How `publish` saves a block as a release (see [Writing a Publish Flow](custom_fl
 | `label` | `""` | A note kept with the release. |
 | `flow` | built-in | The flow that checks the block and adds files to its release (see [Writing a Publish Flow](custom_flows.md#writing-a-publish-flow)); the built-in one adds nothing. |
 | `flow_options` | `{}` | Options of the publish flow (`$BAKE_FLOW_OPT_*`). |
+| `profile` | `""` | A [profile](release_format.md#profiles) the release is checked against: its Liberty corners must be the profile's, and its power pins are left out of the port comparison. |
+| `checks` | `""` | A [checks directory](release_format.md#checks-directories) run on the release; its results are recorded as quality checks. |
 | `source` | `""` | An external block's [source file](release_format.md#source-files), in place of the one `external(source=)` names. |
 
 ### `config.release`
