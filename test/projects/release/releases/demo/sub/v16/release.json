@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "block": "sub",
+  "top": "block",
+  "version": "v16",
+  "label": "hand-written for the tests",
+  "project": {"name": "demo", "options": {"width": 16}},
+  "recipe": "impl",
+  "data": {
+    "netlist_files": ["netlist/block.v"],
+    "layout_info": "lef/block.lef",
+    "liberty_files": {"TC": ["liberty/TC/block.lib"]},
+    "libs": [],
+    "vrf_defines": ["NETLIST"],
+    "macros": []
+  },
+  "checks": {"integrity": {"status": "pass"}, "quality": {"drc": {"status": "fail", "value": 3}}}
+}

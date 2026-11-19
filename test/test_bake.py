@@ -2672,3 +2672,153 @@ def test_sky130_hierarchical_impl(bake, capfd, project):
         assert Path(f"work/adder/impl/output/{f}").is_file()
     assert "- u_adder adder + FIXED" in Path("work/accumulator_hard/impl/output/accumulator.def").read_text()
     assert Path("work/accumulator_hard/impl/output/accumulator.lef").is_file()
+
+
+# ===========================================================================
+# Tests — releases (config.release, the release recipe, external())
+# ===========================================================================
+
+def _impl_vars(block):
+    return json.loads(Path(f"work/{block}/impl/bake_vars.json").read_text())
+
+
+def test_release_include_falls_back_to_recipe(bake, capfd, project):
+    """Without a selection, a release include builds the block with the
+    fallback recipe, in the work directory of that recipe."""
+    project("release")
+    assert not bake.run(["top", "vrf"])
+    out = stderr(capfd)
+    assert "Block sub: no release selected (config.release.use), building it with impl" in out
+    assert "Running impl on block sub (dependency of top)" in out
+    design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))
+    assert "work/sub/impl/output/block.v" in design
+
+
+def test_release_include_uses_selected_release(bake, capfd, project):
+    """With a selection, nothing of the block is built: the parent gets the
+    release's files."""
+    project("release")
+    assert not bake.run(["top", "impl", "-o", "release.use.sub=v1"])
+    out = stderr(capfd)
+    assert "Block sub: release v1 (hand-written for the tests)" in out
+    assert "Failing checks: drc" in out
+    assert not Path("work/sub").exists()
+    tpl = _impl_vars("top")
+    assert tpl["BAKE_MACRO_NETLIST_FILES"][0].endswith("releases/demo/sub/v1/netlist/block.v")
+    assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("releases/demo/sub/v1/lef/block.lef")
+    assert tpl["BAKE_MACRO_LIBERTY_FILES_TC"][0].endswith("releases/demo/sub/v1/liberty/TC/block.lib")
+
+
+def test_release_selected_in_manifest(bake, project):
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text() + 'config.release.use = {"sub": "v1"}\n')
+    assert not bake.run(["top", "vrf"])
+    design = next(ln for ln in vrf_run_sh("top", "top_test").splitlines() if ln.startswith("echo 'DESIGN="))
+    assert "releases/demo/sub/v1/netlist/block.v" in design
+    sim = json.loads(Path("work/top/vrf/top_test/bake_vars.json").read_text())
+    assert "NETLIST" in sim["BAKE_SIM_DEFINES"]   # the release's simulation defines
+
+
+def test_release_dry_run_names_version(bake, capfd, project):
+    project("release")
+    assert not bake.run(["top", "impl", "-n", "-o", "release.use.sub=v1"])
+    assert_in_stderr(capfd, "sub release (release v1)  (dependency of top)")
+
+
+def test_release_recipe_run_directly(bake, capfd, project):
+    """bake <block> release reports the selected release and builds nothing;
+    without a selection it builds the block with the fallback recipe."""
+    project("release")
+    assert not bake.run(["sub", "release", "-o", "release.use.sub=v1"])
+    assert_in_stderr(capfd, "Block sub: release v1")
+    assert not Path("work/sub").exists()
+    assert not bake.run(["sub", "release"])
+    assert Path("work/sub/impl/output/block.v").is_file()
+
+
+def test_release_fallback_per_block(bake, capfd, project):
+    """A block's release_recipe replaces config.release.recipe."""
+    project("release")
+    assert not bake.run(["sub_syn", "release"])
+    assert_in_stderr(capfd, "Block sub_syn: no release selected (config.release.use), building it with dummy")
+
+
+def test_release_followed_by_steps(bake, project):
+    """release-<step>: the steps after a release run on its data, in the
+    block's own work directory, never in the release."""
+    project("release")
+    assert not bake.run(["top_chain", "impl", "-o", "release.use.sub=v1"])
+    assert Path("work/sub/release-dummy").is_dir()
+    assert not Path("releases/demo/sub/v1/work").exists()
+    assert _impl_vars("top_chain")["BAKE_MACRO_PHYSICAL"][0].endswith("releases/demo/sub/v1/lef/block.lef")
+
+
+@pytest.mark.parametrize("args, message", [
+    (["-o", "release.use.sub=v9"],
+     "Block 'sub': no release v9 under "),
+    (["-o", "release.use.sub=v9"],
+     "Its releases: v1, v16, vlib."),
+    (["-o", "release.use.sub=v16"],
+     "Release sub@v16 was built with other project options: width=16 (this run: 8)."),
+    (["-o", "release.use.sub=vlib"],
+     "Release sub@vlib is mapped to library 'nolib', which is not declared"),
+])
+def test_release_selection_errors(bake, capfd, project, args, message):
+    project("release")
+    assert bake.run(["top", "impl"] + args) == 1
+    assert message in stderr(capfd)
+
+
+def test_release_without_roots(bake, capfd, project):
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text() + "config.release.path = []\n")
+    assert bake.run(["top", "impl", "-o", "release.use.sub=v1"]) == 1
+    assert_in_stderr(capfd, "config.release.path names no release root to find it in")
+
+
+def test_release_project_option_matches(bake, project):
+    """A release built with width=16 is used by a run with width=16."""
+    project("release")
+    assert not bake.run(["top", "impl", "-o", "width=16", "-o", "release.use.sub=v16"])
+
+
+def test_release_only_first(bake, capfd, project):
+    project("release")
+    assert bake.run(["sub", "dummy-release"]) == 1
+    assert_in_stderr(capfd, "release can only be the first step of a recipe")
+
+
+def test_external_block_needs_selection(bake, capfd, project):
+    project("release")
+    assert bake.run(["top_ana", "impl"]) == 1
+    assert_in_stderr(capfd, "is external: select one of its releases with "
+                            "config.release.use[\"ana\"] (or -o release.use.ana=<version>)")
+    assert not bake.run(["top_ana", "impl", "-o", "release.use.ana=a1"])
+    assert _impl_vars("top_ana")["BAKE_MACRO_PHYSICAL"][0].endswith("releases/demo/ana/a1/lef/ana.lef")
+
+
+def test_external_block_only_from_releases(bake, capfd, project):
+    project("release")
+    assert bake.run(["ana", "vrf"]) == 1
+    assert_in_stderr(capfd, "is external: it only exists as releases, so it takes recipes that start "
+                            "with release")
+    bad = 'block(name="bad", top="top", includes={"ana": "impl"}, rtl_files=["../rtl/top.v"])\n'
+    Path("manifest").write_text(Path("manifest").read_text() + bad)
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "is external and only exists as releases")
+
+
+def test_external_block_includes_nothing(bake, capfd, project):
+    project("release")
+    Path("manifest").write_text(Path("manifest").read_text() + 'external(name="x", top="x", includes=["sub"])\n')
+    assert bake.run([]) == 1
+    assert_in_stderr(capfd, "an external block includes nothing")
+
+
+def test_release_listing(bake, capfd, project):
+    """The listing elaborates release includes like any other."""
+    project("release")
+    assert not bake.run(["-o", "release.use.sub=v1"])
+    assert_in_stderr(capfd, "- top  (needs sub release: release v1)")
+    assert not bake.run([])
+    assert_in_stderr(capfd, "- top  (needs sub release: no release selected, not built)")

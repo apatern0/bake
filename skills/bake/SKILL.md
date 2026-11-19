@@ -1,6 +1,6 @@
 ---
 name: bake
-description: Running and writing for bake, the manifest-driven ASIC build and verification tool. Use for `bake <block> <recipe>` commands (-t, -o, -n, -f/-c/-r/-p, --list-options), reading a run's work directory, and writing manifests — block(), macro(), lib(), env(), test(), regression(), sweep(), project()/option(), load(), flow(), scratch_dir(), config sections — as well as custom flows ($BAKE_* variables, bake_vars.json, summary.json) and custom steps. Describes the bake of the checkout it ships in.
+description: Running and writing for bake, the manifest-driven ASIC build and verification tool. Use for `bake <block> <recipe>` commands (-t, -o, -n, -f/-c/-r/-p, --list-options), reading a run's work directory, and writing manifests — block(), macro(), external(), lib(), env(), test(), regression(), sweep(), project()/option(), load(), flow(), scratch_dir(), config sections — as well as custom flows ($BAKE_* variables, bake_vars.json, summary.json) and custom steps. Describes the bake of the checkout it ships in.
 ---
 
 # bake
@@ -99,7 +99,12 @@ if config.proj.pitch == 120: ...        # a manifest sees the command line's opt
 - Paths are relative to the manifest's directory. A `test()` is a leaf `env()`; envs are
   inherited through `includes`.
 - An include in recipe form (`{"sub": "impl"}`) is a **dependency**: checked once all manifests
-  load, built on demand before the block's own steps. Each step takes some data kinds (RTL, an
+  load, built on demand before the block's own steps. `{"sub": "release"}` uses the release of
+  `sub` that `config.release.use` selects (`-o release.use.sub=<version>`, searched in
+  `config.release.path`), building nothing of `sub`; without a selection it is
+  `{"sub": "impl"}` (`config.release.recipe`, or the block's `release_recipe=`). `external()`
+  declares a block that only exists as releases (docs/manifest_design_model.md#releases,
+  docs/release_format.md). Each step takes some data kinds (RTL, an
   implemented block, a register map...) and refuses others before anything runs.
 - A tool (a generator, a vendor flow) comes in as a manifest the project `load()`s: its step,
   config section and `flow()`. There is no plugin mechanism and no `use()`.

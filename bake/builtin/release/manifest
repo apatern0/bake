@@ -1,0 +1,127 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The release step: a block taken from one of its releases in place of
+being built.
+
+A recipe that starts with `release` (an include {"core": "release"}, or
+`bake core release`) resolves, when elaborated, to the release that
+config.release.use selects for the block, or, when none is selected, to the
+block's fallback recipe (config.release.recipe, or the block's
+release_recipe), which then runs as usual. Recipe.elaborate() does the
+choosing; this manifest declares the configuration and the step that stands
+for a selected release: it builds nothing, and hands on the release's
+LibData."""
+
+import logging
+from pathlib import Path
+
+from bake.exceptions import BakeRuntimeError
+from bake.step import LibData, StepData, Step
+
+
+# `config` is provided by bake; a config section needs no methods.
+# pylint: disable=undefined-variable,too-few-public-methods
+class ReleaseConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.path = config.option(
+            [], "Release roots, searched in order for <project>/<block>/<version>/")
+        self.use = config.option(
+            {}, "The release of each block that a release include resolves to, {block: version}")
+        self.recipe = config.option(
+            "impl", "The recipe a release include runs when no release is selected (fallback)")
+        self.accept = config.option(
+            "draft", "Which releases may be used: any that passed its integrity checks (draft), "
+            "or only those whose quality checks pass or are waived (signoff)",
+            choices=["draft", "signoff"])
+        self.waive = config.option(
+            {}, "Failing quality checks accepted anyway, {\"<block>@<version>\": {check: reason}}")
+
+
+config.register("release", ReleaseConfig())
+
+
+class ReleaseStep(Step):
+    """A selected release of the block: nothing to build, its LibData handed
+    on. Recipe.elaborate() makes it, with the release read, in place of the
+    block's own data; without a selection the recipe runs the fallback
+    recipe and this step does not appear."""
+
+    name = "release"
+    consumes = (StepData,)
+    produces = LibData
+
+    def __init__(self, data, release=None, release_dir=None):
+        super().__init__(data)
+        self.release = release            # bake.release.Release
+        self.release_dir = Path(release_dir) if release_dir else None
+
+    def is_available(self) -> bool:
+        return True
+
+    def check_pre(self) -> None:
+        if self.release is None:
+            raise BakeRuntimeError(
+                f"Block '{self.data.block}': the release step only stands for a selected release; "
+                f"select one with config.release.use."
+            )
+
+    @property
+    def source_files(self):
+        return []
+
+    @property
+    def output_files(self):
+        return [str(self.release_dir / "release.json")]
+
+    @property
+    def workdir(self):
+        return self.release_dir
+
+    @property
+    def output_data(self):
+        data = self.data.copy()
+        data.recipe_prefix = type(data.recipe_prefix)([self.name])
+        return data
+
+    def dry_run_note(self) -> str:
+        return f"release {self.release.version}"
+
+    def stale_reason(self, log: bool = False):
+        return None
+
+    def report_flow(self) -> None:
+        return
+
+    def clean(self) -> None:
+        logging.info("Block %s comes from release %s, which is never cleaned.",
+                     self.data.block, self.release.version)
+
+    def populate(self) -> None:
+        raise BakeRuntimeError(
+            f"Block '{self.data.block}' comes from release {self.release.version}, which has no flow "
+            f"to copy: -p applies to the steps that build a block."
+        )
+
+    def run(self, force=None):
+        self.check_post()
+        rel = self.release
+        label = f" ({rel.label})" if rel.label else ""
+        logging.info("Block %s: release %s%s from %s", self.data.block, rel.version, label,
+                     self.release_dir)
+        quality = rel.checks.get("quality", {})
+        failing = sorted(k for k, v in quality.items() if v.get("status") == "fail")
+        if failing:
+            logging.info("   Failing checks: %s", ", ".join(failing))

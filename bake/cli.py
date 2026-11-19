@@ -193,10 +193,13 @@ def report_manifest_error(err: BaseException, verbose: bool) -> None:
 def _dependency_state(dep_recipe) -> str:
     """One-word state of an already elaborated dependency recipe."""
     last = dep_recipe.last_step
+    if dep_recipe.release_version and len(dep_recipe.steps) == 1:
+        return f"release {dep_recipe.release_version}"
+    prefix = "no release selected, " if dep_recipe.release_fallback else ""
     if not last.outputdir.is_dir():
-        return "not built"
+        return prefix + "not built"
     reason = last.stale_reason()
-    return f"stale ({reason})" if reason else "up to date"
+    return prefix + (f"stale ({reason})" if reason else "up to date")
 
 
 def _by_project(designs: dict, show_all: bool) -> tuple:
@@ -284,6 +287,9 @@ def _run_steps(recipe, force, owner=None):
     own, shorter recipes (`tmr` for `tmr-impl`) and are left alone.
     """
     is_dependency = owner is not None
+    if recipe.release_fallback:
+        logging.info("Block %s: no release selected (config.release.use), building it with %s",
+                     recipe.block_name, recipe.release_fallback)
     for s in recipe.steps:
         if not is_dependency and s is recipe.last_step and \
                 (context.config.bake.clean or context.config.bake.restart):
@@ -310,6 +316,8 @@ def _dry_run(recipe):
             if not is_dependency and context.config.bake.force and not reason:
                 state, reason = "would run", "forced"
             what = f"{r.block_name} {s.recipe_path}"
+            if s.dry_run_note():
+                what += f" ({s.dry_run_note()})"
             if is_dependency:
                 what += f"  (dependency of {recipe.block_name})"
             if reason:
