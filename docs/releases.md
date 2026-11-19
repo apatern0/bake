@@ -45,6 +45,25 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.2.0](https://github.com/apatern0/bake/compare/v2.1.0...v2.2.0) (2026-11-19)
+
+
+### Features
+
+* **config:** set one key of a dictionary attribute with -o ([fa70387](https://github.com/apatern0/bake/commit/fa7038781f7aef24f41afe5f4a20d94e4ea17b11))
+* **release:** add the release format ([e31a2fb](https://github.com/apatern0/bake/commit/e31a2fbf6e93f17b9afd3b9b6f866c43266a5ad5))
+* **release:** declare variants of a block with releases of their own ([d307a85](https://github.com/apatern0/bake/commit/d307a85e09af82d11134d6dbb8f22754e8743833))
+* **release:** include a block from one of its releases ([3332ad3](https://github.com/apatern0/bake/commit/3332ad3129f5764e2429770335e76d93e86e286c))
+* **release:** publish a block as a release, and pack one from files ([86aa3ec](https://github.com/apatern0/bake/commit/86aa3ec42b28cf82476ca497bff2dda11d7db7de))
+* **release:** publish an external block from the INI file its makers fill in ([867443a](https://github.com/apatern0/bake/commit/867443a66b03db3b9577ff86051038095607d7ac))
+* **step:** hand on the files a test writes and the layout of an implementation ([7298a14](https://github.com/apatern0/bake/commit/7298a140b8397352641b71bf5783fad39a07104b))
+* **step:** render source templates (*.tpl) before the flow gets them ([e67fec3](https://github.com/apatern0/bake/commit/e67fec358973dee5ce78c7b0a01f4821da55e567))
+
+
+### Bug Fixes
+
+* **vrf:** open Verdi with -i for cocotb testbenches on vcs ([3b77fd6](https://github.com/apatern0/bake/commit/3b77fd60b09d7e69c4f8a7a194c74474d185fcca)), closes [#41](https://github.com/apatern0/bake/issues/41)
+
 ## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-11-02)
 
 
