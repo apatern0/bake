@@ -120,6 +120,63 @@ refuses a release mapped to a library it does not have.
 The SHA-256 of every file of the release but itself, one per line, as `sha256sum` writes them
 (`<digest>  <path>`), sorted by path.
 
+## Integrity
+
+A release is refused, by `publish`, when it fails its integrity checks,
+the checks that tell whether it can be used at all:
+
+- it has at least one view, and each placeholder names a file of it;
+- every view that declares the top unit's ports declares the same ones: the netlist's module,
+  the LEF macro, the Liberty cell and the LVS subcircuit; bus bits (`a[3]`, `a<3>`) count as
+  their bus, and power pins (a LEF pin with `USE POWER` or `GROUND`, a Liberty `pg_pin`, a pin
+  the profile names) are left out;
+- a port has the same direction in every view that gives one;
+- with a profile, its Liberty corners are the profile's.
+
+## Profiles
+
+A **profile** says what a project needs of a release, for each use it makes of it. It is a TOML
+file the project keeps; `config.publish.profile` names the one a release is checked
+against when it is published:
+
+```toml
+[profile]
+name = "hard_macro"
+corners = ["TT", "SS", "FF"]       # the Liberty corners a release may have
+power_pins = ["VDD", "VSS"]        # left out of the port comparison
+
+[uses.vrf]
+needs = ["netlist"]
+[uses.floorplan]
+needs = ["lef"]
+[uses.impl]
+needs = ["lef", "liberty", "netlist"]
+[uses.signoff]
+needs = ["stream", "lvs"]
+
+[checks]                           # handed as it is to a checks directory
+max_layer = "M4"
+```
+
+A use is `ok` when the release has every view it needs, `placeholder` when one of them is a
+stand-in, `missing` otherwise. A release that is missing a view is still usable for the uses
+it serves: an early release with only its LEF serves a floorplan.
+
+## Checks directories
+
+What a release must satisfy that depends on the technology (the layers its abstract uses, where
+its pins are) is checked by a **checks directory**: a directory with a `run.py`, which
+the publish step runs (`config.publish.checks`) with the Python
+*bake* runs in, in an empty directory, with
+
+| Variable | Content |
+|---|---|
+| `BAKE_RELEASE_DIR` | the release's directory |
+| `BAKE_CHECKS_OPTIONS` | a JSON file holding the profile's `[checks]` table |
+| `BAKE_CHECKS_OUT` | where to write the results: `{check: {"status": "pass" \| "fail" \| "skipped", "value": ..., "report": ...}}` |
+
+A script that exits non-zero or writes no results is an error; a failing check is not.
+
 ## Source files
 
 A block made outside the project, an analog block say, is declared with

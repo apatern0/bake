@@ -2940,13 +2940,30 @@ library = ADC_LIB
 """
 
 
+ADC_VIEWS = {
+    "adc.v": "module block(input clk, input [7:0] code, output ready);\nendmodule\n",
+    "adc.lef": ("MACRO block\n  SIZE 10 BY 20 ;\n"
+                "  PIN clk\n    DIRECTION INPUT ;\n  END clk\n"
+                "  PIN code[0]\n    DIRECTION INPUT ;\n  END code[0]\n"
+                "  PIN code[7]\n    DIRECTION INPUT ;\n  END code[7]\n"
+                "  PIN ready\n    DIRECTION OUTPUT ;\n  END ready\n"
+                "  PIN VDD\n    USE POWER ;\n  END VDD\n"
+                "END block\n"),
+    "adc_tt.lib": ("library(adc) {\n  cell(block) {\n    pg_pin(VDD) { pg_type : primary_power; }\n"
+                   "    pin(clk) { direction : input; }\n"
+                   "    bus(code) { direction : input; }\n"
+                   "    pin(ready) { direction : output; }\n  }\n}\n"),
+    "adc.gds": "gds",
+    "adc.cdl": ".SUBCKT block clk code<0> code<7>\n+ ready VDD\n.ENDS\n",
+}
+
+
+
 def _analog(ini=ADC_INI, **changes):
     """adc's hand-over in analog/: its source file and its files."""
     export = Path("analog/export")
     export.mkdir(parents=True, exist_ok=True)
-    files = {"adc.v": "module block(); endmodule\n", "adc.lef": "MACRO block\n", "adc_tt.lib": "library(adc) {}\n",
-             "adc.gds": "gds", "adc.cdl": ".SUBCKT block\n", **changes}
-    for name, text in files.items():
+    for name, text in {**ADC_VIEWS, **changes}.items():
         (export / name).write_text(text)
     Path("analog/adc.ini").write_text(ini)
 
@@ -2989,7 +3006,7 @@ def test_publish_external_default_version(bake, project, tmp_path):
     assert [p.name for p in (tmp_path / "demo" / "adc").iterdir()] == [today]
     assert not bake.run(args)
     assert len(list((tmp_path / "demo" / "adc").iterdir())) == 1
-    _analog(**{"adc.lef": "MACRO block\n  SIZE 1 BY 1 ;\n"})
+    _analog(**{"adc.lef": ADC_VIEWS["adc.lef"].replace("SIZE 10 BY 20", "SIZE 12 BY 20")})
     assert not bake.run(args)
     versions = sorted(p.name for p in (tmp_path / "demo" / "adc").iterdir())
     assert len(versions) == 2 and versions[0] == today and versions[1].startswith(today + "-")
@@ -3013,6 +3030,14 @@ def test_publish_external_refuses(bake, capfd, project, tmp_path, ini, more, mes
     assert bake.run(["adc", "publish", "-o", f"publish.root={tmp_path}", *more]) == 1
     assert_in_stderr(capfd, message)
     assert not (tmp_path / "demo").exists()
+
+
+def test_publish_checks_against_profile(bake, capfd, project, tmp_path):
+    project("release")
+    _analog()
+    Path("profile.toml").write_text('[profile]\ncorners = ["TT"]\n')
+    assert bake.run(["adc", "publish", "-o", f"publish.root={tmp_path}", "-o", "publish.profile=profile.toml"]) == 1
+    assert_in_stderr(capfd, "liberty: corners SS are not the profile")
 
 
 def test_publish_external_needs_source(bake, capfd, project, tmp_path):
