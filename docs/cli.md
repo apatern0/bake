@@ -105,34 +105,6 @@ A manifest error is reported as one line per problem with where it happened:
 Python errors in the manifest's own code (a misspelt function name, a syntax error) are reported
 the same way. The traceback is shown with `-v`, or always when the error comes from inside bake.
 
-## `bake-release`
-
-`bake-release` comes with *bake* and works without a project: it makes and checks
-[releases](release_format.md) of blocks made elsewhere (an analog block, say), for projects to
-include with `{"<block>": "release"}`.
-
-```
-bake-release pack --block adc --top adc_top --project chip --option pixel_pitch=100 \
-    --netlist adc.v --lef adc.lef --liberty TT=adc_tt.lib --liberty SS=adc_ss.lib \
-    --stream adc.gds --lvs adc.cdl --placeholder liberty.SS \
-    --root /shared/releases --version 2026-12-01
-```
-
-| Option | Meaning |
-|---|---|
-| `--block`, `--top` | The block's name, as the projects that include it name it, and its top unit |
-| `--project`, `--option NAME=VALUE` | The project it is made for and the values of the project's options it was made with; a project uses a release only when they match its own |
-| `--root DIR` or `--out DIR` | Under a release root (`<root>/<project>/<block>/<version>/`), or in a directory of its own to hand over |
-| `--version`, `--label` | The version (default `<date>-<time>`) and a note shown where the release is used |
-| `--netlist`, `--lef`, `--liberty CORNER=FILE`, `--si CORNER=FILE`, `--sdf CORNER=FILE`, `--def`, `--physical-lef`, `--sdc`, `--spef CORNER=FILE`, `--stream`, `--lvs` | Its views (see [Views](release_format.md#views)); repeatable where a view has several files |
-| `--lib NAME` | A cell library its netlist is mapped to, which a project must declare |
-| `--placeholder VIEW[.CORNER]` | A view holding a stand-in, not the real thing |
-| `--checks-json FILE`, `--report FILE` | Results of its quality checks, and reports to keep in `reports/` |
-| `--provenance KEY=VALUE` | Where it comes from (a library, a cell view, a date), kept in `release.json` |
-
-The release is written beside its final place and renamed when complete, then made read-only.
-A release that exists, a missing file and a release without any view are refused.
-
 ## Tab completion
 
 `bake` completes block names, recipes and test names (via

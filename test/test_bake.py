@@ -29,6 +29,7 @@ missing.
 import csv
 import importlib.metadata
 import json
+import datetime
 import os
 import re
 import shutil
@@ -2826,7 +2827,7 @@ def test_release_listing(bake, capfd, project):
 
 
 # ===========================================================================
-# Tests — publishing releases (the publish step, bake-release pack)
+# Tests — publishing releases (the publish step)
 # ===========================================================================
 
 def _publish(bake, root, *more):
@@ -2858,6 +2859,32 @@ def test_publish_then_use(bake, capfd, project, tmp_path):
     assert f"{where}/netlist/block.v" in design
     for path in [where, *where.rglob("*")]:
         path.chmod(path.stat().st_mode | 0o200)
+
+
+def test_publish_flow_adds_to_release(bake, project, tmp_path):
+    """A project's publish flow adds what it leaves in output/: the results
+    of its checks, the layout, the LVS netlist, reports."""
+    project("release")
+    flow = Path("checking_publish")
+    flow.mkdir()
+    (flow / "run.sh").write_text(
+        "#!/bin/sh\nset -e\nmkdir -p output/stream output/lvs output/reports\n"
+        "echo gds > output/stream/block.gds\necho '.SUBCKT block' > output/lvs/block.cdl\n"
+        "echo 'DRC: 0' > output/reports/drc.rpt\n"
+        "echo '{\"drc\": {\"status\": \"pass\", \"value\": 0, \"report\": \"reports/drc.rpt\"}}' "
+        "> output/checks.json\n")
+    (flow / "run.sh").chmod(0o755)
+    Path("manifest").write_text(Path("manifest").read_text()
+                                + 'from bake import flow\n'
+                                + 'flow(name="checking_publish", run_cmd="run.sh", dir="checking_publish")\n'
+                                + 'config.publish.flow = "checking_publish"\n')
+    assert not _publish(bake, tmp_path, "-o", "publish.name=p1")
+    where = tmp_path / "demo" / "sub" / "p1"
+    rel = json.loads((where / "release.json").read_text())
+    assert rel["data"]["stream_files"] == ["stream/block.gds"] and rel["data"]["lvs_files"] == ["lvs/block.cdl"]
+    assert rel["checks"]["quality"] == {"drc": {"status": "pass", "value": 0, "report": "reports/drc.rpt"}}
+    assert (where / "reports" / "drc.rpt").is_file()
+    _writable(tmp_path)
 
 
 def test_publish_never_overwrites(bake, capfd, project, tmp_path):
@@ -2892,57 +2919,105 @@ def test_publish_takes_built_blocks(bake, capfd, project, tmp_path):
     assert_in_stderr(capfd, "publish saves a block a recipe built")
 
 
-def _pack(tmp_path, *args):
-    from bake import release_cli  # pylint: disable=import-outside-toplevel
-    return release_cli.main(["pack", *[str(a) for a in args]])
+ADC_INI = """\
+[block]
+name = adc
+top = block
+placeholders = liberty.SS   ; not characterised yet
+
+[views]
+netlist = export/adc.v
+lef = export/adc.lef
+stream = export/adc.gds
+lvs = export/adc.cdl
+
+[liberty]
+TT = export/adc_tt.lib
+SS = export/adc_tt.lib
+
+[provenance]
+library = ADC_LIB
+"""
 
 
-def _views(tmp_path):
-    src = tmp_path / "src"
-    src.mkdir(exist_ok=True)
-    for name, text in (("adc.v", "module adc_top(); endmodule\n"), ("adc.lef", "MACRO adc_top\n"),
-                       ("adc_tt.lib", "library(adc) {}\n"), ("adc.gds", "gds"), ("adc.cdl", ".SUBCKT adc_top\n")):
-        (src / name).write_text(text)
-    return src
+def _analog(ini=ADC_INI, **changes):
+    """adc's hand-over in analog/: its source file and its files."""
+    export = Path("analog/export")
+    export.mkdir(parents=True, exist_ok=True)
+    files = {"adc.v": "module block(); endmodule\n", "adc.lef": "MACRO block\n", "adc_tt.lib": "library(adc) {}\n",
+             "adc.gds": "gds", "adc.cdl": ".SUBCKT block\n", **changes}
+    for name, text in files.items():
+        (export / name).write_text(text)
+    Path("analog/adc.ini").write_text(ini)
 
 
-def test_pack_from_files(tmp_path):
-    """bake-release pack makes a release from files, outside any project."""
-    src = _views(tmp_path)
-    assert not _pack(tmp_path, "--block", "adc", "--top", "adc_top", "--project", "chip",
-                     "--option", "pixel_pitch=100", "--netlist", src / "adc.v", "--lef", src / "adc.lef",
-                     "--liberty", f"TT={src / 'adc_tt.lib'}", "--stream", src / "adc.gds",
-                     "--lvs", src / "adc.cdl", "--placeholder", "liberty.TT",
-                     "--provenance", "library=adc_lib", "--root", tmp_path / "rel", "--version", "a1")
-    where = tmp_path / "rel" / "chip" / "adc" / "a1"
-    rel = json.loads((where / "release.json").read_text())
-    assert rel["project"]["options"] == {"pixel_pitch": 100}
-    assert rel["data"]["liberty_files"] == {"TT": ["liberty/TT/adc_tt.lib"]}
-    assert rel["data"]["stream_files"] == ["stream/adc.gds"] and rel["data"]["lvs_files"] == ["lvs/adc.cdl"]
-    assert rel["placeholders"] == ["liberty.TT"]
-    assert rel["producer"]["kind"] == "pack" and rel["producer"]["notes"] == {"library": "adc_lib"}
-    from bake import release  # pylint: disable=import-outside-toplevel
-    assert release.verify_checksums(where) == []
-    for path in [where, *where.rglob("*")]:
+def _writable(root):
+    for path in [root, *Path(root).rglob("*")]:
         path.chmod(path.stat().st_mode | 0o200)
 
 
-@pytest.mark.parametrize("args, message", [
-    (["--block", "adc", "--top", "adc_top", "--project", "chip"], "the release has no view"),
-    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "gone.lef"],
-     "its lef file gone.lef does not exist"),
-    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "{src}/adc.lef",
-      "--placeholder", "liberty.TT"], "placeholder liberty.TT: the release has no such file"),
-    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--lef", "{src}/adc.lef",
-      "--version", ".x"], "a version takes letters, digits"),
-    (["--block", "adc", "--lef", "{src}/adc.lef"], "pack needs --top, --project"),
-    (["--block", "adc", "--top", "adc_top", "--project", "chip", "--liberty", "{src}/adc_tt.lib"],
-     "give CORNER=FILE"),
+def test_publish_external(bake, capfd, project, tmp_path):
+    """bake adc publish makes a release of the files an external block's
+    source file names, for the project's options; a parent then uses it."""
+    project("release")
+    _analog()
+    assert not bake.run(["adc", "publish", "-o", f"publish.root={tmp_path}", "-o", "publish.name=a1"])
+    where = tmp_path / "demo" / "adc" / "a1"
+    rel = json.loads((where / "release.json").read_text())
+    assert rel["top"] == "block" and rel["project"] == {"name": "demo", "options": {"width": 8}}
+    assert rel["data"]["liberty_files"] == {"TT": ["liberty/TT/adc_tt.lib"], "SS": ["liberty/SS/adc_tt.lib"]}
+    assert rel["data"]["stream_files"] == ["stream/adc.gds"] and rel["data"]["lvs_files"] == ["lvs/adc.cdl"]
+    assert rel["placeholders"] == ["liberty.SS"]
+    assert rel["producer"]["kind"] == "external" and rel["producer"]["notes"] == {"library": "ADC_LIB"}
+    assert rel["producer"]["source"] == str(Path("analog/adc.ini").absolute())
+    assert rel["sources"]["root"] == "external" and len(rel["sources"]["files"]) == 5
+    assert (where / "reports" / "adc.ini").read_text() == ADC_INI
+    assert not os.access(where / "lef" / "adc.lef", os.W_OK)
+
+    assert not bake.run(["top_adc", "vrf", "-o", f"release.path={tmp_path}", "-o", "release.use.adc=a1"])
+    _writable(tmp_path)
+
+
+def test_publish_external_default_version(bake, project, tmp_path):
+    """A hand-over's version is its date, and its date and time when one was
+    published that day; files that did not change are not published again."""
+    project("release")
+    _analog()
+    args = ["adc", "publish", "-o", f"publish.root={tmp_path}"]
+    assert not bake.run(args)
+    today = datetime.date.today().strftime("%Y%m%d")
+    assert [p.name for p in (tmp_path / "demo" / "adc").iterdir()] == [today]
+    assert not bake.run(args)
+    assert len(list((tmp_path / "demo" / "adc").iterdir())) == 1
+    _analog(**{"adc.lef": "MACRO block\n  SIZE 1 BY 1 ;\n"})
+    assert not bake.run(args)
+    versions = sorted(p.name for p in (tmp_path / "demo" / "adc").iterdir())
+    assert len(versions) == 2 and versions[0] == today and versions[1].startswith(today + "-")
+    _writable(tmp_path)
+
+
+@pytest.mark.parametrize("ini, more, message", [
+    (ADC_INI.replace("[views]", "[view]"), [], "unknown section [view] (did you mean"),
+    (ADC_INI.replace("lef =", "leff ="), [], "unknown key leff in [views] (did you mean"),
+    (ADC_INI.replace("export/adc.lef", "export/gone.lef"), [],
+     "[views] lef: "),
+    (ADC_INI.replace("name = adc", "name = dac"), [], "describes block"),
+    (ADC_INI.replace("top = block", "top = adc_top"), [], "top adc_top, but external()"),
+    (ADC_INI.replace("top = block\n", ""), [], "[block] needs top"),
+    (ADC_INI + "[sdf]\nTT = a.sdf b.sdf\n", [], "[sdf] TT: give one file per corner"),
+    (ADC_INI, ["-o", "publish.source=elsewhere.ini"], "elsewhere.ini: [Errno 2]"),
 ])
-def test_pack_refuses(tmp_path, caplog, args, message):
-    src = _views(tmp_path)
-    args = [a.replace("{src}", str(src)) for a in args]
-    assert _pack(tmp_path, *args, "--out", tmp_path / "out") == 1
-    assert message in caplog.text
-    assert not (tmp_path / "out").exists()
-    assert not list(tmp_path.glob(".out.tmp"))
+def test_publish_external_refuses(bake, capfd, project, tmp_path, ini, more, message):
+    project("release")
+    _analog(ini)
+    assert bake.run(["adc", "publish", "-o", f"publish.root={tmp_path}", *more]) == 1
+    assert_in_stderr(capfd, message)
+    assert not (tmp_path / "demo").exists()
+
+
+def test_publish_external_needs_source(bake, capfd, project, tmp_path):
+    project("release")
+    assert bake.run(["ana", "publish", "-o", f"publish.root={tmp_path}"]) == 1
+    assert_in_stderr(capfd, "is external and has no source file to publish from")
+    assert bake.run(["ana", "impl"]) == 1
+    assert_in_stderr(capfd, "and publish, which makes a release from its source file")

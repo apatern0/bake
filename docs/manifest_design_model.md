@@ -302,16 +302,25 @@ A plain `{"core": "impl"}` is never replaced by a release.
 ### External blocks
 
 A block made outside the project, an analog one say, may exist only as releases. Declare it
-with `external()`, and include it with `release`:
+with `external()`, naming the [source file](release_format.md#source-files) its makers fill in
+(relative to the manifest), and include it with `release`:
 
 ```python
-external(name="adc", top="adc_top", desc="Column ADC")
+external(name="adc", top="adc_top", source="/analog/adc/adc.ini", desc="Column ADC")
 block(name="column", top="column", rtl_files=["column.v"], includes={"adc": "release"})
-config.release.use["adc"] = "2026-12-01"
+config.release.use["adc"] = "20261201"
 ```
 
+Each time its makers hand it over, `bake adc publish` makes a release of the files the source
+file names, under `config.publish.root`, for the project and the values of its options. Its
+version is `config.publish.name`, or the date (`<date>-<time>` when the date is taken); it
+checks that the views agree and does not run the project's publish flow, which reads an impl
+run. Files that did not change since the last publish are not published again.
+`-o publish.source=<file>.ini` publishes from another source file, once.
+
 An external block includes nothing and has no fallback recipe: without a selected release, a
-recipe that needs it stops and says how to select one. Any other recipe on it is an error.
+recipe that needs it stops and says how to select one. Any recipe on it but `publish` and those
+starting with `release` is an error.
 
 ## Sweeps
 

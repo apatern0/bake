@@ -373,24 +373,26 @@ example to start from for another engine: it also shows how the report is built 
 ## Writing a Publish Flow
 
 The `publish` step (`bake <block> impl-publish`, see [Releases](#releases-a-block-for-others))
-hands its flow, in `bake_vars.json`, everything a release records: `BAKE_PUBLISH_LIBDATA` (the
-block's views, absolute paths, its libraries and its macros), `BAKE_PUBLISH_ROOT`,
-`BAKE_PUBLISH_VERSION` and `BAKE_PUBLISH_LABEL` (where it goes), `BAKE_PUBLISH_PROJECT` (the
-project and its options), `BAKE_PUBLISH_RECIPE`, `BAKE_PUBLISH_GIT` and `BAKE_PUBLISH_SOURCES`
-(where it comes from), and `BAKE_PUBLISH_PYTHON`, the interpreter *bake* runs in. The flow
+writes the release itself, after its flow. The flow is where a project checks a block before it
+is released, and adds what the block's data does not carry. It gets, in `bake_vars.json`,
+`BAKE_PUBLISH_LIBDATA` (the block's views, absolute paths, its libraries and its macros: the
+netlist's directory is the impl run's), `BAKE_PUBLISH_ROOT`, `BAKE_PUBLISH_VERSION` and
+`BAKE_PUBLISH_LABEL` (where the release goes), `BAKE_PUBLISH_PROJECT` (the project and its
+options) and `BAKE_PUBLISH_RECIPE`. It leaves in its `output/`
 
-1. runs whatever checks the project wants of a release (DRC, LVS, timing: reading the reports
-   of the recipe that built the block), and writes their results to a JSON file,
-   `{check: {"status": "pass" | "fail" | "skipped", "value": ..., "report": "<file>"}}`;
-2. calls `$BAKE_PUBLISH_PYTHON -m bake.release_cli pack --from-vars $BAKE_VARS
-   --published-json output/published.json`, adding `--checks-json <file>`, the files the
-   block's data does not carry (`--stream` for its layout, `--lvs` for its LVS netlist) and
-   `--report <file>` for each report to keep;
-3. exits with pack's status. A failing check does not stop the publish: the release records it,
-   and the projects that use the release decide whether they accept it.
+| Path | Content |
+|---|---|
+| `checks.json` | The results of its checks (DRC, LVS, timing, read from the impl run's reports): `{check: {"status": "pass" \| "fail" \| "skipped", "value": ..., "report": "reports/<file>"}}` |
+| `stream/` | The layout (GDS, OASIS) |
+| `lvs/` | The netlist LVS compared the layout with (CDL, SPICE) |
+| `reports/` | Reports to keep in the release |
 
-The built-in flow, `bake/builtin/publish/flow/local/run.py`, does step 2 alone; set
-`config.publish.flow` to a flow of your own for the rest.
+and exits with `0`. A failing check does not stop the publish: the release records it, and the
+projects that use the release decide whether they accept it. A flow that exits non-zero stops
+it. What an earlier run left in those paths is removed before the flow starts.
+
+The built-in flow adds nothing; set `config.publish.flow` to a flow of your own for the rest.
+An external block is always published with the built-in flow: there is no impl run to check.
 
 ### Releases: a block for others
 

@@ -275,10 +275,11 @@ How `publish` saves a block as a release (see [Writing a Publish Flow](custom_fl
 | Attribute | Default | Description |
 |-----------|---------|-------------|
 | `root` | `""` | The release root it goes under; `publish` stops when it is empty. |
-| `name` | `""` | The version; default `<date>-<commit>[-dirty]`, or `<date>-<time>` outside git. |
+| `name` | `""` | The version; default `<date>-<commit>[-dirty]`, or `<date>-<time>` outside git; for an external block, `<date>`, or `<date>-<time>` when the date is taken. |
 | `label` | `""` | A note kept with the release. |
-| `flow` | built-in | The flow that makes the release: the built-in one only packs it; a project's runs its checks first. |
+| `flow` | built-in | The flow that checks the block and adds files to its release (see [Writing a Publish Flow](custom_flows.md#writing-a-publish-flow)); the built-in one adds nothing. |
 | `flow_options` | `{}` | Options of the publish flow (`$BAKE_FLOW_OPT_*`). |
+| `source` | `""` | An external block's [source file](release_format.md#source-files), in place of the one `external(source=)` names. |
 
 ### `config.release`
 Which releases the `release` recipe resolves to (see [Releases](manifest_design_model.md#releases)).

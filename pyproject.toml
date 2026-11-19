@@ -44,7 +44,6 @@ Issues = "https://github.com/apatern0/bake/issues"
 
 [project.scripts]
 bake = "bake.cli:main"
-bake-release = "bake.release_cli:main"
 
 [tool.setuptools.packages.find]
 # The built-in steps live inside the package so that a non-editable install can

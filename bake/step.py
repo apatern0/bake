@@ -1487,10 +1487,11 @@ class Recipe:
             )
         external = block.manifest_function == "external"
         if self.recipe[0] != "release":
-            if external:
+            if external and self.recipe != ["publish"]:
                 raise exceptions.BakeManifestError(
                     f"Block '{block.name}' is external: it only exists as releases, so it takes "
-                    f"recipes that start with release (e.g. {{\"{block.name}\": \"release\"}})."
+                    f"recipes that start with release (e.g. {{\"{block.name}\": \"release\"}}), "
+                    f"and publish, which makes a release from its source file."
                 )
             return None
 
