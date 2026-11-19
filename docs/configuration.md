@@ -363,6 +363,8 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_MACRO_PHYSICAL` | LEF files of hard macros: implemented sub-blocks included after `impl`, and included `macro()`s |
 | `$BAKE_MACRO_LIBERTY_FILES_<CORNER>` | Liberty files of the hard macros per corner |
 | `$BAKE_MACRO_NETLIST_FILES` | Netlists of the hard macros (passed on to simulation, not implemented again) |
+| `$BAKE_MACRO_STREAM_FILES` | Layouts (GDS, OASIS) of the hard macros that have them (`stream_files`) |
+| `$BAKE_MACRO_LVS_FILES` | LVS netlists of the hard macros that have them (`lvs_files`) |
 | `$BAKE_SDC_FILES` | Constraint files declared on the block (`sdc_files`) |
 | `$BAKE_RUN_OPTIONS` | Extra options from `config.impl.options` |
 | `$BAKE_LDB_DIR` | `config.impl.ldb_dir`, or `<workdir>/ldbs` |

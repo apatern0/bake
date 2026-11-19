@@ -29,6 +29,8 @@ macro(
     netlist_files=["../rtl/block.v"],
     layout_info="../rtl/block.v",           # stands in for a LEF
     liberty_files={"TC": "../rtl/block.v"}, # stands in for a Liberty file
+    stream_files="../rtl/block.v",          # stands in for a GDS
+    lvs_files=["../rtl/top.v"],             # stands in for a CDL
 )
 test(name="macro_test", target="macro", vrf_files=["../rtl/top_tb.v"], default_sim="stub")
 

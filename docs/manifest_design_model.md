@@ -224,7 +224,8 @@ The `macro()` function declares an implemented block — a hard macro, digital o
 netlist and abstracts come from elsewhere — by the same files as a [library](#libraries):
 
 ```python
-macro(name, desc, top, libs, netlist_files, netlist_incdirs, liberty_files, si_files, layout_info)
+macro(name, desc, top, libs, netlist_files, netlist_incdirs, liberty_files, si_files, layout_info,
+      stream_files, lvs_files)
 ```
 
 Arguments:
@@ -236,6 +237,9 @@ Arguments:
     `config.bake.default_libs` when it declares none
   * `netlist_files`, `netlist_incdirs`, `liberty_files`, `si_files`, `layout_info` — as for
     [`lib()`](#libraries)
+  * `stream_files` — its layout (GDS, OASIS), for a flow that merges it into the parent's
+    (optional)
+  * `lvs_files` — its netlists for LVS (CDL, SPICE), for a parent's LVS (optional)
 
 A macro is what `impl` makes of an RTL block, so the two are used the same way:
 

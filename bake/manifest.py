@@ -505,8 +505,13 @@ class MacroSpec(DesignSpec, AbstractsSpec):
     top: str = ""
     # The cell libraries its netlist is mapped to (LibSpec names)
     libs: list[str] = Field(default_factory=list)
+    # Its layout (GDS, OASIS) and its netlists for LVS (CDL, SPICE), which a
+    # parent's sign-off needs and a flow may read ($BAKE_MACRO_STREAM_FILES,
+    # $BAKE_MACRO_LVS_FILES)
+    stream_files: list[str] = Field(default_factory=list)
+    lvs_files: list[str] = Field(default_factory=list)
 
-    _lists = field_validator("libs", mode="before")(_as_list)
+    _lists = field_validator("libs", "stream_files", "lvs_files", mode="before")(_as_list)
 
     @functools.cached_property
     def resolved_libs(self):
@@ -528,11 +533,15 @@ class MacroSpec(DesignSpec, AbstractsSpec):
             liberty_files={k: list(v) for k, v in self.liberty_files.items()},
             si_files={k: list(v) for k, v in self.si_files.items()},
             layout_info=self.layout_info,
+            stream_files=list(self.stream_files),
+            lvs_files=list(self.lvs_files),
             libs=StepData._block_libs(self),
         )
 
     def _resolve(self) -> None:
         self._resolve_abstracts(f"Macro '{self.name}'")
+        file_utils.resolve_file_list(self.stream_files)
+        file_utils.resolve_file_list(self.lvs_files)
 
     def _summary(self) -> str:
         return (f"top={self.top or '<none>'}, {len(self.netlist_files)} netlist files, "
