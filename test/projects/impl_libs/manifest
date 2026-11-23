@@ -1,0 +1,28 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+
+# impl's inputs include the files of the libraries and macros it reads: the
+# Liberty and layout files of a lib() and of a macro(), where a layout may be
+# a directory (a library of its own, not a file to compare).
+
+from bake import block, flow, lib, macro
+
+flow(name="phys_impl", corners=[("TC", "Typical Case")], run_cmd="run.sh", dir="phys")
+config.impl.flow = "phys_impl"
+
+lib(name="cells", liberty_files={"TC": "../rtl/base.v"}, layout_info="../rtl")
+macro(name="sub", top="block", netlist_files=["../rtl/block.v"],
+      liberty_files={"TC": "../rtl/leaf.v"}, layout_info="../rtl/top.v")
+
+block(name="top", top="top", rtl_files=["../rtl/top.v"], libs=["cells"], includes=["sub"])

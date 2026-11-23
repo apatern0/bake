@@ -157,7 +157,10 @@ class ImplStep(Step):
         src_files.extend(self.data.rtl_files)
         src_files.extend(self.data.sdc_files)
         src_files.extend(file_utils.files_from_folder(self.flowdir))
-        return src_files
+        # What the flow reads of the libraries and macros: a new Liberty file
+        # or abstract is a different design to implement
+        src_files.extend(_library_files(self.data.libs, self.data.macros))
+        return list(dict.fromkeys(src_files))
 
     @functools.cached_property
     def output_files(self):
@@ -201,6 +204,23 @@ class ImplStep(Step):
             data.sdc_file         = f"{top}.sdc"
             data.parasitics_files = {c: f"{top}.{c}.spef.gz" for c in self._macro_corners}
         return data
+
+
+def _library_files(libs, macros) -> list:
+    """The files of the cell libraries and the hard macros a flow reads:
+    netlists, Liberty and SI files per corner, the layout files (not the
+    directories: a layout library may be one) and, for a macro, its SDF."""
+    files = []
+    for item in (*libs, *macros):
+        files.extend(item.netlist_files)
+        for per_corner in (item.liberty_files, item.si_files):
+            for corner_files in per_corner.values():
+                files.extend([corner_files] if isinstance(corner_files, str) else corner_files)
+        files.extend(item.layout_info.split())
+    for macro in macros:
+        for sdf in macro.sdf_files.values():
+            files.extend([sdf] if isinstance(sdf, str) else sdf)
+    return [f for f in dict.fromkeys(files) if os.path.isfile(f)]
 
 
 def _macro_netlists(macros) -> list:
