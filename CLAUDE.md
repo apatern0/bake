@@ -53,6 +53,7 @@ bake <block> <recipe> -f     # force re-run even if outputs are up-to-date
 bake <block> <recipe> -c     # clean output directory for the step
 bake <block> <recipe> -r     # clean then re-run (restart)
 bake <block> <recipe> -p     # copy the last step's flow into flow/ to customise it; runs nothing
+bake <block> <recipe> --update-flow  # merge the current flow into the block's copy of it (made with -p)
 bake <block> <recipe> -n     # dry run: report what would run, dependencies included
 bake -l                      # list all known libraries
 bake -v                      # verbose / debug output

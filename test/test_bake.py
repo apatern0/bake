@@ -3075,3 +3075,160 @@ def test_variant_of_external_refused(bake, capfd, project):
     Path("manifest").write_text(Path("manifest").read_text() + 'variant("ana", "x")\n')
     assert bake.run([]) == 1
     assert_in_stderr(capfd, "a variant copies a block that is built")
+
+
+# ===========================================================================
+# Tests — --update-flow: bring a flow copy up to date with its flow
+# ===========================================================================
+
+UPDATE_FILES = {
+    "run.sh.tpl": "#!/bin/bash\necho a\necho b\necho c\necho d\necho e\n",
+    "same.txt": "same\n",
+    "both.txt": "1\n2\n3\n4\n5\n6\n7\n8\n",
+    "copy_only.txt": "c1\n",
+    "flow_only.txt": "f1\n",
+    "gone_clean.txt": "g\n",
+    "gone_edited.txt": "g\n",
+    "clash.txt": "x\n2\n3\n",
+}
+
+
+def _git_in(cwd, *args):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                          cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def flow_copy(bake, project, tmp_run_dir):
+    """The sample project with its vrf flow committed in a git repository (with
+    extra files) and populated into the block's copy. Returns (flow, copy)."""
+    if shutil.which("git") is None:
+        pytest.skip("git not available")
+    project("sample")
+    flow = Path("../flows/vrf").resolve()
+    for name, text in UPDATE_FILES.items():
+        (flow / name).write_text(text)
+    _git_in(tmp_run_dir, "init", "-q")
+    _git_in(tmp_run_dir, "add", "test/projects/flows")
+    _git_in(tmp_run_dir, "commit", "-qm", "flows")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    return flow, Path("flow/sample_target/vrf/sample_test")
+
+
+def _change_flow(flow, tmp_run_dir, **edits):
+    for name, text in edits.items():
+        path = flow / name.replace("__", ".")
+        if text is None:
+            path.unlink()
+        else:
+            path.write_text(text)
+    _git_in(tmp_run_dir, "add", "test/projects/flows")
+    _git_in(tmp_run_dir, "commit", "-qm", "flows change", "--allow-empty")
+
+
+def test_update_flow_each_case(bake, capfd, flow_copy, tmp_run_dir):
+    """Every row of the table: replace, keep, merge, own file, remove, report, add."""
+    flow, copy = flow_copy
+    # copy edits
+    (copy / "run.sh.tpl").write_text(UPDATE_FILES["run.sh.tpl"].replace("echo a", "echo A"))
+    (copy / "both.txt").write_text("one\n2\n3\n4\n5\n6\n7\n8\n")
+    (copy / "copy_only.txt").write_text("mine\n")
+    (copy / "own.txt").write_text("own\n")
+    (copy / "gone_edited.txt").write_text("edited\n")
+    # flow edits
+    _change_flow(flow, tmp_run_dir, **{
+        "run__sh__tpl": UPDATE_FILES["run.sh.tpl"].replace("echo e", "echo E"),
+        "both__txt": "1\n2\n3\n4\n5\n6\n7\neight\n",
+        "same__txt": "same, changed\n",
+        "flow_only__txt": "f1\nf2\n",
+        "gone_clean__txt": None, "gone_edited__txt": None,
+        "added__txt": "new\n",
+    })
+    capfd.readouterr()
+    assert not bake.run(["sample_target", "vrf", "--update-flow"])
+    err = stderr(capfd)
+    assert (copy / "run.sh.tpl").read_text() == "#!/bin/bash\necho A\necho b\necho c\necho d\necho E\n"  # merged
+    assert (copy / "both.txt").read_text() == "one\n2\n3\n4\n5\n6\n7\neight\n"                          # merged
+    assert (copy / "same.txt").read_text() == "same, changed\n"                                         # replaced
+    assert (copy / "flow_only.txt").read_text() == "f1\nf2\n"                                           # replaced
+    assert (copy / "copy_only.txt").read_text() == "mine\n"                                             # kept
+    assert (copy / "own.txt").read_text() == "own\n"                                                    # not in base
+    assert not (copy / "gone_clean.txt").exists()                                                       # removed
+    assert (copy / "gone_edited.txt").read_text() == "edited\n"                                         # kept, reported
+    assert (copy / "added.txt").read_text() == "new\n"                                                  # added
+    assert "2 merged" in err and "2 replaced" in err and "1 added" in err and "1 removed" in err
+    assert "gone_edited.txt" in err and "0 conflicts" in err
+    # The new base is recorded: the run no longer warns, and a second update changes nothing.
+    record = json.loads((copy / ".bake_flow.json").read_text())
+    assert record["git"]["commit"] == _git_in(tmp_run_dir, "rev-parse", "HEAD")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_not_in_stderr(capfd, "has changed since")
+    assert not bake.run(["sample_target", "vrf", "--update-flow"])
+    err = stderr(capfd)
+    assert "0 replaced" in err and "0 merged" in err and "0 conflicts" in err and "0 added" in err
+
+
+def test_update_flow_conflict(bake, capfd, flow_copy, tmp_run_dir):
+    """Both sides change the same line: markers in the copy, a non-zero exit, and
+    the other files still updated."""
+    flow, copy = flow_copy
+    (copy / "clash.txt").write_text("copy\n2\n3\n")
+    _change_flow(flow, tmp_run_dir, clash__txt="flow\n2\n3\n", same__txt="s2\n")
+    capfd.readouterr()
+    assert bake.run(["sample_target", "vrf", "--update-flow"]) == 1
+    text = (copy / "clash.txt").read_text()
+    assert "<<<<<<<" in text and "copy\n" in text and "flow\n" in text
+    assert (copy / "same.txt").read_text() == "s2\n"
+    assert_stderr(capfd, expect=["1 conflicts", "clash.txt"])
+
+
+def test_update_flow_binary_file_is_a_conflict(bake, capfd, flow_copy, tmp_run_dir):
+    """A binary file changed on both sides cannot be merged: it is left as it is, reported."""
+    flow, copy = flow_copy
+    (flow / "blob.bin").write_bytes(b"\0\1\2")
+    _change_flow(flow, tmp_run_dir)
+    assert not bake.run(["sample_target", "vrf", "--update-flow"])        # added
+    (copy / "blob.bin").write_bytes(b"\0\1\2\3")
+    (flow / "blob.bin").write_bytes(b"\0\1\2\4")
+    _change_flow(flow, tmp_run_dir)
+    assert bake.run(["sample_target", "vrf", "--update-flow"]) == 1
+    assert (copy / "blob.bin").read_bytes() == b"\0\1\2\3"
+
+
+def test_update_flow_refusals(bake, capfd, project, flow_copy, tmp_run_dir):
+    """No copy, no record, a flow outside git, a dirty base, a base missing from
+    the repository: each is refused, saying why, and changes nothing."""
+    flow, copy = flow_copy
+    record_path = copy / ".bake_flow.json"
+    good = record_path.read_text()
+    _change_flow(flow, tmp_run_dir, same__txt="s2\n")
+
+    def refused(text):
+        capfd.readouterr()
+        assert bake.run(["sample_target", "vrf", "--update-flow"]) == 1
+        assert_in_stderr(capfd, text)
+        if copy.is_dir():
+            assert (copy / "same.txt").read_text() == "same\n"
+
+    record = json.loads(good)
+    record["git"]["dirty"] = True
+    record_path.write_text(json.dumps(record))
+    refused("uncommitted changes")
+    record["git"] = None
+    record_path.write_text(json.dumps(record))
+    refused("outside a git repository")
+    record["git"] = {"path": "x", "commit": "0" * 40, "dirty": False}
+    record_path.write_text(json.dumps(record))
+    refused("is not in the repository")
+    record_path.unlink()
+    refused("no populate record")
+    shutil.rmtree(copy)
+    refused("There is no copy")
+
+
+def test_update_flow_excludes_other_modes(bake, capfd, project):
+    """--update-flow only merges: combined with -n, -i, -f, -c, -r or -p it is a usage error."""
+    project("sample")
+    for flag in ("-n", "-i", "-f", "-c", "-r", "-p"):
+        assert bake.run(["sample_target", "vrf", "--update-flow", flag]) == 2

@@ -49,6 +49,7 @@ import signal
 import string
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -120,6 +121,29 @@ def _git(cwd, *args) -> Optional[str]:
     except (OSError, subprocess.CalledProcessError):
         return None
     return proc.stdout.strip()
+
+
+def _git_bytes(cwd, *args) -> Optional[bytes]:
+    """The raw output of a git command run in cwd, or None when it fails."""
+    try:
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return proc.stdout
+
+
+def _tree_files(root: Path) -> dict:
+    """The files under root, as {path relative to root: absolute path}; the
+    populate record and bytecode caches are left out."""
+    files = {}
+    for current_dir, subdirs, names in os.walk(root):
+        subdirs[:] = sorted(d for d in subdirs if d != "__pycache__")
+        for name in sorted(names):
+            path = Path(current_dir) / name
+            rel = path.relative_to(root)
+            if str(rel) != FLOW_RECORD:
+                files[str(rel)] = path
+    return files
 
 
 def git_state(directory) -> Optional[dict]:
@@ -1299,6 +1323,120 @@ class Step(ABC):
                      "now%s. To start over from the flow instead, delete the copy and run -p again.",
                      copy_dir, self.flow.name, self._describe_origin(record["git"]))
 
+    def update_flow(self) -> bool:
+        """Bring the block's copy of the flow up to date with the flow, file by
+        file, as a three-way merge: the base is the flow's files at the commit
+        the copy was recorded at, the copy is the block's, the new is the flow
+        as it is now. Returns False when some file could not be merged (it
+        has conflict markers, or was left as it is). Records the flow as it
+        is now as the copy's base."""
+        copy_dir = self.flow_copy_dir
+        if not copy_dir.is_dir():
+            raise exceptions.BakeRuntimeError(
+                f"There is no copy of flow '{self.flow.name}' for {self.recipe_path} in {copy_dir}: "
+                f"`{self.command} -p` makes one.")
+        old = self.read_flow_record()
+        if old is None:
+            raise exceptions.BakeRuntimeError(
+                f"The copy in {copy_dir} has no populate record ({FLOW_RECORD}), so its base is unknown: "
+                f"merge it by hand, then `{self.command} -p` records it.")
+        if old.get("flow") != self.flow.name:
+            raise exceptions.BakeRuntimeError(
+                f"The copy in {copy_dir} was populated from flow '{old.get('flow')}', but "
+                f"{self.recipe_path} now uses flow '{self.flow.name}'.")
+        old_git = old.get("git")
+        if not old_git or not old_git.get("commit"):
+            raise exceptions.BakeRuntimeError(
+                f"The copy in {copy_dir} was recorded from a flow outside a git repository, so its "
+                f"base cannot be recovered: merge it by hand, then `{self.command} -p` records it.")
+        if old_git.get("dirty"):
+            raise exceptions.BakeRuntimeError(
+                f"The copy in {copy_dir} was recorded from a flow with uncommitted changes "
+                f"({old_git['commit'][:12]}), so its base cannot be recovered: merge it by hand, "
+                f"then `{self.command} -p` records it.")
+        new_git = git_state(self.flow.dir)
+        if not new_git:
+            raise exceptions.BakeRuntimeError(f"Flow '{self.flow.name}' in {self.flow.dir} is not in a git repository.")
+        commit, base_path = old_git["commit"], old_git["path"]
+        top = new_git["repo"]
+        if _git(top, "cat-file", "-e", f"{commit}^{{commit}}") is None:
+            raise exceptions.BakeRuntimeError(
+                f"Commit {commit[:12]}, the base of the copy in {copy_dir}, is not in the repository of "
+                f"flow '{self.flow.name}' ({top}): a shallow clone or rewritten history. Merge by hand, "
+                f"then `{self.command} -p` records it.")
+        listing = _git_bytes(top, "ls-tree", "-r", "-z", "--name-only", f"{commit}:{base_path}" if base_path != "." else commit)
+        if listing is None:
+            raise exceptions.BakeRuntimeError(f"Commit {commit[:12]} has no directory {base_path} in {top}.")
+        base_names = [n for n in listing.decode("utf-8").split("\0") if n and n != FLOW_RECORD]
+
+        def base_file(name):
+            spec = f"{commit}:{name}" if base_path == "." else f"{commit}:{base_path}/{name}"
+            return _git_bytes(top, "show", spec)
+
+        copy_files, new_files = _tree_files(copy_dir), _tree_files(Path(self.flow.dir))
+        summary: dict = {k: [] for k in ("replaced", "kept", "merged", "conflicts", "added", "removed", "reported")}
+        for name in sorted(set(base_names) | set(copy_files) | set(new_files)):
+            base = base_file(name) if name in base_names else None
+            copy = copy_files[name].read_bytes() if name in copy_files else None
+            new = new_files[name].read_bytes() if name in new_files else None
+            dest = copy_dir / name
+            if copy == new:
+                continue
+            if base is None:
+                if copy is None:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(new_files[name], dest)
+                    summary["added"].append(name)
+                elif new is not None:
+                    summary["kept"].append(f"{name} (the block's own file; the flow now has one of that name)")
+                continue
+            if copy is None:
+                # The block deleted a file the flow has: keep it deleted.
+                if new is not None and new != base:
+                    summary["reported"].append(f"{name} (deleted in the copy, changed in the flow)")
+                continue
+            if new is None:
+                if copy == base:
+                    dest.unlink()
+                    summary["removed"].append(name)
+                else:
+                    summary["reported"].append(f"{name} (removed from the flow, changed in the copy: kept)")
+                continue
+            if copy == base:
+                shutil.copy2(new_files[name], dest)
+                summary["replaced"].append(name)
+            elif new == base:
+                summary["kept"].append(name)
+            elif self._merge_file(dest, base, new):
+                summary["merged"].append(name)
+            else:
+                summary["conflicts"].append(name)
+
+        self._write_flow_record(self._flow_record_now())
+        logging.info("Copy in %s brought from commit %s to the flow as it is now%s.", copy_dir, commit[:12],
+                     self._describe_origin(new_git))
+        titles = {"replaced": "replaced with the flow's", "kept": "kept (changed in the copy only)",
+                  "merged": "merged", "conflicts": "CONFLICTS (resolve the markers in the copy)",
+                  "added": "added", "removed": "removed (the flow dropped them)",
+                  "reported": "reported"}
+        for key, title in titles.items():
+            for name in summary[key]:
+                (logging.warning if key in ("conflicts", "reported") else logging.info)("   %s: %s", title, name)
+        logging.info("Summary: %s.", ", ".join(f"{len(summary[k])} {k}" for k in summary))
+        return not summary["conflicts"]
+
+    @staticmethod
+    def _merge_file(dest: Path, base: bytes, new: bytes) -> bool:
+        """Merge new into the copy at dest, relative to base, in place (git merge-file);
+        False on conflicts (markers written) or when git cannot merge the file (binary)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base_path, new_path = Path(tmp) / "base", Path(tmp) / "new"
+            base_path.write_bytes(base)
+            new_path.write_bytes(new)
+            proc = subprocess.run(["git", "merge-file", "-L", "copy", "-L", "base", "-L", "flow",
+                                   str(dest), str(base_path), str(new_path)], capture_output=True, check=False)
+        return proc.returncode == 0
+
     def report_flow(self) -> None:
         """Say which flow the step runs; warn when the block's copy was
         populated from a flow that has changed since."""
@@ -1332,6 +1470,8 @@ class Step(ABC):
         else:
             logging.warning("   Merge the changes into the copy, then run `%s -p` to record it as up to date.",
                             self.command)
+            if old_git and old_git.get("commit") and not old_git.get("dirty"):
+                logging.warning("   `%s --update-flow` does the merge.", self.command)
 
     def execute_flow_step(self):
         """Execute the flow step entry point inside the correct directory.

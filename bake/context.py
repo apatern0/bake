@@ -385,6 +385,7 @@ class BakeConfig(FixedSchemaAttributes):
         self.test = option(None, "The test to run (-t)", kind=str)
         self.force = option(False, "Run the recipe even when it is up to date (-f)")
         self.populate = option(False, "Copy the flow of the recipe's last step to customise it (-p)")
+        self.update_flow = option(False, "Bring the block's copy of the flow of the recipe's last step up to date with the flow (--update-flow)")
         self.clean = option(False, "Remove the recipe's work directory (-c)")
         self.restart = option(False, "Remove the recipe's work directory, then run it (-r)")
         self.dry_run = option(False, "Report what would run without running it (-n)")

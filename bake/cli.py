@@ -362,6 +362,12 @@ def run(block, recipe_str):
         recipe.last_step.populate()
         return
 
+    if context.config.bake.update_flow:
+        if not recipe.last_step.update_flow():
+            raise exceptions.BakeRuntimeError(
+                "Some files could not be merged: resolve them in the copy (conflict markers).")
+        return
+
     if context.config.bake.clean:
         # Nothing to build for a clean; dependencies are left alone.
         _run_steps(recipe, force=False)
@@ -412,6 +418,10 @@ def main():
         help="Copy the flow of the recipe's last step into flow/<block>/<recipe>/ to customise it; "
              "that step runs the copy from then on. Runs nothing. On an existing copy, records it as "
              "based on the flow as it is now.")
+    mx.add_argument("--update-flow", dest="update_flow", action="store_true",
+        help="Bring the block's copy of the flow of the recipe's last step (made with -p) up to date with "
+             "the flow, file by file: a three-way merge of the flow it was copied from, the copy and the "
+             "flow now. Runs nothing; exits non-zero on conflicts.")
     parser.add_argument("-l", "--list-libs", dest="listlibs", action="store_true",
         help="List all known libraries after evaluating manifests.")
     parser.add_argument("--list-options", dest="listoptions", action="store_true",
@@ -428,6 +438,8 @@ def main():
     # -p only copies a flow; -f, -c and -r are excluded by the group above.
     if args.populate and (args.dry_run or args.interactive):
         parser.error("-p/--populate-flow only copies a flow: it cannot be combined with -n or -i")
+    if args.update_flow and (args.dry_run or args.interactive):
+        parser.error("--update-flow only merges a flow into its copy: it cannot be combined with -n or -i")
     # -n reports what a run would do, so it combines with -f but not with
     # the modes that do something else instead of running.
     if args.dry_run and (args.clean or args.restart):
@@ -445,7 +457,7 @@ def main():
         ("verbosity", args.verbose), ("interactive", args.interactive),
         ("manifest_dir", file_utils.absolute_path(args.manifestpath)),
         ("options", list(args.options)), ("test", args.test), ("force", args.force),
-        ("clean", args.clean), ("restart", args.restart), ("populate", args.populate),
+        ("clean", args.clean), ("restart", args.restart), ("populate", args.populate), ("update_flow", args.update_flow),
         ("dry_run", args.dry_run),
     ):
         context.config.bake._bake_set_from_flag(attr, value)  # pylint: disable=protected-access
