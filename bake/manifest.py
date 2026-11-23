@@ -43,6 +43,7 @@ from . import loader
 from . import file_utils
 from .context import context
 from .exceptions import BakeManifestError
+from .release import UNNAMED_PROJECT
 from .step import LibData, RegressionData, RtlData, StepData, SweepData, output_root
 
 
@@ -71,7 +72,7 @@ def project(name, /, **options):
     loader.declare_project(name, options)
 
 
-def scratch_dir(name, /):
+def scratch_dir(name, /, shared=False):
     """Claim directory `name` of the output directory for what is no
     design's, e.g. a cache that flows share across blocks:
 
@@ -81,22 +82,39 @@ def scratch_dir(name, /):
     a name is claimed once: by a design or by one scratch_dir() call. A
     second claim is an error, whichever comes first. The ScratchDir returned
     gives the path when it is used (str(), open(), Path()): by then
-    config.bake.output_dir has its final value. bake does not create it."""
+    config.bake.output_dir has its final value. bake does not create it.
+
+    With shared=True, the directory is <config.bake.shared_dir>/<project>/<name>
+    when shared_dir is set: one directory for every checkout of the project
+    (<project> as a release root names it, "_" for an unnamed project), for
+    what the flows make safe to share, e.g. entries built in a hidden
+    directory and renamed into place. bake creates nothing there and does
+    not guard against concurrent writers. Without shared_dir the directory
+    is the one scratch_dir(name) gives. Either way `name` is claimed in the
+    output directory, so a design cannot take it."""
     scope = loader.current()
     claim_scratch(name, "scratch_dir()", scope.line() if scope is not None else "")
-    return ScratchDir(name)
+    return ScratchDir(name, shared, scope.project if scope is not None else None)
 
 
 class ScratchDir(os.PathLike):
     """A directory claimed by scratch_dir(): <output_dir>/<name>, or
     work/<name> in the top manifest's directory without
-    config.bake.output_dir. Its path is taken when it is used."""
+    config.bake.output_dir; a shared one is <shared_dir>/<project>/<name>
+    when config.bake.shared_dir is set. Its path is taken when it is used."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, shared: bool = False, project=None):
         self.name = name
+        self.shared = shared
+        self._project = project
 
     @property
     def path(self) -> Path:
+        shared_dir = context.config.bake.shared_dir
+        if self.shared and shared_dir:
+            # The project's name is read now: the top project may be named after the claim
+            project = self._project.name if self._project is not None else ""
+            return Path(shared_dir).absolute() / (project or UNNAMED_PROJECT) / self.name
         return output_root(context.config.bake.manifest_dir) / self.name
 
     def __fspath__(self) -> str:
@@ -106,7 +124,7 @@ class ScratchDir(os.PathLike):
         return str(self.path)
 
     def __repr__(self) -> str:
-        return f"ScratchDir({self.name!r})"
+        return f"ScratchDir({self.name!r}, shared={self.shared})"
 
 
 def claim_scratch(name, what: str, where: str) -> None:

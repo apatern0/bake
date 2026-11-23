@@ -378,6 +378,10 @@ class BakeConfig(FixedSchemaAttributes):
             [], "The command line's -o overrides, as given (regressions pass them on)")
         self.output_dir = option(
             None, "Directory of the work directories; the manifest's directory when unset", kind=str)
+        self.shared_dir = option(
+            None, "Directory shared by the checkouts of a project, where scratch_dir(name, "
+            "shared=True) puts its directory, as <project>/<name>; unset: the output directory's",
+            kind=str)
         self.manifest_dir = option(
             "", "The project's manifest directory (-m), absolute")
         self.verbosity = option(0, "Verbosity of bake and the flows (-v)")

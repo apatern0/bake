@@ -2415,6 +2415,45 @@ def test_scratch_dir_follows_output_dir(bake, project):
         str(path / "work" / "cache")
 
 
+def test_scratch_dir_shared(bake, project, tmp_path):
+    """scratch_dir(name, shared=True) is <shared_dir>/<project>/<name> when
+    config.bake.shared_dir is set, whatever the output directory; unset, it
+    is the output directory's, as scratch_dir(name) gives. A relative
+    shared_dir is made absolute."""
+    path = project("scratch_dir")
+    shared = tmp_path / "shared"
+    assert not bake.run(["top", "impl"])
+    assert json.loads(Path("out/top/impl/bake_vars.json").read_text())["BAKE_SHARED"] == \
+        str(path / "out" / "shared")
+    assert not bake.run(["top", "impl", "-o", f"bake.shared_dir={shared}"])
+    assert json.loads(Path("out/top/impl/bake_vars.json").read_text())["BAKE_SHARED"] == \
+        str(shared / "scratch" / "shared")
+    assert not bake.run(["top", "impl", "-o", "bake.shared_dir=rel"])
+    assert json.loads(Path("out/top/impl/bake_vars.json").read_text())["BAKE_SHARED"] == \
+        str(path / "rel" / "scratch" / "shared")
+    assert not shared.exists()
+
+
+def test_scratch_dir_shared_unnamed_project(bake, project, tmp_path):
+    """A project without a name is `_` in the shared directory, as in a
+    release root."""
+    project("scratch_dir_unnamed")
+    assert not bake.run(["top", "impl", "-o", f"bake.shared_dir={tmp_path}"])
+    assert json.loads(Path("work/top/impl/bake_vars.json").read_text())["BAKE_SHARED"] == \
+        str(tmp_path / "_" / "shared")
+
+
+def test_scratch_dir_shared_reserves_name(bake, capfd, project, tmp_path):
+    """A shared scratch_dir() still claims its name in the output directory:
+    a block of that name is an error, shared_dir set or not."""
+    project("scratch_dir")
+    with open("manifest", "a") as f:
+        f.write('\nblock(name="shared", top="sample", rtl_files=["../rtl/sample.v"])\n')
+    assert bake.run(["-o", f"bake.shared_dir={tmp_path}"])
+    assert_stderr(capfd, expect=["Directory 'shared' of the output directory is claimed twice"],
+                  expect_not=["Traceback"])
+
+
 @pytest.mark.parametrize("clash, first, second", [
     ("block_before", "block 'cache' at manifest:", "scratch_dir() at manifest:"),
     ("block_after", "scratch_dir() at manifest:", "block 'cache' at manifest:"),

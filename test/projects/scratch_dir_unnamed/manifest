@@ -1,0 +1,24 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# scratch_dir(name, shared=True) in a project that calls no project().
+
+from bake import block, load, scratch_dir
+
+load("../flows")
+config.impl.flow = "dummy_impl"
+config.bake.tpl_dict["BAKE_SHARED"] = scratch_dir("shared", shared=True)
+
+block(name="top", top="sample", rtl_files=["../rtl/sample.v"])

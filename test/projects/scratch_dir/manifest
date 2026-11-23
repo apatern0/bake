@@ -14,6 +14,7 @@
 # limitations under the License.
 
 # scratch_dir(): a directory of the output directory for what is no block's.
+# scratch_dir(name, shared=True): <config.bake.shared_dir>/<project>/<name> when set.
 # -o clash=... declares a second claim on it (rejected).
 
 from bake import block, load, option, project, scratch_dir
@@ -38,5 +39,6 @@ if config.proj.clash == "block_after":
 if config.proj.out:
     config.bake.output_dir = config.proj.out
 config.bake.tpl_dict["BAKE_CACHE"] = cache
+config.bake.tpl_dict["BAKE_SHARED"] = scratch_dir("shared", shared=True)
 
 block(name="top", top="sample", rtl_files=["../rtl/sample.v"])

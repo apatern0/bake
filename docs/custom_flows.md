@@ -296,6 +296,29 @@ above is an error, whether it is declared before the call or after, and so is a 
 `scratch_dir("pdk_cache")`; the message says where both claims are. A name is one path
 component.
 
+### Sharing it between checkouts: `shared=True`
+
+Each checkout of a project (a clone, a worktree) has its own output directory, so each builds
+such a cache again. `scratch_dir(name, shared=True)` lets the project put it in one place for
+all of them: when `config.bake.shared_dir` is set, the directory is
+`<shared_dir>/<project>/<name>`, with the project named as a [release](release_format.md) root
+names it (`_` for a project that calls no `project()`). Unset, it is the same directory
+`scratch_dir(name)` gives, so a flow works either way:
+
+```python
+config.bake.tpl_dict["BAKE_PDK_CACHE"] = scratch_dir("pdk_cache", shared=True)
+```
+
+```
+bake <block> <recipe> -o bake.shared_dir=/data/shared
+```
+
+The shared case still claims `name` in the output directory, so a block cannot take it, with or
+without `shared_dir`. *bake* creates nothing there and guarantees nothing about concurrent
+writers: the flows that write in it must make their entries safe to share across runs and
+machines, for instance by building each entry in a hidden directory of the same parent and
+renaming it into place.
+
 ## Reading the Variables from a Script: `bake_vars.json`
 
 Pasting `$BAKE_XYZ` into a script works for Tcl and shell, but a value containing a quote or a
