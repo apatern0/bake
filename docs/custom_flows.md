@@ -67,7 +67,7 @@ commit recorded in `.bake_flow.json`), the *copy* and the flow *now*:
 
 It prints what it did to each file and exits non-zero while a file has conflicts (resolve the
 markers in the copy). Binary files changed on both sides cannot be merged: they are reported as
-conflicts and left as they are. Afterwards the copy is recorded as based on the flow as it is now.
+conflicts and left as they are. Without conflicts the copy is then recorded as based on the flow as it is now. With conflicts it is not: resolve the markers in the copy, then run `-p` to record it (running `--update-flow` again before would merge the markers).
 It needs a record with a git commit and no uncommitted changes in the flow it was made from,
 and that commit in the flow's repository; otherwise it refuses and says why (merge by hand
 then, and run `-p`). A flow that has uncommitted changes now is merged as it is, and the record says so.

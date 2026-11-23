@@ -3180,7 +3180,15 @@ def test_update_flow_conflict(bake, capfd, flow_copy, tmp_run_dir):
     text = (copy / "clash.txt").read_text()
     assert "<<<<<<<" in text and "copy\n" in text and "flow\n" in text
     assert (copy / "same.txt").read_text() == "s2\n"
-    assert_stderr(capfd, expect=["1 conflicts", "clash.txt"])
+    assert_stderr(capfd, expect=["1 conflicts", "clash.txt", "resolve the conflict markers", "-p` to record it"])
+    # The record is held back: the flow still counts as changed, until -p records the resolved copy.
+    assert json.loads((copy / ".bake_flow.json").read_text())["git"]["commit"] != _git_in(tmp_run_dir, "rev-parse", "HEAD")
+    assert not bake.run(["sample_target", "vrf"])
+    assert_in_stderr(capfd, "has changed since")
+    (copy / "clash.txt").write_text("resolved\n2\n3\n")
+    assert not bake.run(["sample_target", "vrf", "-p"])
+    assert not bake.run(["sample_target", "vrf"])
+    assert_not_in_stderr(capfd, "has changed since")
 
 
 def test_update_flow_binary_file_is_a_conflict(bake, capfd, flow_copy, tmp_run_dir):

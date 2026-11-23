@@ -1328,8 +1328,8 @@ class Step(ABC):
         file, as a three-way merge: the base is the flow's files at the commit
         the copy was recorded at, the copy is the block's, the new is the flow
         as it is now. Returns False when some file could not be merged (it
-        has conflict markers, or was left as it is). Records the flow as it
-        is now as the copy's base."""
+        has conflict markers, or was left as it is). Without conflicts, records the
+        flow as it is now as the copy's base; with them the record is left as it was."""
         copy_dir = self.flow_copy_dir
         if not copy_dir.is_dir():
             raise exceptions.BakeRuntimeError(
@@ -1412,9 +1412,11 @@ class Step(ABC):
             else:
                 summary["conflicts"].append(name)
 
-        self._write_flow_record(self._flow_record_now())
-        logging.info("Copy in %s brought from commit %s to the flow as it is now%s.", copy_dir, commit[:12],
-                     self._describe_origin(new_git))
+        conflicts = bool(summary["conflicts"])
+        if not conflicts:
+            self._write_flow_record(self._flow_record_now())
+            logging.info("Copy in %s brought from commit %s to the flow as it is now%s.", copy_dir, commit[:12],
+                         self._describe_origin(new_git))
         titles = {"replaced": "replaced with the flow's", "kept": "kept (changed in the copy only)",
                   "merged": "merged", "conflicts": "CONFLICTS (resolve the markers in the copy)",
                   "added": "added", "removed": "removed (the flow dropped them)",
@@ -1423,7 +1425,11 @@ class Step(ABC):
             for name in summary[key]:
                 (logging.warning if key in ("conflicts", "reported") else logging.info)("   %s: %s", title, name)
         logging.info("Summary: %s.", ", ".join(f"{len(summary[k])} {k}" for k in summary))
-        return not summary["conflicts"]
+        if conflicts:
+            logging.warning("The copy is not recorded as up to date yet: resolve the conflict markers in %s, then "
+                            "run `%s -p` to record it as based on the flow as it is now. Do not run "
+                            "--update-flow again before: it would merge the markers.", copy_dir, self.command)
+        return not conflicts
 
     @staticmethod
     def _merge_file(dest: Path, base: bytes, new: bytes) -> bool:
