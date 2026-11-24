@@ -594,6 +594,20 @@ def test_symlinked_source_change_detected(bake, capfd, project):
     assert_stderr(capfd, expect=["Source files are newer", "linked.v", "Step gen completed"])
 
 
+def test_impl_reruns_when_a_library_file_changes(bake, capfd, project):
+    """The Liberty file of a library or macro is an input of impl, and a
+    directory among the layout files is no trouble."""
+    project("impl_libs")
+    assert not bake.run(["top", "impl"])
+    assert not bake.run(["top", "impl"])
+    assert_in_stderr(capfd, "up-to-date")
+    for changed in ("base.v", "leaf.v", "top.v"):   # lib Liberty, macro Liberty, macro layout
+        time.sleep(0.05)
+        Path("../rtl", changed).touch()
+        assert not bake.run(["top", "impl"])
+        assert_stderr(capfd, expect=["Source files are newer", changed, "Step impl completed"])
+
+
 def test_up_to_date_step_still_checks_outputs(bake, capfd, project):
     """A skipped step's outputs are verified as if it had just run."""
     project("incremental")
