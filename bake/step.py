@@ -1364,7 +1364,8 @@ class Step(ABC):
                 f"Commit {commit[:12]}, the base of the copy in {copy_dir}, is not in the repository of "
                 f"flow '{self.flow.name}' ({top}): a shallow clone or rewritten history. Merge by hand, "
                 f"then `{self.command} -p` records it.")
-        listing = _git_bytes(top, "ls-tree", "-r", "-z", "--name-only", f"{commit}:{base_path}" if base_path != "." else commit)
+        tree = f"{commit}:{base_path}" if base_path != "." else commit
+        listing = _git_bytes(top, "ls-tree", "-r", "-z", "--name-only", tree)
         if listing is None:
             raise exceptions.BakeRuntimeError(f"Commit {commit[:12]} has no directory {base_path} in {top}.")
         base_names = [n for n in listing.decode("utf-8").split("\0") if n and n != FLOW_RECORD]

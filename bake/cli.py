@@ -457,7 +457,8 @@ def main():
         ("verbosity", args.verbose), ("interactive", args.interactive),
         ("manifest_dir", file_utils.absolute_path(args.manifestpath)),
         ("options", list(args.options)), ("test", args.test), ("force", args.force),
-        ("clean", args.clean), ("restart", args.restart), ("populate", args.populate), ("update_flow", args.update_flow),
+        ("clean", args.clean), ("restart", args.restart), ("populate", args.populate),
+        ("update_flow", args.update_flow),
         ("dry_run", args.dry_run),
     ):
         context.config.bake._bake_set_from_flag(attr, value)  # pylint: disable=protected-access
