@@ -156,3 +156,41 @@ def test_untimed_lists_the_digital_pins_left_without_timing():
     assert lef.untimed(adc, {}) == ["clk", "start", "dout", "busy"]
     assert lef.untimed(adc, {"clk": {"clock": True},
                              "start": {"related_pin": "clk", "setup": 0.1}}) == ["dout", "busy"]
+
+
+def test_read_gives_the_shapes_of_each_pin(tmp_path):
+    """RECT and POLYGON (as its bounding box) by layer, MASK skipped, several
+    PORTs gathered, ORIGIN applied, a bus's bits one by one."""
+    path = write(tmp_path, """
+MACRO m
+  ORIGIN 1 2 ;
+  SIZE 10 BY 20 ;
+  PIN a
+    DIRECTION INPUT ;
+    PORT
+      LAYER M2 ;
+        RECT 0 -2 0.2 -1 ;
+      LAYER M3 WIDTH 0.1 ;
+        RECT MASK 2 1 1 2 2 ;
+    END
+    PORT
+      LAYER M4 ;
+        POLYGON 3 3 4 3 4 5 3.5 6 ;
+        VIA 3 3 V34 ;
+    END
+  END a
+  PIN d[0]
+    DIRECTION OUTPUT ;
+    PORT
+      LAYER M2 ;
+        RECT 8 17 9 18 ;
+    END
+  END d[0]
+END m
+""")
+    m = lef.read(path)["m"]
+    assert m.origin == (1.0, 2.0)
+    assert [(s.layer, s.x1, s.y1, s.x2, s.y2) for s in m.shapes["a"]] == [
+        ("M2", 1.0, 0.0, 1.2, 1.0), ("M3", 2.0, 3.0, 3.0, 4.0), ("M4", 4.0, 5.0, 5.0, 8.0)]
+    assert m.shapes["d[0]"][0].center == (9.5, 19.5)
+    assert lef.read(str(ADC))["adc"].shapes["clk"][0].layer == "M2"
