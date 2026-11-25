@@ -1,0 +1,143 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The blackbox step: the views of a hard macro made from its LEF alone.
+
+A block made elsewhere, an analog one say, may come as a LEF only. The
+blackbox step writes, for a macro() whose layout_info names one, the views
+it lacks:
+
+- netlist_files: a port-only Verilog module of its top cell;
+- liberty_files: a black-box Liberty cell (area, pins and buses, and the
+  timing config.blackbox.pins gives), one file listed for every corner of
+  config.blackbox.corners;
+
+and hands the macro on with them, so that impl can place it:
+
+    macro(name="adc", top="adc", layout_info="adc/adc.lef")
+    block(name="column", ..., includes={"adc": "blackbox"})
+    config.blackbox.corners = ["SS", "TT", "FF"]
+    config.blackbox.pins["adc"] = {
+        "clk":  {"clock": True, "capacitance": 0.01},
+        "dout": {"related_pin": "clk", "delay": 1.5, "transition": 0.2},
+    }
+
+A view the macro declares is kept. The flow reads the LEF with bake.lef."""
+
+import logging
+from pathlib import Path
+
+from bake import file_utils
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import LibData, Step
+
+FlowSpec(
+    name="builtin_blackbox_flow",
+    desc="Port-only Verilog and black-box Liberty from a macro's LEF (bake.lef)",
+    dir="flow/local",
+    run_cmd="run.py",
+)
+
+
+# `config` is provided by bake; a config section needs no methods.
+# pylint: disable=undefined-variable,too-few-public-methods
+class BlackboxConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = config.option(
+            None, "Flow that writes a macro's views from its LEF, by name; the built-in one when unset",
+            kind=str)
+        self.flow_options = config.option({}, "Options of the blackbox flow ($BAKE_FLOW_OPT_*)")
+        self.corners      = config.option(
+            [], "The corners the Liberty file is listed for: those of the flow that places the macro")
+        self.pins         = config.option(
+            {}, "Timing of each macro's pins, {block: {pin or bus: {key: value}}} (see bake.lef.PIN_KEYS)")
+        self.supplies     = config.option(
+            False, "Keep the power and ground pins in the Verilog module (as inout)")
+
+
+config.register("blackbox", BlackboxConfig())
+
+
+class BlackboxStep(Step):
+    """Writes the netlist and Liberty a macro lacks from its LEF."""
+
+    name = "blackbox"
+    default_flow = "builtin_blackbox_flow"
+    consumes = (LibData,)
+    produces = LibData
+
+    @property
+    def lefs(self) -> list:
+        return [f for f in self.data.layout_info.split() if f.lower().endswith(".lef")]
+
+    @property
+    def _block(self) -> str:
+        return self.data.base_block or self.data.block
+
+    @property
+    def verilog_file(self):
+        """The Verilog module to write, or None when the macro has a netlist."""
+        return None if self.data.netlist_files else self.outputdir / f"{self.data.top}.v"
+
+    @property
+    def liberty_file(self):
+        """The Liberty file to write, or None when the macro has Liberty."""
+        return None if self.data.liberty_files else self.outputdir / f"{self.data.top}.lib"
+
+    def check_pre(self):
+        where = f"Step blackbox for block '{self.data.block}'"
+        if not self.data.top:
+            raise BakeManifestError(f"{where}: the block has no top, the cell to read from its LEF.")
+        if not self.lefs:
+            raise BakeManifestError(f"{where}: the block has no LEF file (layout_info=).")
+        if self.verilog_file is None and self.liberty_file is None:
+            raise BakeManifestError(
+                f"{where}: the block has a netlist and Liberty files already: nothing to write. "
+                f"Include it without blackbox.")
+        if self.liberty_file is not None and not self.config.corners:
+            raise BakeManifestError(
+                f"{where}: config.blackbox.corners is empty: give the corners the Liberty file is "
+                f"for, those of the flow that places the macro (e.g. config.blackbox.corners = "
+                f"[\"TT\"]).")
+
+    @property
+    def source_files(self):
+        return self.lefs + file_utils.files_from_folder(self.flowdir)
+
+    @property
+    def output_files(self):
+        return [str(f) for f in (self.verilog_file, self.liberty_file) if f is not None]
+
+    def build_tpl_dict(self):
+        tpl = super().build_tpl_dict()
+        tpl["BAKE_BLACKBOX_LEFS"] = self.lefs
+        tpl["BAKE_BLACKBOX_VERILOG"] = str(self.verilog_file or "")
+        tpl["BAKE_BLACKBOX_LIBERTY"] = str(self.liberty_file or "")
+        tpl["BAKE_BLACKBOX_PINS"] = dict(self.config.pins.get(self._block, {}))
+        tpl["BAKE_BLACKBOX_SUPPLIES"] = bool(self.config.supplies)
+        return tpl
+
+    @property
+    def output_data(self):
+        data = super().output_data
+        if self.verilog_file is not None:
+            data.netlist_files = [str(self.verilog_file)]
+        if self.liberty_file is not None:
+            data.liberty_files = {corner: [str(self.liberty_file)] for corner in self.config.corners}
+        made = [what for what, f in (("netlist", self.verilog_file), ("Liberty", self.liberty_file)) if f]
+        logging.debug("Block '%s': blackbox hands on its %s from the LEF", self.data.block, " and ".join(made))
+        return data
