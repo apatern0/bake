@@ -42,13 +42,42 @@ every run of the step warns, and says what to do:
 [bake] WARNING  Flow 'builtin_vrf_flow' has changed since its copy in .../flow/alu/vrf/t was populated (commit 3f2a9c1d04be).
 [bake] WARNING     What changed: git -C /path/to/bake diff 3f2a9c1d04be -- bake/builtin/vrf/flow
 [bake] WARNING     Merge the changes into the copy, then run `bake alu vrf -t t -p` to record it as up to date.
+[bake] WARNING     `bake alu vrf -t t --update-flow` does the merge.
 ```
 
 A copy that was never edited is reported as such: delete it, and the step runs the updated flow.
+To upgrade an edited copy, run `--update-flow`:
+
+```
+bake alu impl --update-flow
+```
+
+It runs nothing. For each file it compares three versions: the *base* (the flow's file at the
+commit recorded in `.bake_flow.json`), the *copy* and the flow *now*:
+
+| Base vs copy | Base vs flow now | Action |
+|---|---|---|
+| same | different | the flow's file replaces the copy's |
+| different | same | the copy's file is kept |
+| different | different | three-way merge into the copy (`git merge-file`); conflict markers where it cannot |
+| file not in the base | | the copy's own file is kept |
+| same | removed from the flow | removed from the copy |
+| different | removed from the flow | kept, and reported |
+| not in the base or the copy | added to the flow | added to the copy |
+
+It prints what it did to each file and exits non-zero while a file has conflicts (resolve the
+markers in the copy). Binary files changed on both sides cannot be merged: they are reported as
+conflicts and left as they are. Without conflicts the copy is then recorded as based on the flow as it is now. With conflicts it is not: resolve the markers in the copy, then run `-p` to record it (running `--update-flow` again before would merge the markers).
+It needs a record with a git commit and no uncommitted changes in the flow it was made from,
+and that commit in the flow's repository; otherwise it refuses and says why (merge by hand
+then, and run `-p`). A flow that has uncommitted changes now is merged as it is, and the record says so.
+
+Keep the changes of a block in files of the copy's own, and the upgrade has nothing to merge.
+
 `-p` on an existing copy leaves its files as they are and records it as based on the flow as it
-is now, which is how a merge is acknowledged (and how a copy made by an older *bake*, which has
-no record, starts being tracked). To start over from the flow, delete the copy and run `-p`
-again. `-c` and `-r` only touch the work directory.
+is now, which is how a merge by hand is acknowledged (and how a copy made by an older *bake*,
+which has no record, starts being tracked). To start over from the flow, delete the copy and run
+`-p` again. `-c` and `-r` only touch the work directory.
 
 ## Registering a Flow
 
