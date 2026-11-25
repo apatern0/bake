@@ -1,0 +1,31 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The portscheck step on two macros of the same LEF (../blackbox/adc.lef):
+# adc, whose Verilog and Liberty blackbox writes, so that blackbox-portscheck
+# agrees; adc_bad, whose hand-written netlist and LVS netlist disagree with
+# the LEF (busy missing, start an output, VSS missing from the LVS
+# netlist, which is waived).
+
+from bake import load, macro
+
+load("../flows")
+
+macro(name="adc", top="adc", layout_info="../blackbox/adc.lef")
+macro(name="adc_bad", top="adc", layout_info="../blackbox/adc.lef",
+      netlist_files=["adc_bad.v"], lvs_files=["adc_bad.cdl"])
+
+config.blackbox.corners = ["TC"]
+config.portscheck.waive["adc_bad"] = {"VSS": "the LVS netlist takes VSS from the substrate"}
