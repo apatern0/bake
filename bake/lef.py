@@ -21,14 +21,18 @@ made from it alone: a port-only Verilog module and a black-box Liberty cell.
     text = lef.liberty(macros["adc"], timing={"clk": {"clock": True}})
 
 A LEF says which pins a macro has, their direction and use, the bits of its
-buses and its size. It says nothing of timing, and not in which order a bus
-runs: its buses are written from the highest bit down. The blackbox step
-(bake/builtin/blackbox) writes the two views for a macro(); a flow may
-import this module too, since a Python flow runs under bake's interpreter.
+buses, its size and where each pin is drawn. It says nothing of timing, and
+not in which order a bus runs: its buses are written from the highest bit
+down. The blackbox step (bake/builtin/blackbox) writes the two views for a
+macro(); a flow may import this module too, since a Python flow runs under
+bake's interpreter, for instance to check where a block's pins are:
 
-Only what the views need is read: MACRO, its SIZE, its PINs (DIRECTION, USE)
-and BUSBITCHARS. The rest of the file (technology, OBS, geometry) is
-skipped."""
+    for shape in macros["core"].shapes["clock_i"]:
+        shape.layer, shape.center, shape.x1, shape.y1    # um from the lower left
+
+Read: MACRO with its SIZE and ORIGIN, its PINs (DIRECTION, USE, and the
+RECTs and POLYGONs of their PORTs, by layer) and BUSBITCHARS. The rest of
+the file (technology, OBS, vias of the ports) is skipped."""
 
 from __future__ import annotations
 
@@ -75,11 +79,30 @@ class Port:
 
 
 @dataclass
+class Shape:
+    """A rectangle of a pin (a polygon's bounding box), in um from the
+    macro's lower-left corner."""
+    layer: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return (self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2
+
+
+@dataclass
 class Macro:
     name: str
     width: float = 0.0          # um
     height: float = 0.0
     ports: list[Port] = field(default_factory=list)   # in the order of the LEF
+    # The shapes of each pin, by its LEF name (a bus's bits one by one:
+    # "dout[1]"); ORIGIN applied, so that they count from the lower left
+    shapes: dict[str, list[Shape]] = field(default_factory=dict)
+    origin: tuple[float, float] = (0.0, 0.0)
 
     @property
     def area(self) -> float:
@@ -154,6 +177,10 @@ class _Reader:
             token = self.next()
             if token == "END":
                 if self.next() == name:
+                    ox, oy = macro.origin
+                    for shapes in macro.shapes.values():
+                        for s in shapes:
+                            s.x1, s.y1, s.x2, s.y2 = s.x1 + ox, s.y1 + oy, s.x2 + ox, s.y2 + oy
                     return macro
                 raise LefError(f"{self.path}: MACRO {name} ends with a stray END")
             if token == "PIN":
@@ -166,6 +193,12 @@ class _Reader:
                     macro.width, macro.height = float(words[0]), float(words[2])
                 except (IndexError, ValueError) as err:
                     raise LefError(f"{self.path}: MACRO {name}: SIZE {' '.join(words)}") from err
+            elif token == "ORIGIN":
+                words = self.statement()
+                try:
+                    macro.origin = (float(words[0]), float(words[1]))
+                except (IndexError, ValueError) as err:
+                    raise LefError(f"{self.path}: MACRO {name}: ORIGIN {' '.join(words)}") from err
             else:
                 self.pos -= 1
                 self.statement()
@@ -179,7 +212,7 @@ class _Reader:
                     break
                 raise LefError(f"{self.path}: PIN {name} of {macro.name} ends with a stray END")
             if token == "PORT":
-                self.block()
+                macro.shapes.setdefault(name, []).extend(self.port(macro.name, name))
             elif token == "DIRECTION":
                 words = self.statement()
                 direction = _DIRECTIONS.get(words[0] if words else "", "inout")
@@ -190,6 +223,30 @@ class _Reader:
                 self.pos -= 1
                 self.statement()
         self.add(macro, name, direction, use)
+
+    def port(self, macro: str, pin: str) -> list[Shape]:
+        """The rectangles and polygons of a PORT, up to its END, each on the
+        LAYER before it."""
+        shapes: list[Shape] = []
+        layer = ""
+        while (token := self.next()) != "END":
+            words = self.statement()
+            if token == "LAYER" and words:
+                layer = words[0]
+            elif token in ("RECT", "POLYGON"):
+                if words[:1] == ["MASK"]:
+                    words = words[2:]
+                if words[:1] == ["ITERATE"]:
+                    continue                    # arrays of shapes: not read
+                try:
+                    values = [float(w) for w in words]
+                except ValueError as err:
+                    raise LefError(f"{self.path}: PIN {pin} of {macro}: {token} {' '.join(words)}") from err
+                xs, ys = values[0::2], values[1::2]
+                if not xs or len(xs) != len(ys):
+                    raise LefError(f"{self.path}: PIN {pin} of {macro}: {token} {' '.join(words)}")
+                shapes.append(Shape(layer, min(xs), min(ys), max(xs), max(ys)))
+        return shapes
 
     def add(self, macro: Macro, pin: str, direction: str, use: str) -> None:
         opening, closing = self.busbit[0], self.busbit[1]
