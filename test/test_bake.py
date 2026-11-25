@@ -1601,6 +1601,26 @@ def test_blackbox_refuses_a_macro_without_lef_or_with_its_views(bake, capfd, pro
     assert_in_stderr(capfd, "config.blackbox.corners is empty")
 
 
+def test_portscheck_compares_a_blocks_views(bake, capfd, project):
+    """portscheck reads the top cell from each view of lib data and fails on
+    what they disagree on, waivers aside; after blackbox the views agree."""
+    project("portscheck")
+    assert not bake.run(["adc", "blackbox-portscheck"])
+    assert_in_stderr(capfd, "The 3 views of adc agree on its ports")
+    assert bake.run(["adc_bad", "portscheck"])
+    assert_stderr(capfd, expect=["start: direction differs: input in lef, lvs; output in netlist",
+                                 "busy: missing from netlist; in lef, lvs",
+                                 "(waived: the LVS netlist takes VSS from the substrate)",
+                                 "2 finding(s) on the ports of adc"])
+    report = json.loads(Path("work/adc_bad/portscheck/output/portscheck.json").read_text())
+    assert [v["name"] for v in report["views"]] == ["lef", "netlist", "lvs"]
+    assert {f["port"]: bool(f["waived"]) for f in report["findings"]} == {
+        "start": False, "busy": False, "VSS": True}
+    # A block with one view has nothing to compare
+    assert bake.run(["adc", "portscheck", "-n"])
+    assert_in_stderr(capfd, "fewer than two views of the top cell to compare (it has: lef)")
+
+
 @pytest.mark.parametrize("manifest, message", [
     ('block(name="both", top="top", rtl_files=["../rtl/top.v"], netlist_files=["../rtl/block.v"])',
      "Block 'both': netlist_files is not a block() argument: block() declares RTL. "

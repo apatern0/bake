@@ -281,6 +281,17 @@ What `blackbox` writes for a macro that has a LEF only (see
 | `flow` | built-in | The flow that writes the views; the built-in one uses `bake.lef`. |
 | `flow_options` | `{}` | Options of the blackbox flow (`$BAKE_FLOW_OPT_*`). |
 
+### `config.portscheck`
+How `portscheck` judges a block's views (see
+[Checking that a macro's views agree](manifest_design_model.md#checking-that-a-macros-views-agree)).
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `waive` | `{}` | Findings accepted, `{block: {port: reason}}`: reported with the reason, no failure. |
+| `strict` | `False` | Fail on warnings too. |
+| `flow` | built-in | The flow that compares the views; the built-in one uses `bake.ports`. |
+| `flow_options` | `{}` | Options of the portscheck flow (`$BAKE_FLOW_OPT_*`). |
+
 ### `config.publish`
 How `publish` saves a block as a release (see [Writing a Publish Flow](custom_flows.md#writing-a-publish-flow)).
 
@@ -414,6 +425,15 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_BLACKBOX_LIBERTY` | The Liberty file to write, or empty when the macro has Liberty files |
 | `$BAKE_BLACKBOX_PINS` | `config.blackbox.pins` of the block (`{}` when it has none) |
 | `$BAKE_BLACKBOX_SUPPLIES` | `config.blackbox.supplies` |
+
+### Built-in variables (portscheck step)
+
+| Variable | Description |
+|----------|-------------|
+| `$BAKE_PORTSCHECK_VIEWS` | `[view, label, files]` of each view of the top cell: `lef`, `liberty <corners>`, `netlist`, `lvs` |
+| `$BAKE_PORTSCHECK_WAIVE` | `config.portscheck.waive` of the block |
+| `$BAKE_PORTSCHECK_STRICT` | `config.portscheck.strict` |
+| `$BAKE_PORTSCHECK_OUTDIR` | Where `portscheck.md` and `portscheck.json` go |
 
 ### Built-in variables (tmr step)
 

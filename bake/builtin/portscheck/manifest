@@ -1,0 +1,126 @@
+# Copyright 2026 Andrea Paterno'
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The portscheck step: whether an implemented block's views agree on its ports.
+
+A macro's LEF, Liberty files, netlist and LVS netlist each list the ports
+of its top cell, and nothing else makes them agree: a pin renamed in one
+of them, a bus that runs the other way or a direction that differs shows
+up late, in place and route or LVS. The portscheck step reads the top cell
+from each view the block has and compares them (bake.ports): a port some
+views lack, a direction or the bits of a bus that differ. It writes
+portscheck.md and portscheck.json, and fails on an error that
+config.portscheck.waive does not waive. It hands the block on unchanged, so
+it goes anywhere in a recipe on lib data:
+
+    bake frontend portscheck                     # a macro() as declared
+    bake core impl-portscheck                    # what impl wrote
+    includes={"adc": "release-portscheck"}       # a release, before it is used
+"""
+
+from bake import file_utils, ports
+from bake.exceptions import BakeManifestError
+from bake.manifest import FlowSpec
+from bake.step import LibData, Step
+
+FlowSpec(
+    name="builtin_portscheck_flow",
+    desc="Compares the ports of a block's views (bake.ports)",
+    dir="flow/local",
+    run_cmd="run.py",
+)
+
+
+# `config` is provided by bake; a config section needs no methods.
+# pylint: disable=undefined-variable,too-few-public-methods
+class PortscheckConfig(config.FixedSchemaAttributes):
+    def __init__(self):
+        self.tpl_dict     = config.TemplateDictionary()
+        self.flow         = config.option(
+            None, "Flow that compares the views' ports, by name; the built-in one when unset", kind=str)
+        self.flow_options = config.option({}, "Options of the portscheck flow ($BAKE_FLOW_OPT_*)")
+        self.waive        = config.option(
+            {}, "Findings accepted, {block: {port: reason}}: reported, but no failure")
+        self.strict       = config.option(False, "Fail on warnings too")
+
+
+config.register("portscheck", PortscheckConfig())
+
+
+class PortscheckStep(Step):
+    """Compares the ports of the block's views; hands the block on."""
+
+    name = "portscheck"
+    default_flow = "builtin_portscheck_flow"
+    consumes = (LibData,)
+    produces = LibData
+
+    @property
+    def views(self) -> list:
+        """[view, label, files] of every view of the top cell the block has:
+        its LEF, its Liberty files (one view per corner, or one for the
+        corners that share their files), its netlist and LVS netlist."""
+        d = self.data
+
+        def files(paths, kind):
+            return [f for f in paths if ports.view_of(f) == kind]
+
+        found = []
+        lefs = files(d.layout_info.split(), "lef")
+        if lefs:
+            found.append(["lef", "lef", lefs])
+        corners: dict = {}
+        for corner, paths in sorted(d.liberty_files.items()):
+            libs = files(paths, "liberty")
+            if libs:
+                corners.setdefault(tuple(libs), []).append(corner)
+        for libs, names in corners.items():
+            found.append(["liberty", "liberty " + ",".join(names), list(libs)])
+        verilog = files(d.netlist_files, "verilog")
+        if verilog:
+            found.append(["verilog", "netlist", verilog])
+        spice = files(d.lvs_files, "spice")
+        if spice:
+            found.append(["spice", "lvs", spice])
+        return found
+
+    def check_pre(self):
+        where = f"Step portscheck for block '{self.data.block}'"
+        if not self.data.top:
+            raise BakeManifestError(f"{where}: the block has no top, the cell to compare.")
+        if len(self.views) < 2:
+            have = ", ".join(v[1] for v in self.views) or "none"
+            raise BakeManifestError(
+                f"{where}: fewer than two views of the top cell to compare (it has: {have}); "
+                f"known views: LEF, Liberty, a Verilog netlist, a SPICE/CDL LVS netlist.")
+
+    @property
+    def source_files(self):
+        return [f for _, _, paths in self.views for f in paths] + file_utils.files_from_folder(self.flowdir)
+
+    @property
+    def output_files(self):
+        return [str(self.outputdir / "portscheck.md"), str(self.outputdir / "portscheck.json")]
+
+    def build_tpl_dict(self):
+        tpl = super().build_tpl_dict()
+        tpl["BAKE_PORTSCHECK_VIEWS"] = self.views
+        tpl["BAKE_PORTSCHECK_WAIVE"] = dict(self.config.waive.get(self.data.base_block or self.data.block, {}))
+        tpl["BAKE_PORTSCHECK_STRICT"] = bool(self.config.strict)
+        tpl["BAKE_PORTSCHECK_OUTDIR"] = str(self.outputdir)
+        return tpl
+
+    def dry_run_note(self) -> str:
+        return "compares " + ", ".join(v[1] for v in self.views)

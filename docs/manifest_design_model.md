@@ -309,6 +309,40 @@ corner: for timing that differs by corner, write the Liberty files by hand. `bak
 LEF and writes both views; a project's flow may import it (`lef.read()`, `lef.verilog()`,
 `lef.liberty()`), since a Python flow runs under bake's interpreter.
 
+### Checking that a macro's views agree
+
+Each view of an implemented block lists the ports of its top cell: its LEF, its Liberty files, its
+netlist and its LVS netlist. Nothing else makes them agree, and a pin renamed in one of them, a
+bus that runs the other way or a direction that differs shows up late, in place and route or in
+LVS. The `portscheck` step reads the top cell from each view the block has and compares them;
+it hands the block on unchanged, so it goes anywhere in a recipe on lib data:
+
+```shell
+bake frontend portscheck             # a macro() as declared
+bake core impl-portscheck            # what impl wrote
+bake adc blackbox-portscheck         # what blackbox wrote
+```
+
+```python
+block(name="column", ..., includes={"adc": "release-portscheck"})   # a release, before it is used
+```
+
+| Finding | Severity |
+|---|---|
+| a port some views lack | error, but for a power or ground pin (to a LEF or a Liberty `pg_pin`) missing from the netlist or the Liberty files, which commonly leave supplies out |
+| a supply that a Liberty file declares as a signal pin | warning |
+| directions that differ, among the views that give one | error |
+| bits of a bus that differ, or a bus that runs the other way in two views that give an order (a LEF gives none) | error |
+
+It writes `portscheck.md` and `portscheck.json` in its output directory and fails on an error,
+or on a warning too with `config.portscheck.strict`.
+`config.portscheck.waive[block] = {port: reason}` accepts the findings on a port: they are
+reported with the reason, and do not fail. The views are read by their files' suffixes: LEF (`.lef`), Liberty (`.lib`), Verilog and SystemVerilog (`.v`, `.sv`,
+`.vg`; the module's header, ANSI or not, with ranges on its parameters), SPICE and CDL (`.cdl`,
+`.sp`, `.spi`, `.spice`, `.cir`; the `.SUBCKT` line, with Calibre's `*.PININFO` for directions).
+`bake.ports` reads and compares them; a flow with a view of its own (an OpenAccess library read
+through a vendor's tool) builds an `Interface` of it and calls `ports.compare()` the same way.
+
 ## Releases
 
 A block implemented once can be used from one of its **releases** instead of being built again:
