@@ -179,13 +179,16 @@ def copy_libdata(data: LibData, dest: Path, follow: Callable[[str], str] = os.pa
     the views with paths relative to dest, the netlist include directories,
     the libraries by name, the simulation defines and the macros.
 
-    A file that does not exist is an error naming its view."""
+    A file that does not exist is an error naming its view. The lef view
+    may also name a directory, a library of layouts that layout_info takes
+    in place of a LEF file: it is copied whole, links followed."""
     dest = Path(dest)
     taken: set[Path] = set()
 
     def place(view: str, corner: str, src: str) -> str:
         source = Path(follow(src))
-        if not source.is_file():
+        directory = view == "lef" and source.is_dir()
+        if not directory and not source.is_file():
             raise exceptions.BakeFileError(
                 f"Block '{data.block}': its {view} file {src} does not exist."
             )
@@ -199,7 +202,10 @@ def copy_libdata(data: LibData, dest: Path, follow: Callable[[str], str] = os.pa
             n += 1
         taken.add(target)
         (dest / folder).mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, dest / target)
+        if directory:
+            shutil.copytree(source, dest / target, symlinks=False)
+        else:
+            shutil.copy2(source, dest / target)
         return target.as_posix()
 
     out: dict[str, Any] = {}

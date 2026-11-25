@@ -122,6 +122,38 @@ def test_same_name_in_one_view_kept_apart(tmp_path):
     assert (tmp_path / "rel" / "netlist" / "1_x.v").read_text() == "b"
 
 
+def test_lef_directory_copied(tmp_path):
+    """A directory in layout_info (a library of layouts, as a macro may
+    carry in place of its LEF file) is copied whole, hidden files and a
+    link's target included, next to a LEF file, read back and listed in
+    SHA256SUMS."""
+    lib = tmp_path / "src" / "macro_lib"
+    _file(lib / ".library", "lib")
+    _file(lib / "macro" / "abstract" / "layout.db", "layout")
+    _file(tmp_path / "src" / "real_info.txt", "info")
+    os.symlink(tmp_path / "src" / "real_info.txt", lib / "info.txt")
+    lef = _file(tmp_path / "src" / "macro.lef", "MACRO macro\n")
+    data = LibData(block="m", top="macro", layout_info=f"{lef} {lib}")
+    dest = tmp_path / "rel"
+    dest.mkdir()
+    out = release.copy_libdata(data, dest)
+    assert out["layout_info"] == "lef/macro.lef lef/macro_lib"
+    assert (dest / "lef" / "macro_lib" / "macro" / "abstract" / "layout.db").read_text() == "layout"
+    assert not (dest / "lef" / "macro_lib" / "info.txt").is_symlink()
+    back = release.libdata_from_dict(out, dest, "m", "macro", _resolve, "m@v1")
+    assert back.layout_info.split()[1] == str(dest / "lef" / "macro_lib")
+    sums = release.write_checksums(dest).read_text()
+    assert "lef/macro_lib/.library" in sums
+
+
+def test_directory_refused_outside_lef(tmp_path):
+    """Only the lef view takes a directory."""
+    (tmp_path / "dir.v").mkdir()
+    data = LibData(block="b", top="b", netlist_files=[str(tmp_path / "dir.v")])
+    with pytest.raises(exceptions.BakeFileError, match="its netlist file .*dir.v does not exist"):
+        release.copy_libdata(data, tmp_path / "rel")
+
+
 def test_missing_file_named(tmp_path):
     data = LibData(block="b", top="b", layout_info=str(tmp_path / "gone.lef"))
     with pytest.raises(exceptions.BakeFileError, match="Block 'b': its lef file .*gone.lef does not exist"):

@@ -42,7 +42,7 @@ data (`LibData`), the fields that `impl` fills and that `macro()` declares:
 | View | Field | Shape | Content |
 |---|---|---|---|
 | `netlist` | `netlist_files` | files | Verilog to simulate (gate-level, or a model) |
-| `lef` | `layout_info` | files | the abstract |
+| `lef` | `layout_info` | files | the abstract: LEF files, or library directories (an OpenAccess library, for example), copied whole |
 | `liberty` | `liberty_files` | files per corner | timing and power |
 | `si` | `si_files` | files per corner | signal-integrity models |
 | `sdf` | `sdf_files` | a file per corner | annotated delays |
