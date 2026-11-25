@@ -91,8 +91,9 @@ bake -a                      # list every project's blocks, not only the top one
 | `bake/cli.py` | Argument parsing, builtin manifest loading, dispatch to `run()` in cli itself |
 | `bake/exceptions.py` | Seven custom exception classes (`BakeRuntimeError`, `BakeManifestError`, `BakeConfigError`, etc.) |
 | `bake/file_utils.py` | Path resolution and file existence utilities |
+| `bake/lef.py` | A macro's interface read from LEF (`read()`), and its port-only Verilog (`verilog()`) and black-box Liberty (`liberty()`): the `blackbox` step's flow, and any flow, import it |
 | `bake/completion_cache.py` | JSON-backed tab-completion cache in `~/.cache/bake/` |
-| `bake/builtin/` | Built-in steps (`vrf`, `impl`, `tmr`, `regression`), each in its own subdirectory with a `manifest` |
+| `bake/builtin/` | Built-in steps (`vrf`, `impl`, `tmr`, `regression`, `blackbox`, ...), each in its own subdirectory with a `manifest` |
 
 ### Data flow
 

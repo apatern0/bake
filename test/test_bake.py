@@ -1568,6 +1568,39 @@ def test_macro_is_included_as_a_macro(bake, capfd, project):
     assert_in_stderr(capfd, "tmr takes rtl, and the block is lib.")
 
 
+def test_blackbox_writes_the_views_a_macro_lacks(bake, capfd, project):
+    """A macro() with a LEF only: blackbox writes its port-only Verilog and
+    black-box Liberty, which a block including it after blackbox gets as
+    the macro's netlist and its Liberty for the configured corners."""
+    project("blackbox")
+    assert not bake.run(["top", "impl"])
+    assert_stderr(capfd, expect=["no timing, and will not be timed: busy"])
+    out = Path("work/adc/blackbox/output")
+    assert "output [2:0] dout;" in (out / "adc.v").read_text()
+    assert "VDD" not in (out / "adc.v").read_text()
+    liberty = (out / "adc.lib").read_text()
+    assert "area : 1020 ;" in liberty and "timing_type : setup_rising ;" in liberty
+    tpl = json.loads(Path("work/top/impl/bake_vars.json").read_text())
+    assert tpl["BAKE_MACRO_NETLIST_FILES"] == [str((out / "adc.v").resolve())]
+    assert tpl["BAKE_MACRO_LIBERTY_FILES_TC"] == [str((out / "adc.lib").resolve())]
+    assert tpl["BAKE_MACRO_PHYSICAL"][0].endswith("blackbox/adc.lef")
+    # Up to date until the LEF changes
+    assert not bake.run(["adc", "blackbox"])
+    assert_in_stderr(capfd, "Output files are up-to-date, skipping step blackbox.")
+    Path("adc.lef").write_text(Path("adc.lef").read_text().replace("SIZE 40 BY", "SIZE 50 BY"))
+    assert not bake.run(["adc", "blackbox"])
+    assert "area : 1275 ;" in (out / "adc.lib").read_text()
+
+
+def test_blackbox_refuses_a_macro_without_lef_or_with_its_views(bake, capfd, project):
+    project("macro")
+    assert bake.run(["macro", "blackbox", "-n"])
+    assert_in_stderr(capfd, "Step blackbox for block 'macro': the block has no LEF file (layout_info=).")
+    project("blackbox_no_corners")
+    assert bake.run(["adc", "blackbox", "-n"])
+    assert_in_stderr(capfd, "config.blackbox.corners is empty")
+
+
 @pytest.mark.parametrize("manifest, message", [
     ('block(name="both", top="top", rtl_files=["../rtl/top.v"], netlist_files=["../rtl/block.v"])',
      "Block 'both': netlist_files is not a block() argument: block() declares RTL. "

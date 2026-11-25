@@ -266,6 +266,49 @@ block(name="pixel", top="pixel", rtl_files=["pixel.v"], includes=["frontend"])
     including a `lib()`. A testbench may still name it in `vrf_libs=` to simulate with its
     netlist.
 
+### Macros from a LEF alone
+
+A macro made elsewhere, an analog one say, may come as a LEF only. The `blackbox` step writes
+the views it lacks from its top cell in the LEF, and hands the macro on with them:
+
+  * a port-only Verilog module (`netlist_files`), its buses from the highest bit down, since a
+    LEF does not say in which order a bus runs; power and ground pins left out, unless
+    `config.blackbox.supplies`;
+  * a black-box Liberty cell (`liberty_files`): its area, its signal pins and buses, and the
+    timing `config.blackbox.pins` gives; one file, listed for every corner of
+    `config.blackbox.corners` (those of the flow that places the macro).
+
+```python
+macro(name="adc", top="adc", layout_info="adc/adc.lef")
+block(name="column", top="column", rtl_files=["column.v"], includes={"adc": "blackbox"})
+
+config.blackbox.corners = ["SS", "TT", "FF"]
+config.blackbox.pins["adc"] = {
+    "clk":   {"clock": True, "capacitance": 0.004},
+    "start": {"related_pin": "clk", "setup": 0.3, "hold": 0.1},
+    "dout":  {"related_pin": "clk", "delay": 1.5, "transition": 0.2},   # a bus: every bit
+}
+```
+
+A LEF holds no timing: what `pins` does not give, the Liberty file does not say. A digital pin
+it leaves untimed (neither a clock nor related to one) is listed as a warning when the step
+runs; `ANALOG` and `inout` pins are not. The keys of a pin, in ns, pF:
+
+| Key | Meaning |
+|---|---|
+| `clock` | the pin is a clock |
+| `capacitance` | input capacitance |
+| `max_transition` | the largest transition the pin takes or drives |
+| `related_pin`, `edge` | the clock the next keys refer to, and its active edge (`rising`, the default, or `falling`) |
+| `setup`, `hold` | an input's setup and hold times |
+| `delay`, `transition` | an output's delay after the clock edge, and its transition time |
+
+A view the macro declares is kept, so `blackbox` on a macro with a netlist but no Liberty writes
+the Liberty only; on a macro that has both it is an error. The values are the same in every
+corner: for timing that differs by corner, write the Liberty files by hand. `bake.lef` reads the
+LEF and writes both views; a project's flow may import it (`lef.read()`, `lef.verilog()`,
+`lef.liberty()`), since a Python flow runs under bake's interpreter.
+
 ## Releases
 
 A block implemented once can be used from one of its **releases** instead of being built again:

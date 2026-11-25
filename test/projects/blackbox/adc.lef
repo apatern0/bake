@@ -1,0 +1,93 @@
+# An analog macro as its makers hand it over: the LEF alone
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+
+UNITS
+  DATABASE MICRONS 1000 ;
+END UNITS
+
+MACRO adc
+  CLASS BLOCK ;
+  ORIGIN 0 0 ;
+  SIZE 40 BY 25.5 ;
+  SYMMETRY X Y ;
+  PIN clk
+    DIRECTION INPUT ;
+    USE CLOCK ;
+    PORT
+      LAYER M2 ;
+        RECT 0 1 0.2 1.2 ;
+    END
+  END clk
+  PIN start
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M2 ;
+        RECT 0 2 0.2 2.2 ;
+    END
+  END start
+  PIN dout[1]
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M2 ;
+        RECT 39.8 1 40 1.2 ;
+    END
+  END dout[1]
+  PIN dout[0]
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M2 ;
+        RECT 39.8 2 40 2.2 ;
+    END
+  END dout[0]
+  PIN dout[2]
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M2 ;
+        RECT 39.8 3 40 3.2 ;
+    END
+  END dout[2]
+  PIN busy
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M2 ;
+        RECT 39.8 4 40 4.2 ;
+    END
+  END busy
+  PIN vin
+    DIRECTION INOUT ;
+    USE ANALOG ;
+    PORT
+      LAYER M3 ;
+        RECT 10 0 11 1 ;
+    END
+  END vin
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER M4 ;
+        RECT 0 24 40 25 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER M4 ;
+        RECT 0 0 40 1 ;
+    END
+  END VSS
+  OBS
+    LAYER M1 ;
+      RECT 0 0 40 25.5 ;
+  END
+END adc
+
+END LIBRARY

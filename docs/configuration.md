@@ -269,6 +269,18 @@ config.tmr.seu_reset_pin    = "RN"
 config.tmr.seu_set_pin      = "SN"
 ```
 
+### `config.blackbox`
+What `blackbox` writes for a macro that has a LEF only (see
+[Macros from a LEF alone](manifest_design_model.md#macros-from-a-lef-alone)).
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `corners` | `[]` | The corners its Liberty file is listed for, those of the flow that places the macro; required when it writes one. |
+| `pins` | `{}` | The timing of each macro's pins, `{block: {pin or bus: {key: value}}}`. |
+| `supplies` | `False` | Keep the power and ground pins in the Verilog module, as `inout`. |
+| `flow` | built-in | The flow that writes the views; the built-in one uses `bake.lef`. |
+| `flow_options` | `{}` | Options of the blackbox flow (`$BAKE_FLOW_OPT_*`). |
+
 ### `config.publish`
 How `publish` saves a block as a release (see [Writing a Publish Flow](custom_flows.md#writing-a-publish-flow)).
 
@@ -392,6 +404,16 @@ Provided by the `Step` base class, so custom steps get them without overriding
 | `$BAKE_SDC_FILES` | Constraint files declared on the block (`sdc_files`) |
 | `$BAKE_RUN_OPTIONS` | Extra options from `config.impl.options` |
 | `$BAKE_LDB_DIR` | `config.impl.ldb_dir`, or `<workdir>/ldbs` |
+
+### Built-in variables (blackbox step)
+
+| Variable | Description |
+|----------|-------------|
+| `$BAKE_BLACKBOX_LEFS` | The macro's LEF files (from `layout_info`) |
+| `$BAKE_BLACKBOX_VERILOG` | The Verilog module to write, or empty when the macro has a netlist |
+| `$BAKE_BLACKBOX_LIBERTY` | The Liberty file to write, or empty when the macro has Liberty files |
+| `$BAKE_BLACKBOX_PINS` | `config.blackbox.pins` of the block (`{}` when it has none) |
+| `$BAKE_BLACKBOX_SUPPLIES` | `config.blackbox.supplies` |
 
 ### Built-in variables (tmr step)
 

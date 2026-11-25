@@ -83,6 +83,8 @@ block(name="core", top="core", rtl_files=["rtl/core.sv"], rtl_incdirs=["rtl"],
       libs=["stdcells"])                # or config.bake.default_libs for every block
 macro(name="fe", top="fe", netlist_files=["fe.v"], liberty_files={"TT": "fe_tt.lib"},
       layout_info="fe.lef")             # an implemented block (hard macro); included, never in libs=
+macro(name="adc", top="adc", layout_info="adc.lef")   # a LEF only: include it as {"adc": "blackbox"},
+                                        # which writes its Verilog and Liberty (config.blackbox)
 lib(name="stdcells", liberty_files={"TT": "tt.lib"}, layout_info="cells.lef",
     cells={"site": "core", "filler": ["FILL4", "FILL1"], "tie_hi": ("TIEH", "Z")})  # roles: cells flows insert
 env(name="core_env", target="core", vrf_top="tb", vrf_files=["tb.sv"], default_sim="icarus")
