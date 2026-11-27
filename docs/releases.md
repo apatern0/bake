@@ -45,6 +45,37 @@ title. A pull request title is therefore a plain sentence ("Count UVM errors of 
 more"), not a Conventional Commits line, which release-please would list a second time; the
 *PR title* check rejects one.
 
+## [2.2.0](https://github.com/apatern0/bake/compare/v2.1.0...v2.2.0) (2026-11-27)
+
+
+### Features
+
+* **blackbox:** write a LEF-only macro's Verilog and Liberty ([f247ed6](https://github.com/apatern0/bake/commit/f247ed615f4705cc981d42a6c5ea44f5e704b644))
+* **config:** set one key of a dictionary attribute with -o ([fa70387](https://github.com/apatern0/bake/commit/fa7038781f7aef24f41afe5f4a20d94e4ea17b11))
+* **impl:** rerun impl when a library or macro it reads changes ([48f6cc8](https://github.com/apatern0/bake/commit/48f6cc829ca3e16d768ef5e2ccd7de4a31e988f8))
+* **portscheck:** check that a block's views agree on its ports ([7e4131d](https://github.com/apatern0/bake/commit/7e4131d639577e6a1183e93c2433d4a36fb49781))
+* read where a macro's pins are drawn from its LEF ([e5425f5](https://github.com/apatern0/bake/commit/e5425f5c4d88792f77c34125b5c6ba1eb4218604))
+* **release:** add the release format ([e31a2fb](https://github.com/apatern0/bake/commit/e31a2fbf6e93f17b9afd3b9b6f866c43266a5ad5))
+* **release:** declare variants of a block with releases of their own ([d307a85](https://github.com/apatern0/bake/commit/d307a85e09af82d11134d6dbb8f22754e8743833))
+* **release:** include a block from one of its releases ([3332ad3](https://github.com/apatern0/bake/commit/3332ad3129f5764e2429770335e76d93e86e286c))
+* **release:** publish a block as a release, and pack one from files ([86aa3ec](https://github.com/apatern0/bake/commit/86aa3ec42b28cf82476ca497bff2dda11d7db7de))
+* **release:** publish an external block from the INI file its makers fill in ([867443a](https://github.com/apatern0/bake/commit/867443a66b03db3b9577ff86051038095607d7ac))
+* **step:** hand on the files a test writes and the layout of an implementation ([7298a14](https://github.com/apatern0/bake/commit/7298a140b8397352641b71bf5783fad39a07104b))
+* **step:** render source templates (*.tpl) before the flow gets them ([e67fec3](https://github.com/apatern0/bake/commit/e67fec358973dee5ce78c7b0a01f4821da55e567))
+* upgrade a block's flow copy to the current flow ([872818f](https://github.com/apatern0/bake/commit/872818fa95900085fe809f1b36ec77e7c3305022))
+
+
+### Bug Fixes
+
+* keep a flow copy's base while its update has conflicts ([8dde22b](https://github.com/apatern0/bake/commit/8dde22bb9572ee8e4df8b7c6866c7b5c885601ab))
+* **release:** copy the library directories a block's layout_info names ([4687865](https://github.com/apatern0/bake/commit/46878650d6c7d3c4f3cd8000e9222ee4a1d50bed))
+* **vrf:** open Verdi with -i for cocotb testbenches on vcs ([3b77fd6](https://github.com/apatern0/bake/commit/3b77fd60b09d7e69c4f8a7a194c74474d185fcca)), closes [#41](https://github.com/apatern0/bake/issues/41)
+
+
+### Documentation
+
+* **skill:** split the bake skill into running and writing parts ([f7bdbc1](https://github.com/apatern0/bake/commit/f7bdbc1d7a0502bbf2cce06dcdb223442170b2fe))
+
 ## [2.1.0](https://github.com/apatern0/bake/compare/v2.0.0...v2.1.0) (2026-11-02)
 
 
